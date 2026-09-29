@@ -152,7 +152,14 @@ function Complete-Task($id, $res) {
         return
     }
     if ($settings.integrationCheck) {
-        $chk = Invoke-ShellCommand $int $settings.integrationCheck (Join-Path $paths.LogDir "$id-integration-check.log") ([int]$settings.commandTimeoutSec)
+        # Run setup first: the integration worktree has no installed dependencies, and a merge may add some.
+        $chk = $null
+        if ($settings.setup) {
+            $chk = Invoke-ShellCommand $int $settings.setup (Join-Path $paths.LogDir "$id-integration-setup.log") ([int]$settings.commandTimeoutSec)
+        }
+        if (-not $chk -or $chk.Ok) {
+            $chk = Invoke-ShellCommand $int $settings.integrationCheck (Join-Path $paths.LogDir "$id-integration-check.log") ([int]$settings.commandTimeoutSec)
+        }
         if (-not $chk.Ok) {
             [void](Invoke-Git $int @('reset', '--hard', $before))
             $s.status = 'failed'; $s.error = "Integration check failed after merging; merge undone.`n$($chk.Tail)"

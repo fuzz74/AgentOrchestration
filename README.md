@@ -5,8 +5,8 @@ A small PowerShell harness that runs a dependency graph of coding tasks with par
 tests and a review agent is merged. No framework: PowerShell 7, git and the Claude Code CLI.
 
 ```
-spec.md ──► Plan-Tasks.ps1 ──► .orchestrator/tasks.json ──► (you review) ──► Invoke-Orchestrator.ps1 ──► orch/integration ──► (you merge)
-            planner agent       task graph                                    parallel workers + gates
+/write-spec ──► spec.md ──► Plan-Tasks.ps1 ─────────────────────► .orchestrator/tasks.json ──► (you review) ──► Invoke-Orchestrator.ps1 ──► orch/integration ──► (you merge)
+ interview                  skeleton (new repo) + planner agent    task graph                                    parallel workers + gates
 ```
 
 - [At a glance](#at-a-glance)
@@ -50,6 +50,9 @@ only after it passes its own checks, and each merge unblocks the tasks that depe
 This walkthrough builds an application in a new repo, `C:\src\myapp`, with this repo
 checked out at `C:\Data\AgentOrchestration`. Replace both paths with your own.
 
+You do three things by hand: answer the spec interview, look over the plan and merge the
+result. Creating the repo, the project skeleton, the plan and the code is automated.
+
 **Where the work happens.** Every step says which of these three places to use:
 
 | Place | What it is | How to open it |
@@ -78,9 +81,15 @@ Orchestrator commands in the terminal steps assume the current folder is
    ```powershell
    .\tests\Run-SmokeTest.ps1
    ```
-   This builds a throwaway repo and runs the whole flow with a fake `claude`. It covers a
-   4-task diamond, a forced edit outside `owns` with a retry, a run with no structured
-   result, a merge conflict and a resolver run, and ends with 9 passing assertions.
+   This runs the whole flow with a fake `claude`, from a folder that doesn't exist yet to
+   merged work. It covers:
+   - creating the project skeleton, with one failed attempt that gets fixed
+   - a 4-task diamond
+   - a forced edit outside `owns`, with a retry
+   - a run with no structured result
+   - a merge conflict and a resolver run
+
+   It ends with 12 passing checks.
 5. **Let the Claude chat reach your projects.** The skills read and write in the target repo,
    which is outside this folder. Give that access once: create
    `C:\Data\AgentOrchestration\.claude\settings.local.json` (editor) with the folder that
@@ -92,34 +101,7 @@ Orchestrator commands in the terminal steps assume the current folder is
    In the CLI you can also type `/add-dir C:\src\myapp`. This repo's `.gitignore` excludes
    the file, so it stays on your machine.
 
-### Step 1: Create the application repo
-
-Where: **terminal** (or a Claude chat opened in the new folder, if you'd rather have Claude
-scaffold it).
-
-Agents work only from committed code. Before planning, the repo needs at least one commit, a
-setup command and a test runner that works, so every task can prove its work. Build a
-minimal skeleton yourself. For example, for a TypeScript app:
-
-```powershell
-mkdir C:\src\myapp; cd C:\src\myapp
-git init -b main
-npm init -y
-npm install -D typescript vitest
-# add tsconfig.json, a "test": "vitest run" script, and one passing test such as src/smoke.test.ts
-npm test
-git add -A; git commit -m "Project skeleton"
-```
-
-Any language works. Write down three commands, because steps 2 and 3 ask for them:
-
-- the **setup** command for a fresh checkout (`npm ci`, `uv sync`, `dotnet restore`)
-- the **per-module test** command (`npm test -- src/users`)
-- the **whole-project check** (`npm run build && npm test`)
-
-The branch checked out now (`main` here) becomes the base branch of the run.
-
-### Step 2: Turn the idea into a spec
+### Step 1: Turn the idea into a spec
 
 Where: **Claude chat** in `C:\Data\AgentOrchestration`.
 
@@ -128,7 +110,8 @@ Where: **Claude chat** in `C:\Data\AgentOrchestration`.
    /write-spec
    ```
    Then describe the idea in a few sentences and give the repo path `C:\src\myapp`. Or all
-   at once: `/write-spec a habit tracker web app in C:\src\myapp`.
+   at once: `/write-spec a habit tracker web app in C:\src\myapp`. The folder doesn't need
+   to exist yet.
 2. Answer its questions. It asks one at a time, mostly as multiple choice. It proposes 2-3
    approaches, then walks through the design section by section and waits for your "yes"
    after each one:
@@ -138,34 +121,52 @@ Where: **Claude chat** in `C:\Data\AgentOrchestration`.
    - build order
    - verification commands
    - constraints
+
+   For a new project, the stack and verification sections decide the project skeleton, so
+   Claude pins them down: language, framework, test runner, and the setup and test
+   commands.
 3. It writes the spec to `C:\src\myapp\.orchestrator\spec.md`. A reviewer subagent then
    checks it, and Claude fixes what the reviewer finds.
 4. **Read the spec** (editor): open `C:\src\myapp\.orchestrator\spec.md`. Pay most attention
    to three sections:
    - **4.2 Modules**: the paths become the task boundaries.
    - **4.3 Shared contracts**: everything parallel agents must agree on.
-   - **6 Verification**: the commands must really work in your repo.
+   - **6 Verification**: the setup and test commands, which every task relies on.
 
    Ask for changes in the chat, or edit the file yourself. Tell the chat when you approve it.
 
 The spec is pasted into every agent's prompt, so shorter and more precise is better. See
 [Writing a spec](#writing-a-spec).
 
-### Step 3: Plan the tasks
+### Step 2: Plan the tasks
+
+For a new project, planning first creates the project skeleton automatically:
+
+- `git init`
+- a bootstrap agent that sets up the manifest, dependencies, test runner and one smoke test
+  for the spec's stack
+- a commit
+- a check, in a clean checkout, that the setup command and the whole-project check pass. If
+  they fail, the agent gets the output and fixes the skeleton, up to 3 attempts.
+
+The two commands are saved in `.orchestrator/project.json` and become the plan's `setup` and
+`integrationCheck`. A repo that already has commits is left as it is.
 
 Pick one:
 
 - **Interactive** (**Claude chat**, same conversation): accept the hand-off, or type
-  `/plan-tasks`. Claude proposes the task table first and lets you adjust it. Then it writes
+  `/plan-tasks`. For a new project, Claude first runs `Initialize-Project.ps1` for you. Then
+  it proposes the task table and lets you adjust it. Finally it writes
   `C:\src\myapp\.orchestrator\tasks.json` and validates it.
 - **Scripted** (**terminal**): one planner agent (Opus by default) plans without questions.
   ```powershell
-  .\orchestrator\Plan-Tasks.ps1 -Spec C:\src\myapp\.orchestrator\spec.md -RepoPath C:\src\myapp `
-      -Setup 'npm ci' -IntegrationCheck 'npm run build && npm test'
+  .\orchestrator\Plan-Tasks.ps1 -Spec C:\src\myapp\.orchestrator\spec.md -RepoPath C:\src\myapp
   ```
   It prints the planner's notes (assumptions, open questions) and the waves of parallel tasks.
+  For an existing repo without `project.json`, add `-Setup 'npm ci'` and
+  `-IntegrationCheck 'npm run build && npm test'` (your own commands).
 
-### Step 4: Review the plan
+### Step 3: Review the plan
 
 Where: **editor**, then **terminal**.
 
@@ -173,7 +174,9 @@ Where: **editor**, then **terminal**.
    - `owns` is tight, and tasks meant to run in parallel don't overlap.
    - `acceptance` is a real command that proves the task works.
    - `prompt` makes sense on its own.
-   - `settings.setup` and `settings.integrationCheck` are the commands from step 1.
+   - `settings.setup` installs dependencies in a fresh checkout, and
+     `settings.integrationCheck` builds and runs all tests. After each merge the
+     orchestrator runs both, in that order.
 
    See [The task file](#the-task-file) for every field.
 2. Validate and preview the run:
@@ -184,7 +187,7 @@ Where: **editor**, then **terminal**.
    `-DryRun` prints the waves and warns about `owns` overlaps within a wave. Fix anything it
    reports, then run it again.
 
-### Step 5: Run the build
+### Step 4: Run the build
 
 Where: **terminal**. Leave it open until the run ends.
 
@@ -201,7 +204,7 @@ Where: **terminal**. Leave it open until the run ends.
 - To stop, press Ctrl+C. Running `claude` processes can keep going for a while; check Task
   Manager. Rerun the same command later to resume: finished tasks stay finished.
 
-### Step 6: Fix failed tasks
+### Step 5: Fix failed tasks
 
 Skip this step if every task is done.
 
@@ -222,7 +225,7 @@ Skip this step if every task is done.
    .\orchestrator\Invoke-Orchestrator.ps1 -RepoPath C:\src\myapp -RetryFailed
    ```
 
-### Step 7: Try the finished application
+### Step 6: Try the finished application
 
 Where: **editor** and **terminal**.
 
@@ -237,14 +240,15 @@ The result is on the `orch/integration` branch, which is checked out in
 2. **Run the app and its tests** in a terminal in that folder:
    ```powershell
    cd C:\src\myapp.worktrees\_integration
+   npm ci
    npm test
    npm start
    ```
 3. **Small fixes**: make them yourself, or with Claude chat opened in that folder, and commit
    them on `orch/integration`. **Bigger gaps**: add tasks to `tasks.json` and go back to
-   step 5.
+   step 4.
 
-### Step 8: Merge and clean up
+### Step 7: Merge and clean up
 
 Where: **terminal**.
 
@@ -264,12 +268,14 @@ Where: **terminal**.
    removes. First close any VS Code window or terminal that is open in a worktree folder:
    Windows can't delete a folder that is in use.
 
-### Step 9: The next feature
+### Step 8: The next feature
 
-Go back to step 2 with the next idea. `/write-spec` now sees the code that exists and
+Go back to step 1 with the next idea. `/write-spec` now sees the code that exists and
 specifies only the change. Then:
 
-- Plan with `-Force`, which overwrites `tasks.json`, or let `/plan-tasks` replace it.
+- Plan with `-Force`, which overwrites `tasks.json`, or let `/plan-tasks` replace it. The
+  repo now has commits, so no new skeleton is made, and `project.json` still supplies the
+  commands.
 - `.orchestrator/` is never committed. To keep old specs, copy them to a folder such as
   `C:\src\myapp\docs\specs\` and commit them.
 
@@ -324,7 +330,7 @@ never loses progress. The JSON Schema is
 | `maxBudgetUsd` | `10` | `--max-budget-usd` for each claude call. |
 | `review` | `true` | Run the review agent after acceptance passes. |
 | `setup` | none | Command run once in each fresh worktree (e.g. `npm ci`, `uv sync`). |
-| `integrationCheck` | none | Command run in the integration worktree after each merge. A failure undoes the merge and fails the task. |
+| `integrationCheck` | none | Command run in the integration worktree after each merge, after `setup`. A failure undoes the merge and fails the task. |
 | `commandTimeoutSec` | `1800` | Timeout for setup, acceptance and integration commands. |
 | `enforceOwns` | `true` | Reject a task that edits files outside `owns` + `shared`. |
 | `shared` | `[]` | Globs any task may edit (lock files, registries). Not used for scheduling, so edits to them can conflict. The resolver handles those conflicts. |
@@ -358,7 +364,20 @@ the originals and their MIT licenses are in [references](.claude/skills/write-sp
 
 ## Planning
 
-`Plan-Tasks.ps1` runs one planner agent (`--model opus` by default) in the target repo.
+If the target repo is new (no folder, no git repo, or no commits), `Plan-Tasks.ps1` first
+calls `Initialize-Project.ps1`:
+
+1. `git init -b main`, then a bootstrap agent ([prompts/bootstrap.md](orchestrator/prompts/bootstrap.md),
+   the worker model and tools) creates the skeleton for the stack in the spec: manifest, lock
+   file, test runner, `.gitignore`, one smoke test and a README. It writes no feature code
+   and nothing inside module paths.
+2. The script commits the skeleton, then runs the agent's setup command and whole-project
+   check in a clean detached worktree. A failure goes back to the same session, and the fix
+   is amended into the one commit, up to 3 attempts.
+3. The two commands go to `.orchestrator/project.json`. They become the default `-Setup`
+   and `-IntegrationCheck`.
+
+Then `Plan-Tasks.ps1` runs one planner agent (`--model opus` by default) in the target repo.
 The planner has only `Read`, `Glob` and `Grep`, so it can explore the code but not change
 it. Its prompt is [prompts/planner.md](orchestrator/prompts/planner.md). The output must
 match [plan-output.schema.json](orchestrator/schemas/plan-output.schema.json)
@@ -433,7 +452,8 @@ When all gates pass, the scheduler merges `orch/task/<id>` into `orch/integratio
 `--no-ff`. If that merge conflicts (another task merged in the meantime), the task is
 re-queued in sync mode. A sync run repeats steps 5–7 in the same worktree without calling
 the worker. After more than 3 conflicting merges, the task fails. If `integrationCheck` is
-set, it runs after each merge. A failing check resets the integration branch to its
+set, it runs after each merge, after `setup` in the integration worktree, so that
+dependencies are installed. A failing setup or check resets the integration branch to its
 previous commit and fails the task.
 
 **Statuses**: `pending` → `running` → `done` or `failed`. A pending task with a failed task
@@ -444,7 +464,8 @@ upstream is shown as `blocked`.
 | Path | What it holds |
 | --- | --- |
 | `<repo>/.orchestrator/tasks.json` | The plan. Yours to edit. |
-| `<repo>/.orchestrator/spec.md` | Copy of the spec when it lives outside the repo. |
+| `<repo>/.orchestrator/spec.md` | The spec: written there by `/write-spec`, or copied there when it lives outside the repo. |
+| `<repo>/.orchestrator/project.json` | Setup and integration-check commands from the skeleton bootstrap. |
 | `<repo>/.orchestrator/state.json` | Per-task status, attempts, cost, session id, summary, notes, error, merged commit. |
 | `<repo>/.orchestrator/progress.md` | Timestamped log of the whole run. |
 | `<repo>/.orchestrator/logs/<id>/<timestamp>/` | Per-run logs: each prompt sent (`*.prompt.md`), each claude JSON result, and command output. |
@@ -463,16 +484,18 @@ to the plan between runs.
 
 | Script | Parameters |
 | --- | --- |
-| `Plan-Tasks.ps1` | `-Spec` (required), `-RepoPath` (`.`), `-Out` (plan path), `-Model` (planner, `opus`), `-WorkerModel` (`sonnet`), `-Setup`, `-IntegrationCheck`, `-ClaudePath`, `-MaxBudgetUsd` (`5`), `-Force` (overwrite) |
+| `Initialize-Project.ps1` | `-Spec` and `-RepoPath` (required), `-Model` (`sonnet`), `-ClaudePath`, `-MaxBudgetUsd` (`5`), `-MaxAttempts` (`3`). Creates and checks the skeleton of a new repo; does nothing if the repo has commits. `Plan-Tasks.ps1` calls it. |
+| `Plan-Tasks.ps1` | `-Spec` (required), `-RepoPath` (`.`), `-Out` (plan path), `-Model` (planner, `opus`), `-WorkerModel` (`sonnet`), `-Setup`, `-IntegrationCheck` (both default to `project.json`), `-ClaudePath`, `-MaxBudgetUsd` (`5`), `-Force` (overwrite) |
 | `Invoke-Orchestrator.ps1` | `-RepoPath` (`.`), `-Plan`, `-MaxParallel` (`3`), `-ClaudePath`, `-DryRun` (print waves and exit), `-RetryFailed`, `-PollSeconds` (`5`). Exit code 0 = all done, 2 = some failed or blocked, 1 = invalid plan. |
 | `Show-Tasks.ps1` | `-RepoPath`, `-Plan`. Validates the plan and prints wave, status, deps, attempts, cost and detail per task. |
 | `Clear-Orchestrator.ps1` | `-RepoPath`, `-All`. Without `-All`: removes task worktrees and `orch/task/*` branches, resets unfinished tasks to pending. With `-All`: also the integration worktree and branch, state, logs and progress. Supports `-WhatIf`. |
-| `tests/Run-SmokeTest.ps1` | `-WorkDir`. End-to-end test with the fake claude. |
+| `tests/Run-SmokeTest.ps1` | `-WorkDir`. End-to-end test with the fake claude, from an empty folder to merged work. |
 
 ## Agent permissions and safety
 
 | Agent | Tools | Permission mode |
 | --- | --- | --- |
+| Bootstrap | worker defaults | `acceptEdits` |
 | Planner | `Read`, `Glob`, `Grep` only (`--tools`) | `dontAsk` |
 | Worker | `allowedTools` setting | `permissionMode` setting (default `acceptEdits`) |
 | Resolver | worker tools + `git add/status/diff` | `acceptEdits` |

@@ -34,7 +34,11 @@ the spec.
    has a draft spec, start from it: review it against the rules below and interview only
    for the gaps.
 2. **Explore** the target repo (read-only): language, layout, test runner, conventions, and
-   what already exists. Don't ask what the code can tell you.
+   what already exists. Don't ask what the code can tell you. If the folder doesn't exist
+   or has no commits, it's a **new project**. Planning then creates its skeleton from the
+   spec automatically (`orchestrator/Initialize-Project.ps1`): git repo, manifest, test
+   runner, and one smoke test. So the interview must settle the stack and the setup and
+   test commands. Don't create the folder or any files other than the spec yourself.
 3. **Check scope.** If the request covers several independent subsystems, stop and propose a
    split into separate specs with an order. Then continue with the first one. Signs that a
    spec is too big: more than about 8 modules, or more than about 400 lines.
@@ -71,7 +75,9 @@ the spec.
 10. **User review.** Give the path and ask the user to read the spec. Revise until they
     approve.
 11. **Hand off.** Offer `/plan-tasks`, or give the command
-    `.\orchestrator\Plan-Tasks.ps1 -Spec <path> -RepoPath <repo> -Setup '<setup command>'`.
+    `.\orchestrator\Plan-Tasks.ps1 -Spec <path> -RepoPath <repo>`. For a new project, that
+    command creates the skeleton first and takes the setup and check commands from it. For
+    an existing repo, add `-Setup '<setup command>' -IntegrationCheck '<whole-project check>'`.
     Don't plan or run unless asked.
 
 ## Rules for a spec that splits well
@@ -92,7 +98,9 @@ the spec.
   measure, or drop them.
 - **Verification is runnable.** Name the setup command, the test runner, a per-module test
   command and a whole-project check. Each must work from a fresh worktree with PowerShell 7.
-  If tests don't exist yet, say which module creates them.
+  If tests don't exist yet, say which module creates them. For a new project, also give
+  the exact stack in Constraints: language and runtime version, framework, test runner and
+  package manager. The skeleton is built from these, before any task runs.
 - **Unattended boundaries.** Workers can't ask. Split rules into three groups:
   - **Always:** do without asking.
   - **Stop and report blocked:** things that would need a human's approval.

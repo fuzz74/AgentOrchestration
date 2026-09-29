@@ -19,11 +19,17 @@ you discuss the split with the user before writing it.
 1. Ask for the target repo path and the spec (a file, or the user's description). If the
    spec is only in the conversation, save it as `.orchestrator/spec.md` in the target repo.
    If there is no real spec yet (only an idea), suggest writing one first with `/write-spec`.
-2. Explore the target repo (layout, language, test runner, conventions) so tasks fit it.
-3. Propose the task list as a short table first: id, title, deps, owns, acceptance.
+2. If the target repo doesn't exist or has no commits yet, create its skeleton first:
+   run `orchestrator/Initialize-Project.ps1 -Spec <spec> -RepoPath <repo>` from the
+   AgentOrchestration repo. It needs a spec that names the stack. It runs `git init`, lets
+   a bootstrap agent create the manifest, test runner and one smoke test, commits them, and
+   checks them in a clean checkout. It writes `setup` and `integrationCheck` to
+   `.orchestrator/project.json`. Use those two commands in the plan's settings.
+3. Explore the target repo (layout, language, test runner, conventions) so tasks fit it.
+4. Propose the task list as a short table first: id, title, deps, owns, acceptance.
    Point out which tasks run in parallel (same wave) and any owns overlaps. Adjust with
    the user.
-4. Write `.orchestrator/tasks.json` in the target repo. Format: see
+5. Write `.orchestrator/tasks.json` in the target repo. Format: see
    `orchestrator/schemas/tasks.schema.json`. Minimal example:
 
    ```json
@@ -39,10 +45,10 @@ you discuss the split with the user before writing it.
      ]
    }
    ```
-5. Validate by running `orchestrator/Show-Tasks.ps1 -RepoPath <repo>` (it reports bad ids,
+6. Validate by running `orchestrator/Show-Tasks.ps1 -RepoPath <repo>` (it reports bad ids,
    unknown deps and cycles) and `orchestrator/Invoke-Orchestrator.ps1 -RepoPath <repo> -DryRun`
    (it prints the waves and same-wave owns overlaps). Fix anything reported.
-6. Tell the user the command to start the run; do not start it yourself unless asked.
+7. Tell the user the command to start the run; do not start it yourself unless asked.
 
 ## Rules for a good plan
 

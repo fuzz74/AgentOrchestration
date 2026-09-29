@@ -87,7 +87,8 @@
 
 ## 7. Constraints
 
-- **Stack:** language/runtime versions, frameworks, libraries allowed. New dependencies: which ones, or "none without approval".
+- **Stack:** language/runtime versions, frameworks, test runner, package manager, libraries allowed. New dependencies: which ones, or "none without approval". <!-- for a new project, the skeleton is generated from this and from section 6 -->
+
 - **Conventions:** style, naming, patterns to follow (point to an existing file as the example).
 - **Shared files:** files every task may touch, e.g. lock files, route or DI registries. <!-- become settings.shared -->
 

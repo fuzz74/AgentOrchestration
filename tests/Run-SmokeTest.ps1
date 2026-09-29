@@ -1,9 +1,11 @@
 #requires -Version 7.2
 <#
 .SYNOPSIS
-    End-to-end test of plan -> schedule -> gate -> merge using fake-claude.ps1 (no tokens spent).
-    Builds a throwaway git repo, plans 4 tasks (one diamond: contracts -> a, b -> wire-up),
-    makes feature-b fail its first attempt, and checks everything lands on orch/integration.
+    End-to-end test of bootstrap -> plan -> schedule -> gate -> merge using fake-claude.ps1
+    (no tokens spent). Plans into a folder that does not exist yet, so the project skeleton is
+    created first (its first attempt fails the clean-checkout check). Then plans 4 tasks (one
+    diamond: contracts -> a, b -> wire-up), makes feature-b fail its first attempt, and checks
+    everything lands on orch/integration.
 #>
 param([string]$WorkDir = (Join-Path ([IO.Path]::GetTempPath()) "orch-smoke-$(Get-Random)"))
 
@@ -12,15 +14,14 @@ $orch = Join-Path $PSScriptRoot '..\orchestrator'
 $fake = Join-Path $PSScriptRoot 'fake-claude.ps1'
 Remove-Item (Join-Path ([IO.Path]::GetTempPath()) 'fake-claude') -Recurse -Force -ErrorAction SilentlyContinue
 
+# The repo folder does not exist yet: Plan-Tasks.ps1 creates it through Initialize-Project.ps1.
 $repo = Join-Path $WorkDir 'demo'
-New-Item -ItemType Directory -Force -Path $repo | Out-Null
-git -C $repo init -q -b main
-git -C $repo config user.email 'smoke@example.com'
-git -C $repo config user.name 'Smoke Test'
-Set-Content (Join-Path $repo 'README.md') '# demo'
-git -C $repo add -A; git -C $repo commit -q -m 'init'
+New-Item -ItemType Directory -Force -Path $WorkDir | Out-Null
 $spec = Join-Path $WorkDir 'spec.md'
 Set-Content $spec "Build A and B on top of shared contracts, then wire them together."
+$gitIdentity = @{ GIT_AUTHOR_NAME = 'Smoke Test'; GIT_AUTHOR_EMAIL = 'smoke@example.com'
+                  GIT_COMMITTER_NAME = 'Smoke Test'; GIT_COMMITTER_EMAIL = 'smoke@example.com' }
+$gitIdentity.GetEnumerator() | ForEach-Object { Set-Item "Env:$($_.Key)" $_.Value }
 
 $env:FAKE_FAIL_ONCE = 'feature-b'
 $env:FAKE_SHARED = '1'
@@ -35,11 +36,18 @@ try {
     & (Join-Path $orch 'Invoke-Orchestrator.ps1') -RepoPath $repo -ClaudePath $fake -MaxParallel 2 -PollSeconds 1
     $exit = $LASTEXITCODE
 }
-finally { Remove-Item Env:FAKE_FAIL_ONCE, Env:FAKE_SHARED, Env:FAKE_NO_STRUCTURED }
+finally {
+    Remove-Item Env:FAKE_FAIL_ONCE, Env:FAKE_SHARED, Env:FAKE_NO_STRUCTURED
+    $gitIdentity.Keys | ForEach-Object { Remove-Item "Env:$_" }
+}
 
 $files = git -C $repo ls-tree -r --name-only orch/integration
 $state = Get-Content (Join-Path $repo '.orchestrator/state.json') -Raw | ConvertFrom-Json -AsHashtable
+$planSettings = (Get-Content $planFile -Raw | ConvertFrom-Json).settings
 $checks = [ordered]@{
+    'skeleton fixed and amended'        = (git -C $repo rev-list --count main) -eq '1' -and @('skeleton.txt', 'tool.txt' | Where-Object { $_ -notin (git -C $repo ls-tree -r --name-only main) }).Count -eq 0
+    'plan uses skeleton commands'       = $planSettings.setup -like '*skeleton.txt*' -and $planSettings.integrationCheck -like '*tool.txt*'
+    'integration check ran after merge' = @(Get-ChildItem (Join-Path $repo '.orchestrator/logs') -Filter '*-integration-check.log').Count -eq 4
     'orchestrator exit code 0'          = $exit -eq 0
     'all tasks done'                    = @($state.tasks.Values | Where-Object { $_.status -ne 'done' }).Count -eq 0
     'all four files on orch/integration' = @('contracts/contracts.txt', 'a/feature-a.txt', 'b/feature-b.txt', 'app/wire-up.txt' | Where-Object { $_ -notin $files }).Count -eq 0

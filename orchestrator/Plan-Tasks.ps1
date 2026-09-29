@@ -4,7 +4,10 @@
     Turns a spec into a task graph (.orchestrator/tasks.json) with a read-only planner agent.
 
 .DESCRIPTION
-    Runs `claude -p` in the target repo with only Read/Glob/Grep, asks for a plan that matches
+    A new project (the folder does not exist, is not a git repo, or has no commits) first gets
+    its skeleton from Initialize-Project.ps1, which also supplies the default -Setup and
+    -IntegrationCheck commands.
+    Then runs `claude -p` in the target repo with only Read/Glob/Grep, asks for a plan that matches
     schemas/plan-output.schema.json, validates the graph (ids, deps, cycles) and writes
     tasks.json with default settings. If the graph is invalid the planner gets one chance to fix it.
     Review and edit the file before running Invoke-Orchestrator.ps1.
@@ -29,7 +32,17 @@ param(
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'Orchestrator.psm1') -Force
 
+# A new project gets its skeleton (git repo, manifest, test runner) before planning.
+& (Join-Path $PSScriptRoot 'Initialize-Project.ps1') -Spec $Spec -RepoPath $RepoPath -Model $WorkerModel `
+    -ClaudePath $ClaudePath -MaxBudgetUsd $MaxBudgetUsd
+
 $paths = Get-OrchPaths -RepoPath $RepoPath -PlanFile $Out
+$projectFile = Join-Path $paths.RunDir 'project.json'
+if (Test-Path $projectFile) {
+    $project = Get-Content $projectFile -Raw | ConvertFrom-Json
+    if (-not $Setup) { $Setup = $project.setup }
+    if (-not $IntegrationCheck) { $IntegrationCheck = $project.integrationCheck }
+}
 if ((Test-Path $paths.PlanFile) -and -not $Force) { throw "$($paths.PlanFile) exists. Use -Force to overwrite it." }
 Initialize-RunDir $paths
 $claude = Resolve-ClaudePath $ClaudePath

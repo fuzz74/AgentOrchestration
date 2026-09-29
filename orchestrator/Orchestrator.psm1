@@ -24,6 +24,8 @@ $script:DefaultSettings = [ordered]@{
     ignore            = @('**/__pycache__/**', '**/*.pyc', '**/.pytest_cache/**', '**/.mypy_cache/**', '**/.venv/**', '**/node_modules/**', '**/.DS_Store')
 }
 
+function Get-DefaultSettings { [ordered]@{} + $script:DefaultSettings }
+
 #region Paths, logging, claude discovery
 
 function Get-OrchPaths {

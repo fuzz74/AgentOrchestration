@@ -24,6 +24,16 @@ if ($prompt -match 'Report your result now') {
 }
 
 switch ($role) {
+    'bootstrap' {
+        # First attempt forgets tool.txt, so the clean-checkout check fails and the fix is amended.
+        Set-Content (Join-Path $here 'skeleton.txt') 'skeleton'
+        if ($prompt -match 'clean checkout') { Set-Content (Join-Path $here 'tool.txt') 'tool' }
+        Out-Result @{
+            status = 'done'; summary = 'Fake skeleton.'
+            setup = "if (-not (Test-Path 'skeleton.txt')) { exit 1 }"
+            integration_check = "if (-not (Test-Path 'tool.txt')) { Write-Output 'missing tool.txt'; exit 1 }"
+        } 'fake-bootstrap'
+    }
     'planner' {
         $check = { param($f) "if (-not (Test-Path '$f')) { Write-Output 'missing $f'; exit 1 }" }
         Out-Result @{

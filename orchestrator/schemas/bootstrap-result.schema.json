@@ -1,0 +1,15 @@
+{
+  "type": "object",
+  "required": ["status", "setup", "integration_check", "summary"],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["done", "blocked"],
+      "description": "done = the skeleton exists and both commands pass locally. blocked = it cannot be set up as specified."
+    },
+    "setup": { "type": "string", "description": "Command that installs dependencies in a fresh clone." },
+    "integration_check": { "type": "string", "description": "Command that builds and runs the whole test suite after setup." },
+    "summary": { "type": "string", "description": "What was created, in a few sentences." },
+    "blocked_reason": { "type": "string" }
+  }
+}
