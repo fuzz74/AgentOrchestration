@@ -12,6 +12,7 @@ spec.md ──► Plan-Tasks.ps1 ──► .orchestrator/tasks.json ──► (y
 - [At a glance](#at-a-glance)
 - [Quick start](#quick-start)
 - [The task file](#the-task-file)
+- [Writing a spec](#writing-a-spec)
 - [Planning](#planning)
 - [Scheduling](#scheduling)
 - [Gates and merging](#gates-and-merging)
@@ -56,7 +57,8 @@ only after it passes its own checks, and each merge unblocks the tasks that depe
 
 **Run it**
 
-1. Write a spec: a Markdown file that describes what to build.
+1. Write a spec: a Markdown file that describes what to build. The `/write-spec` skill in
+   this repo writes one with you by interview, shaped for the planner (see [Writing a spec](#writing-a-spec)).
 2. Plan:
    ```powershell
    .\orchestrator\Plan-Tasks.ps1 -Spec .\spec.md -RepoPath C:\src\myapp -Setup 'npm ci'
@@ -143,6 +145,32 @@ never loses progress. The JSON Schema is
 | `enforceOwns` | `true` | Reject a task that edits files outside `owns` + `shared`. |
 | `shared` | `[]` | Globs any task may edit (lock files, registries). Not used for scheduling, so edits to them can conflict. The resolver handles those conflicts. |
 | `ignore` | `__pycache__`, `*.pyc`, `.pytest_cache`, `.mypy_cache`, `.venv`, `node_modules`, `.DS_Store` | Globs never committed from a worktree, even when the repo's `.gitignore` misses them. Setting this replaces the whole default list. |
+
+## Writing a spec
+
+The planner, every worker and every reviewer get the whole spec in their prompt, and none of
+them can ask questions. A spec that splits well is short, and it names things precisely.
+It gives:
+
+- module boundaries as file paths (they become `owns`)
+- shared interfaces written out as code (they become the contracts-first task)
+- a build order (it becomes `deps`)
+- runnable test commands (they become `acceptance`)
+- testable requirements with ids that task prompts and reviewers can cite
+
+The `/write-spec` skill ([.claude/skills/write-spec](.claude/skills/write-spec/SKILL.md))
+writes such a spec with you:
+
+- It interviews you one question at a time, proposes approaches and gets each design section
+  approved.
+- It writes the spec from a [template](.claude/skills/write-spec/spec-template.md), with EARS
+  acceptance criteria.
+- It has the spec checked by a fresh [reviewer subagent](.claude/skills/write-spec/reviewer-prompt.md).
+- It saves the result to `.orchestrator/spec.md` and hands off to `/plan-tasks`.
+
+The method adapts [Superpowers' brainstorming skill](https://github.com/obra/superpowers/blob/main/skills/brainstorming/SKILL.md)
+and [cc-sdd](https://github.com/gotalab/cc-sdd)'s requirements and design rules. Copies of
+the originals and their MIT licenses are in [references](.claude/skills/write-spec/references/README.md).
 
 ## Planning
 
@@ -316,6 +344,7 @@ and never waits for a person, and with `--max-budget-usd`.
 | Explicit dependency graph; only "ready" tasks can be claimed | [Beads](https://github.com/steveyegge/beads), [Claude Code agent teams task list](https://code.claude.com/docs/en/agent-teams) |
 | One worktree per agent; merge back after validation | [Claude Code: run agents in parallel](https://code.claude.com/docs/en/agents), [The Code Agent Orchestra](https://addyosmani.com/blog/code-agent-orchestra/) |
 | Orchestrator-workers split: one lead plans, workers get isolated context | [Orchestrator-workers cookbook](https://platform.claude.com/cookbook/patterns-agents-orchestrator-workers), [How we built our multi-agent research system](https://www.engineering.fyi/article/how-we-built-our-multi-agent-research-system) |
+| Spec by interview; EARS criteria; file-structure plan and contracts drive the task split | [Superpowers: brainstorming](https://github.com/obra/superpowers/blob/main/skills/brainstorming/SKILL.md), [cc-sdd](https://github.com/gotalab/cc-sdd), [Kiro specs](https://kiro.dev/docs/specs/) |
 | `claude -p` with `--json-schema`, `--resume`, `--permission-prompts none` | [Run Claude Code programmatically](https://code.claude.com/docs/en/headless) |
 
 Short, grep-friendly test output and deterministic gates matter more than clever

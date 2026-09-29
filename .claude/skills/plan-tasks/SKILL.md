@@ -18,6 +18,7 @@ you discuss the split with the user before writing it.
 
 1. Ask for the target repo path and the spec (a file, or the user's description). If the
    spec is only in the conversation, save it as `.orchestrator/spec.md` in the target repo.
+   If there is no real spec yet (only an idea), suggest writing one first with `/write-spec`.
 2. Explore the target repo (layout, language, test runner, conventions) so tasks fit it.
 3. Propose the task list as a short table first: id, title, deps, owns, acceptance.
    Point out which tasks run in parallel (same wave) and any owns overlaps. Adjust with
