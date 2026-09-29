@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Orchestrator task plan (.orchestrator/tasks.json)",
+  "type": "object",
+  "required": ["tasks"],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "spec": {
+      "type": ["string", "null"],
+      "description": "Path to the spec file, relative to the repo root or absolute. Its text is given to every worker and reviewer."
+    },
+    "baseBranch": {
+      "type": "string",
+      "description": "Branch the integration branch is created from. Default: the branch checked out in the repo."
+    },
+    "integrationBranch": {
+      "type": "string",
+      "description": "Branch that approved tasks are merged into. Default: orch/integration."
+    },
+    "settings": {
+      "type": "object",
+      "description": "Overrides for the orchestrator defaults. Every key is optional.",
+      "properties": {
+        "model": { "type": "string", "description": "Worker model (alias or full id). Default: sonnet." },
+        "reviewModel": { "type": "string", "description": "Reviewer and conflict-resolver model. Default: sonnet." },
+        "effort": { "type": ["string", "null"], "enum": ["low", "medium", "high", "xhigh", "max", null] },
+        "permissionMode": {
+          "type": "string",
+          "enum": ["acceptEdits", "auto", "dontAsk", "bypassPermissions"],
+          "description": "Worker permission mode. Default: acceptEdits."
+        },
+        "allowedTools": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Tools the worker may use without a prompt (permission rule syntax, e.g. \"Bash(npm *)\")."
+        },
+        "maxAttempts": { "type": "integer", "minimum": 1, "description": "Worker attempts per task before it fails. Default: 3." },
+        "maxBudgetUsd": { "type": "number", "description": "Spend cap per claude call. Default: 10." },
+        "review": { "type": "boolean", "description": "Run the review agent after tests pass. Default: true." },
+        "setup": { "type": ["string", "null"], "description": "Command run once in each fresh worktree, e.g. \"npm ci\"." },
+        "integrationCheck": {
+          "type": ["string", "null"],
+          "description": "Command run in the integration worktree after each merge. A failure undoes the merge."
+        },
+        "commandTimeoutSec": { "type": "integer", "description": "Timeout for setup, acceptance and integration commands. Default: 1800." },
+        "enforceOwns": { "type": "boolean", "description": "Reject a task that edits files outside owns + shared. Default: true." },
+        "shared": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Globs any task may edit (lock files, barrel files). Not used for scheduling."
+        },
+        "ignore": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Globs never committed from a worktree (build and tool artifacts). Replaces the default list."
+        }
+      },
+      "additionalProperties": false
+    },
+    "tasks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "title", "prompt"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,48}$",
+            "description": "Unique id. Used in branch names (orch/task/<id>) and folder names."
+          },
+          "title": { "type": "string" },
+          "prompt": { "type": "string", "description": "Self-contained instructions for the worker." },
+          "deps": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Ids that must be merged before this task starts."
+          },
+          "owns": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Globs (repo-relative, forward slashes) this task may edit. Tasks with overlapping owns never run at the same time. Empty = the whole repo, so the task runs alone."
+          },
+          "acceptance": {
+            "type": ["string", "null"],
+            "description": "Command run with pwsh in the task worktree. Exit code 0 = pass."
+          },
+          "model": { "type": "string", "description": "Per-task worker model override." }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

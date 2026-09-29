@@ -1,0 +1,17 @@
+{
+  "type": "object",
+  "required": ["status", "summary", "notes_for_dependents"],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["done", "blocked"],
+      "description": "done = the task is implemented and its acceptance command passes locally. blocked = it cannot be done as specified."
+    },
+    "summary": { "type": "string", "description": "What was changed, in a few sentences." },
+    "notes_for_dependents": {
+      "type": "string",
+      "description": "Interfaces, file paths and decisions that tasks depending on this one need to know."
+    },
+    "blocked_reason": { "type": "string" }
+  }
+}

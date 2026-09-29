@@ -1,0 +1,29 @@
+{
+  "type": "object",
+  "required": ["spec_verdict", "quality_verdict", "issues", "summary"],
+  "properties": {
+    "spec_verdict": {
+      "type": "string",
+      "enum": ["pass", "fail"],
+      "description": "fail only if the change misses or contradicts what the task asked for."
+    },
+    "quality_verdict": {
+      "type": "string",
+      "enum": ["pass", "fail"],
+      "description": "fail only for blocker or major issues."
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["severity", "description"],
+        "properties": {
+          "severity": { "type": "string", "enum": ["blocker", "major", "minor"] },
+          "file": { "type": "string" },
+          "description": { "type": "string" }
+        }
+      }
+    },
+    "summary": { "type": "string" }
+  }
+}
