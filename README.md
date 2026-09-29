@@ -10,7 +10,7 @@ spec.md ──► Plan-Tasks.ps1 ──► .orchestrator/tasks.json ──► (y
 ```
 
 - [At a glance](#at-a-glance)
-- [Quick start](#quick-start)
+- [From idea to finished application](#from-idea-to-finished-application)
 - [The task file](#the-task-file)
 - [Writing a spec](#writing-a-spec)
 - [Planning](#planning)
@@ -45,49 +45,233 @@ only after it passes its own checks, and each merge unblocks the tasks that depe
  orch/integration  ◄── merge --no-ff (single writer)  ──►  optional integrationCheck (merge undone if it fails)  ──►  dependents unblock
 ```
 
-## Quick start
+## From idea to finished application
 
-**Prerequisites**
+This walkthrough builds an application in a new repo, `C:\src\myapp`, with this repo
+checked out at `C:\Data\AgentOrchestration`. Replace both paths with your own.
 
-- PowerShell 7.2 or later (`pwsh`), git 2.20 or later.
-- Claude Code, logged in. The scripts look for `claude` in this order: `-ClaudePath`, the
-  `ORCH_CLAUDE` environment variable, `claude` on `PATH`, then the binary bundled with the
-  VS Code extension (`~/.vscode/extensions/anthropic.claude-code-*/resources/native-binary/`).
-- A target git repo with a clean working tree, and a test command agents can run.
+**Where the work happens.** Every step says which of these three places to use:
 
-**Run it**
+| Place | What it is | How to open it |
+| --- | --- | --- |
+| **Terminal** | PowerShell 7 (`pwsh`), not Windows PowerShell 5.1 | Windows Terminal with the *PowerShell* profile, or in VS Code **Terminal → New Terminal**. Check with `$PSVersionTable.PSVersion` (7.2 or later). |
+| **Claude chat** | Claude Code, interactive, started in the `AgentOrchestration` folder. The `/write-spec` and `/plan-tasks` skills live in this repo, so they are only available there. | VS Code: **File → Open Folder…** → `C:\Data\AgentOrchestration`, then open the Claude Code panel (Spark icon, or **Ctrl+Esc**). Or in a terminal: `cd C:\Data\AgentOrchestration; claude`. |
+| **Editor** | VS Code, for reading and editing files | **File → Open File…** or **File → Open Folder…** |
 
-1. Write a spec: a Markdown file that describes what to build. The `/write-spec` skill in
-   this repo writes one with you by interview, shaped for the planner (see [Writing a spec](#writing-a-spec)).
-2. Plan:
+Orchestrator commands in the terminal steps assume the current folder is
+`C:\Data\AgentOrchestration`.
+
+### Step 0: One-time setup
+
+1. **Install** (any way you like): PowerShell 7.2+, git 2.20+, VS Code, and Claude Code (the
+   VS Code extension, the CLI, or both).
+2. **Log in to Claude Code.** In VS Code, open the Claude Code panel and sign in. For the CLI,
+   run `claude` in a terminal and follow the login prompt. The scripts look for `claude` in
+   this order: `-ClaudePath`, the `ORCH_CLAUDE` environment variable, `claude` on `PATH`,
+   then the binary bundled with the VS Code extension. So the extension alone is enough.
+3. **Get this repo** (terminal):
    ```powershell
-   .\orchestrator\Plan-Tasks.ps1 -Spec .\spec.md -RepoPath C:\src\myapp -Setup 'npm ci'
+   git clone https://github.com/fuzz74/AgentOrchestration C:\Data\AgentOrchestration
+   cd C:\Data\AgentOrchestration
    ```
-   The script writes `C:\src\myapp\.orchestrator\tasks.json` and prints the waves.
-   You can also plan interactively with the `/plan-tasks` skill in this repo.
-3. Review and edit `tasks.json`. Check it with `-DryRun`:
+4. **Check that it works, without spending tokens** (terminal):
    ```powershell
+   .\tests\Run-SmokeTest.ps1
+   ```
+   This builds a throwaway repo and runs the whole flow with a fake `claude`. It covers a
+   4-task diamond, a forced edit outside `owns` with a retry, a run with no structured
+   result, a merge conflict and a resolver run, and ends with 9 passing assertions.
+5. **Let the Claude chat reach your projects.** The skills read and write in the target repo,
+   which is outside this folder. Give that access once: create
+   `C:\Data\AgentOrchestration\.claude\settings.local.json` (editor) with the folder that
+   holds your projects.
+   ```json
+   { "permissions": { "additionalDirectories": ["C:\\src"] } }
+   ```
+   Without this, Claude Code asks for permission the first time it touches the target repo.
+   In the CLI you can also type `/add-dir C:\src\myapp`. This repo's `.gitignore` excludes
+   the file, so it stays on your machine.
+
+### Step 1: Create the application repo
+
+Where: **terminal** (or a Claude chat opened in the new folder, if you'd rather have Claude
+scaffold it).
+
+Agents work only from committed code. Before planning, the repo needs at least one commit, a
+setup command and a test runner that works, so every task can prove its work. Build a
+minimal skeleton yourself. For example, for a TypeScript app:
+
+```powershell
+mkdir C:\src\myapp; cd C:\src\myapp
+git init -b main
+npm init -y
+npm install -D typescript vitest
+# add tsconfig.json, a "test": "vitest run" script, and one passing test such as src/smoke.test.ts
+npm test
+git add -A; git commit -m "Project skeleton"
+```
+
+Any language works. Write down three commands, because steps 2 and 3 ask for them:
+
+- the **setup** command for a fresh checkout (`npm ci`, `uv sync`, `dotnet restore`)
+- the **per-module test** command (`npm test -- src/users`)
+- the **whole-project check** (`npm run build && npm test`)
+
+The branch checked out now (`main` here) becomes the base branch of the run.
+
+### Step 2: Turn the idea into a spec
+
+Where: **Claude chat** in `C:\Data\AgentOrchestration`.
+
+1. Type:
+   ```
+   /write-spec
+   ```
+   Then describe the idea in a few sentences and give the repo path `C:\src\myapp`. Or all
+   at once: `/write-spec a habit tracker web app in C:\src\myapp`.
+2. Answer its questions. It asks one at a time, mostly as multiple choice. It proposes 2-3
+   approaches, then walks through the design section by section and waits for your "yes"
+   after each one:
+   - requirements
+   - modules and their file paths
+   - shared contracts (types, APIs, schema)
+   - build order
+   - verification commands
+   - constraints
+3. It writes the spec to `C:\src\myapp\.orchestrator\spec.md`. A reviewer subagent then
+   checks it, and Claude fixes what the reviewer finds.
+4. **Read the spec** (editor): open `C:\src\myapp\.orchestrator\spec.md`. Pay most attention
+   to three sections:
+   - **4.2 Modules**: the paths become the task boundaries.
+   - **4.3 Shared contracts**: everything parallel agents must agree on.
+   - **6 Verification**: the commands must really work in your repo.
+
+   Ask for changes in the chat, or edit the file yourself. Tell the chat when you approve it.
+
+The spec is pasted into every agent's prompt, so shorter and more precise is better. See
+[Writing a spec](#writing-a-spec).
+
+### Step 3: Plan the tasks
+
+Pick one:
+
+- **Interactive** (**Claude chat**, same conversation): accept the hand-off, or type
+  `/plan-tasks`. Claude proposes the task table first and lets you adjust it. Then it writes
+  `C:\src\myapp\.orchestrator\tasks.json` and validates it.
+- **Scripted** (**terminal**): one planner agent (Opus by default) plans without questions.
+  ```powershell
+  .\orchestrator\Plan-Tasks.ps1 -Spec C:\src\myapp\.orchestrator\spec.md -RepoPath C:\src\myapp `
+      -Setup 'npm ci' -IntegrationCheck 'npm run build && npm test'
+  ```
+  It prints the planner's notes (assumptions, open questions) and the waves of parallel tasks.
+
+### Step 4: Review the plan
+
+Where: **editor**, then **terminal**.
+
+1. Open `C:\src\myapp\.orchestrator\tasks.json`. Check each task:
+   - `owns` is tight, and tasks meant to run in parallel don't overlap.
+   - `acceptance` is a real command that proves the task works.
+   - `prompt` makes sense on its own.
+   - `settings.setup` and `settings.integrationCheck` are the commands from step 1.
+
+   See [The task file](#the-task-file) for every field.
+2. Validate and preview the run:
+   ```powershell
+   .\orchestrator\Show-Tasks.ps1 -RepoPath C:\src\myapp
    .\orchestrator\Invoke-Orchestrator.ps1 -RepoPath C:\src\myapp -DryRun
    ```
-4. Run:
+   `-DryRun` prints the waves and warns about `owns` overlaps within a wave. Fix anything it
+   reports, then run it again.
+
+### Step 5: Run the build
+
+Where: **terminal**. Leave it open until the run ends.
+
+```powershell
+.\orchestrator\Invoke-Orchestrator.ps1 -RepoPath C:\src\myapp -MaxParallel 3
+```
+
+- Progress prints live. To see a status table, open a **second terminal** in
+  `C:\Data\AgentOrchestration` and run `.\orchestrator\Show-Tasks.ps1 -RepoPath C:\src\myapp`.
+  You can also open `C:\src\myapp\.orchestrator\progress.md` in the **editor**.
+- Agents work in `C:\src\myapp.worktrees\<task-id>`. Don't edit files in `C:\src\myapp` or in
+  those folders during the run.
+- The exit code is 0 when every task is done and 2 when some failed or were blocked.
+- To stop, press Ctrl+C. Running `claude` processes can keep going for a while; check Task
+  Manager. Rerun the same command later to resume: finished tasks stay finished.
+
+### Step 6: Fix failed tasks
+
+Skip this step if every task is done.
+
+1. **Find out why** (terminal):
    ```powershell
-   .\orchestrator\Invoke-Orchestrator.ps1 -RepoPath C:\src\myapp -MaxParallel 3
+   .\orchestrator\Show-Tasks.ps1 -RepoPath C:\src\myapp
    ```
-   Progress prints live and is appended to `.orchestrator/progress.md`. In another
-   terminal, `.\orchestrator\Show-Tasks.ps1 -RepoPath C:\src\myapp` shows the status table.
-5. When all tasks are done, review `orch/integration` and merge it:
+   The detail column shows the error. For the full story, open the task's latest log
+   folder, `C:\src\myapp\.orchestrator\logs\<task-id>\<timestamp>\`, in the **editor**. It
+   holds the prompts, the Claude results and the command output.
+2. **Fix the cause** (editor):
+   - Usually edit the task in `tasks.json`: a clearer `prompt`, wider `owns`, or a correct
+     `acceptance` command.
+   - If the spec itself was wrong, fix `spec.md` as well.
+   - If the work is too big for one task, add a task. Adding tasks between runs is fine.
+3. **Retry** (terminal):
    ```powershell
+   .\orchestrator\Invoke-Orchestrator.ps1 -RepoPath C:\src\myapp -RetryFailed
+   ```
+
+### Step 7: Try the finished application
+
+Where: **editor** and **terminal**.
+
+The result is on the `orch/integration` branch, which is checked out in
+`C:\src\myapp.worktrees\_integration`.
+
+1. **Read the changes.** In VS Code, **File → Open Folder…** →
+   `C:\src\myapp.worktrees\_integration`. Or list them in a terminal:
+   ```powershell
+   git -C C:\src\myapp diff --stat main...orch/integration
+   ```
+2. **Run the app and its tests** in a terminal in that folder:
+   ```powershell
+   cd C:\src\myapp.worktrees\_integration
+   npm test
+   npm start
+   ```
+3. **Small fixes**: make them yourself, or with Claude chat opened in that folder, and commit
+   them on `orch/integration`. **Bigger gaps**: add tasks to `tasks.json` and go back to
+   step 5.
+
+### Step 8: Merge and clean up
+
+Where: **terminal**.
+
+1. Merge into your base branch. The main checkout must be on `main` with no uncommitted
+   changes.
+   ```powershell
+   git -C C:\src\myapp switch main
    git -C C:\src\myapp merge --no-ff orch/integration
    ```
-6. Clean up worktrees and branches:
+2. Push if the repo has a remote: `git -C C:\src\myapp push`. The orchestrator never pushes.
+3. Remove the worktrees, the `orch/*` branches, the run state and the logs (run from
+   `C:\Data\AgentOrchestration`):
    ```powershell
    .\orchestrator\Clear-Orchestrator.ps1 -RepoPath C:\src\myapp -All
    ```
+   `-All` keeps `tasks.json` and `spec.md`. Add `-WhatIf` first if you want to see what it
+   removes. First close any VS Code window or terminal that is open in a worktree folder:
+   Windows can't delete a folder that is in use.
 
-**Try it without spending tokens**: `.\tests\Run-SmokeTest.ps1` builds a throwaway repo and
-runs the whole flow with `tests/fake-claude.ps1`. The flow covers a 4-task diamond, a
-forced edit outside `owns` with a retry, a run that returns no structured result, a merge
-conflict and a resolver run. It then checks 9 assertions.
+### Step 9: The next feature
+
+Go back to step 2 with the next idea. `/write-spec` now sees the code that exists and
+specifies only the change. Then:
+
+- Plan with `-Force`, which overwrites `tasks.json`, or let `/plan-tasks` replace it.
+- `.orchestrator/` is never committed. To keep old specs, copy them to a folder such as
+  `C:\src\myapp\docs\specs\` and commit them.
 
 ## The task file
 
