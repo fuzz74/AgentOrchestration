@@ -33,6 +33,14 @@ the spec.
 1. **Target.** Ask for the target repo path and the topic, unless already given. If the user
    has a draft spec, start from it: review it against the rules below and interview only
    for the gaps.
+
+   **Access.** The target repo is usually outside this workspace. Claude Code then asks
+   before each read or write there. Check `.claude/settings.local.json` in this workspace.
+   If `permissions.additionalDirectories` doesn't list the repo or a folder above it, offer
+   to add one. Suggest the repo's parent folder (for example `C:\src`), which covers every
+   future project there, or the repo itself. Edit the file only after the user agrees,
+   and keep its other settings. Claude Code shows the edit for approval, and the running
+   session picks up the change at once.
 2. **Explore** the target repo (read-only): language, layout, test runner, conventions, and
    what already exists. Don't ask what the code can tell you. If the folder doesn't exist
    or has no commits, it's a **new project**. Planning then creates its skeleton from the

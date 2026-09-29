@@ -19,6 +19,14 @@ you discuss the split with the user before writing it.
 1. Ask for the target repo path and the spec (a file, or the user's description). If the
    spec is only in the conversation, save it as `.orchestrator/spec.md` in the target repo.
    If there is no real spec yet (only an idea), suggest writing one first with `/write-spec`.
+
+   **Access.** The target repo is usually outside this workspace. Claude Code then asks
+   before each read or write there. Check `.claude/settings.local.json` in this workspace.
+   If `permissions.additionalDirectories` doesn't list the repo or a folder above it, offer
+   to add one. Suggest the repo's parent folder (for example `C:\src`), which covers every
+   future project there, or the repo itself. Edit the file only after the user agrees,
+   and keep its other settings. Claude Code shows the edit for approval, and the running
+   session picks up the change at once.
 2. If the target repo doesn't exist or has no commits yet, create its skeleton first:
    run `orchestrator/Initialize-Project.ps1 -Spec <spec> -RepoPath <repo>` from the
    AgentOrchestration repo. It needs a spec that names the stack. It runs `git init`, lets

@@ -90,16 +90,18 @@ Orchestrator commands in the terminal steps assume the current folder is
    - a merge conflict and a resolver run
 
    It ends with 12 passing checks.
-5. **Let the Claude chat reach your projects.** The skills read and write in the target repo,
-   which is outside this folder. Give that access once: create
-   `C:\Data\AgentOrchestration\.claude\settings.local.json` (editor) with the folder that
-   holds your projects.
-   ```json
-   { "permissions": { "additionalDirectories": ["C:\\src"] } }
-   ```
-   Without this, Claude Code asks for permission the first time it touches the target repo.
-   In the CLI you can also type `/add-dir C:\src\myapp`. This repo's `.gitignore` excludes
-   the file, so it stays on your machine.
+5. **Access to your projects: nothing to do now.** The target repo is outside this folder,
+   and Claude Code asks before reading or writing there. The first time you give
+   `/write-spec` or `/plan-tasks` a repo path, Claude offers to allow that repo or its
+   parent folder, such as `C:\src`. The parent folder covers all future projects. Say yes,
+   then approve the edit Claude Code shows. It adds the folder to
+   `.claude\settings.local.json`, which applies at once and is excluded by this repo's
+   `.gitignore`. After that you aren't asked again.
+
+   Claude can't grant itself access without that approval. The approval is Claude Code's
+   safety boundary, not a missing feature. To set access up yourself instead, add
+   `{ "permissions": { "additionalDirectories": ["C:\\src"] } }` to that file. In the CLI,
+   you can also use `/add-dir C:\src\myapp` or start with `claude --add-dir C:\src`.
 
 ### Step 1: Turn the idea into a spec
 
