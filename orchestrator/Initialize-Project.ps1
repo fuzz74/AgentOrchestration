@@ -54,6 +54,7 @@ $call = @{
     ClaudePath = $claude; WorkDir = $paths.Repo; Schema = 'bootstrap-result.schema.json'; Model = $Model
     PermissionMode = $defaults.permissionMode; AllowedTools = $defaults.allowedTools
     MaxBudgetUsd = $MaxBudgetUsd; Name = 'orch:bootstrap'
+    ProgressFile = $paths.ProgressFile; ActivityLabel = '[bootstrap]'; Activity = 'each'
 }
 $pathspec = @('--', '.') + @($defaults.ignore | ForEach-Object { ":(exclude,glob)$_" })
 $checkDir = Join-Path $paths.WorktreeRoot '_bootstrap-check'

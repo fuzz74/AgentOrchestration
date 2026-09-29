@@ -164,7 +164,10 @@ Pick one:
   ```powershell
   .\orchestrator\Plan-Tasks.ps1 -Spec C:\src\myapp\.orchestrator\spec.md -RepoPath C:\src\myapp
   ```
-  It prints the planner's notes (assumptions, open questions) and the waves of parallel tasks.
+  While it works, it prints one line per tool call of the skeleton and planner agents (for
+  example `[planner] Read src/app.csproj`), so you can see it is making progress. Planning a
+  large spec takes several minutes. At the end it prints the planner's notes (assumptions,
+  open questions) and the waves of parallel tasks.
   For an existing repo without `project.json`, add `-Setup 'npm ci'` and
   `-IntegrationCheck 'npm run build && npm test'` (your own commands).
 
@@ -197,9 +200,24 @@ Where: **terminal**. Leave it open until the run ends.
 .\orchestrator\Invoke-Orchestrator.ps1 -RepoPath C:\src\myapp -MaxParallel 3
 ```
 
-- Progress prints live. To see a status table, open a **second terminal** in
-  `C:\Data\AgentOrchestration` and run `.\orchestrator\Show-Tasks.ps1 -RepoPath C:\src\myapp`.
-  You can also open `C:\src\myapp\.orchestrator\progress.md` in the **editor**.
+- Progress prints live. For a live dashboard, open a **second terminal** in
+  `C:\Data\AgentOrchestration` and run:
+  ```powershell
+  .\orchestrator\Watch-Orchestrator.ps1 -RepoPath C:\src\myapp
+  ```
+  It redraws every 2 seconds and shows:
+  - a progress bar, task counts and cost so far
+  - how many agents are working, and on which tasks
+  - each running agent's phase and its latest tool calls
+  - every task's status
+  - the last lines of the log
+
+  Press Ctrl+C to close it; the run keeps going. It also works during `Plan-Tasks.ps1`, where
+  it shows the skeleton or planner agent. For a one-off status table instead, run
+  `.\orchestrator\Show-Tasks.ps1 -RepoPath C:\src\myapp`.
+  You can also open `C:\src\myapp\.orchestrator\progress.md` in the **editor**. While an
+  agent works, a heartbeat line at most once a minute shows how many tool calls it has made
+  and the latest one, for example `[s2] worker: 14 tool calls, last: Edit src/Game.cs`.
 - Agents work in `C:\src\myapp.worktrees\<task-id>`. Don't edit files in `C:\src\myapp` or in
   those folders during the run.
 - The exit code is 0 when every task is done and 2 when some failed or were blocked.
@@ -216,7 +234,8 @@ Skip this step if every task is done.
    ```
    The detail column shows the error. For the full story, open the task's latest log
    folder, `C:\src\myapp\.orchestrator\logs\<task-id>\<timestamp>\`, in the **editor**. It
-   holds the prompts, the Claude results and the command output.
+   holds the prompts, the Claude results and the command output. Each `*.events.jsonl` file
+   is the agent's full event stream, one JSON event per line: every message and tool call.
 2. **Fix the cause** (editor):
    - Usually edit the task in `tasks.json`: a clearer `prompt`, wider `owns`, or a correct
      `acceptance` command.

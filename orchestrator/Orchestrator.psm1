@@ -413,15 +413,45 @@ function Format-Template {
     $text
 }
 
+function Format-ToolUse {
+    # One short line describing a tool call from the event stream, e.g. "Read src/app.cs".
+    param([Collections.IDictionary]$Block, [string]$WorkDir)
+    $in = $Block.input ?? @{}
+    $rel = {
+        param($p)
+        if ("$p" -match '^/([a-zA-Z])/(.*)$') { $p = "$($Matches[1].ToUpper()):/$($Matches[2])" }   # Git Bash style
+        if ($p -and $WorkDir -and [IO.Path]::IsPathRooted($p)) {
+            $r = [IO.Path]::GetRelativePath($WorkDir, $p)
+            if (-not $r.StartsWith('..')) { $p = $r }
+        }
+        "$p".Replace('\', '/')
+    }
+    $detail = switch -Regex ($Block.name) {
+        '^(Read|Edit|Write|MultiEdit|NotebookEdit)$' { & $rel $in.file_path; break }
+        '^Glob$' { $in.pattern; break }
+        '^Grep$' { "$($in.pattern)$(if ($in.path) { " in $(& $rel $in.path)" })"; break }
+        '^(Bash|PowerShell)$' { ("$($in.command)" -split "`n")[0]; break }
+        '^StructuredOutput$' { 'reporting the result'; break }
+        '^(Task|Agent)$' { $in.description; break }
+        default { '' }
+    }
+    $detail = "$detail".Trim()
+    if ($detail.Length -gt 100) { $detail = $detail.Substring(0, 97) + '...' }
+    if ($detail) { "$($Block.name) $detail" } else { $Block.name }
+}
+
 function Invoke-Claude {
-    # One non-interactive claude call. The prompt goes in on stdin; the JSON result is logged and parsed.
+    # One non-interactive claude call. The prompt goes in on stdin. Output is read as a stream of JSON
+    # events (kept in <LogPath>.events.jsonl); the final result event is logged and parsed.
+    # Activity: 'each' logs every tool call, 'heartbeat' logs a summary at most once a minute.
     param(
         [string]$ClaudePath, [string]$WorkDir, [string]$Prompt, [string]$Schema,
         [string]$Model, [string]$Effort, [string]$PermissionMode, [string[]]$AllowedTools, [string[]]$Tools,
-        [double]$MaxBudgetUsd, [string]$ResumeSessionId, [string]$Name, [string]$LogPath
+        [double]$MaxBudgetUsd, [string]$ResumeSessionId, [string]$Name, [string]$LogPath,
+        [string]$ProgressFile, [string]$ActivityLabel, [ValidateSet('none', 'each', 'heartbeat')][string]$Activity = 'none'
     )
     $cliArgs = [Collections.Generic.List[string]]::new()
-    $cliArgs.AddRange([string[]]@('-p', '--output-format', 'json', '--permission-prompts', 'none'))
+    $cliArgs.AddRange([string[]]@('-p', '--output-format', 'stream-json', '--verbose', '--permission-prompts', 'none'))
     if ($Schema) { $cliArgs.AddRange([string[]]@('--json-schema', (Get-CompactSchema $Schema))) }
     if ($Model) { $cliArgs.AddRange([string[]]@('--model', $Model)) }
     if ($Effort) { $cliArgs.AddRange([string[]]@('--effort', $Effort)) }
@@ -434,18 +464,41 @@ function Invoke-Claude {
 
     if ($LogPath) { Set-Content -Path "$LogPath.prompt.md" -Value $Prompt -Encoding utf8 }
     $errPath = if ($LogPath) { "$LogPath.stderr" } else { [IO.Path]::GetTempFileName() }
-    Push-Location $WorkDir
-    try { $stdout = $Prompt | & $ClaudePath @cliArgs 2> $errPath; $exit = $LASTEXITCODE }
-    finally { Pop-Location }
-    $text = (@($stdout) -join "`n").Trim()
-    if ($LogPath) { Set-Content -Path $LogPath -Value $text -Encoding utf8 }
-
+    $events = if ($LogPath) { [IO.StreamWriter]::new("$LogPath.events.jsonl", $false, [Text.UTF8Encoding]::new($false)) }
+    $label = if ($ActivityLabel) { "$ActivityLabel " } else { '' }
+    $act = @{ Calls = 0; Last = $null; Reported = 0; Next = (Get-Date).AddSeconds(60) }
     $parsed = $null
-    try { $parsed = $text | ConvertFrom-Json -AsHashtable }
-    catch {
-        $last = @($stdout) | Where-Object { "$_".TrimStart().StartsWith('{') } | Select-Object -Last 1
-        if ($last) { try { $parsed = $last | ConvertFrom-Json -AsHashtable } catch { } }
+    $other = [Collections.Generic.List[string]]::new()
+    Push-Location $WorkDir
+    try {
+        $Prompt | & $ClaudePath @cliArgs 2> $errPath | ForEach-Object {
+            $line = "$_"
+            if ($events) { $events.WriteLine($line); $events.Flush() }
+            $ev = $null
+            if ($line.TrimStart().StartsWith('{')) { try { $ev = $line | ConvertFrom-Json -AsHashtable } catch { } }
+            if (-not $ev) { if ($line.Trim()) { $other.Add($line) }; return }
+            if ($ev.type -eq 'result') { $parsed = $ev; return }
+            if ($ev.type -ne 'assistant' -or $Activity -eq 'none') { return }
+            foreach ($block in @($ev.message.content)) {
+                if ($block -isnot [Collections.IDictionary] -or $block.type -ne 'tool_use') { continue }
+                $act.Calls++
+                $act.Last = Format-ToolUse $block $WorkDir
+                if ($Activity -eq 'each') { Write-OrchLog $ProgressFile "$label$($act.Last)" }
+            }
+            if ($Activity -eq 'heartbeat' -and $act.Calls -gt $act.Reported -and (Get-Date) -ge $act.Next) {
+                Write-OrchLog $ProgressFile "$label$($act.Calls) tool calls, last: $($act.Last)"
+                $act.Reported = $act.Calls
+                $act.Next = (Get-Date).AddSeconds(60)
+            }
+        }
+        $exit = $LASTEXITCODE
     }
+    finally {
+        Pop-Location
+        if ($events) { $events.Dispose() }
+    }
+    $text = if ($parsed) { $parsed | ConvertTo-Json -Depth 50 } else { ($other -join "`n").Trim() }
+    if ($LogPath) { Set-Content -Path $LogPath -Value $text -Encoding utf8 }
     $stderrTail = ((Get-Content $errPath -ErrorAction SilentlyContinue) | Select-Object -Last 20) -join "`n"
     $finished = $exit -eq 0 -and $parsed -and -not $parsed.is_error
     $ok = $finished -and (-not $Schema -or $parsed.structured_output)
@@ -475,6 +528,7 @@ function Invoke-Claude {
             $nudge = Invoke-Claude -ClaudePath $ClaudePath -WorkDir $WorkDir -Schema $Schema -Model $Model -Effort $Effort `
                 -PermissionMode $PermissionMode -AllowedTools $AllowedTools -Tools $Tools -MaxBudgetUsd $MaxBudgetUsd `
                 -ResumeSessionId $r.SessionId -Name $Name -LogPath ($LogPath ? "$LogPath.nudge.json" : $null) `
+                -ProgressFile $ProgressFile -ActivityLabel $ActivityLabel -Activity $Activity `
                 -Prompt 'Your work is finished. Do not do any more work. Report your result now by calling the StructuredOutput tool with the required fields.'
         }
         finally { $script:InNudge = $false }
@@ -537,7 +591,8 @@ function Sync-WithIntegration {
     }
     $r = Invoke-Claude -ClaudePath $Ctx.ClaudePath -WorkDir $wt -Prompt $prompt -Model $Ctx.ReviewModel `
         -PermissionMode 'acceptEdits' -AllowedTools ($Ctx.AllowedTools + @('Bash(git add *)', 'Bash(git status *)', 'Bash(git diff *)')) `
-        -MaxBudgetUsd $Ctx.MaxBudgetUsd -Name "orch:$($Ctx.Id):resolve" -LogPath (Join-Path $Ctx.LogDir "attempt-$Attempt-resolver.json")
+        -MaxBudgetUsd $Ctx.MaxBudgetUsd -Name "orch:$($Ctx.Id):resolve" -LogPath (Join-Path $Ctx.LogDir "attempt-$Attempt-resolver.json") `
+        -ProgressFile $Ctx.ProgressFile -ActivityLabel "[$($Ctx.Id)] resolver:" -Activity 'heartbeat'
     $Cost.Value += $r.Cost
     [void](Invoke-Git $wt @('add', '-A'))
     $left = (Invoke-Git $wt @('diff', '--name-only', '--diff-filter=U')).Output
@@ -566,7 +621,8 @@ function Invoke-Review {
     for ($try = 1; $try -le 2; $try++) {
         $r = Invoke-Claude -ClaudePath $Ctx.ClaudePath -WorkDir $wt -Prompt $prompt -Schema 'review-result.schema.json' `
             -Model $Ctx.ReviewModel -PermissionMode 'dontAsk' -Tools @('Read', 'Glob', 'Grep') -AllowedTools @('Read', 'Glob', 'Grep') `
-            -MaxBudgetUsd $Ctx.MaxBudgetUsd -Name "orch:$($Ctx.Id):review" -LogPath (Join-Path $Ctx.LogDir "attempt-$Attempt-review-$try.json")
+            -MaxBudgetUsd $Ctx.MaxBudgetUsd -Name "orch:$($Ctx.Id):review" -LogPath (Join-Path $Ctx.LogDir "attempt-$Attempt-review-$try.json") `
+            -ProgressFile $Ctx.ProgressFile -ActivityLabel "[$($Ctx.Id)] review:" -Activity 'heartbeat'
         $Cost.Value += $r.Cost
         if ($r.Ok) { return $r.Structured }
     }
@@ -616,7 +672,8 @@ function Invoke-TaskPipeline {
                 $w = Invoke-Claude -ClaudePath $Ctx.ClaudePath -WorkDir $Ctx.Worktree -Prompt $prompt -Schema 'worker-result.schema.json' `
                     -Model $Ctx.Model -Effort $Ctx.Effort -PermissionMode $Ctx.PermissionMode -AllowedTools $Ctx.AllowedTools `
                     -MaxBudgetUsd $Ctx.MaxBudgetUsd -ResumeSessionId $resume -Name "orch:$($Ctx.Id)" `
-                    -LogPath (Join-Path $Ctx.LogDir "attempt-$attempt-worker.json")
+                    -LogPath (Join-Path $Ctx.LogDir "attempt-$attempt-worker.json") `
+                    -ProgressFile $Ctx.ProgressFile -ActivityLabel "[$($Ctx.Id)] worker:" -Activity 'heartbeat'
                 $cost += $w.Cost
                 if ($w.SessionId) { $sessionId = $w.SessionId }
                 if ($w.Ok) { $out = $w.Structured }

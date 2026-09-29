@@ -66,6 +66,7 @@ $call = @{
     ClaudePath = $claude; WorkDir = $paths.Repo; Schema = 'plan-output.schema.json'; Model = $Model
     PermissionMode = 'dontAsk'; Tools = @('Read', 'Glob', 'Grep'); AllowedTools = @('Read', 'Glob', 'Grep')
     MaxBudgetUsd = $MaxBudgetUsd; Name = 'orch:planner'
+    ProgressFile = $paths.ProgressFile; ActivityLabel = '[planner]'; Activity = 'each'
 }
 $r = Invoke-Claude @call -Prompt $prompt -LogPath "$logBase-1.json"
 $cost = $r.Cost
