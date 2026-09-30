@@ -203,6 +203,9 @@ Where: **terminal**. Leave it open until the run ends.
   - a progress bar, task counts and cost so far
   - how many agents are working, and on which tasks
   - each running agent's phase and its latest tool calls
+  - live headless Claude or Copilot CLI process IDs on Windows, including on a running task
+    line when the CLI's `orch:<task-id>` name matches; the process list is system-wide and
+    names are not verified against this repository (resumed Copilot sessions may lack a name)
   - every task's status
   - the last lines of the log
 

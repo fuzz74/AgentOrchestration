@@ -158,6 +158,21 @@ function Get-StateSafe {
     $script:lastState
 }
 
+function Get-AgentProcesses {
+    if (-not $IsWindows) { return @{ Available = $false; Processes = @() } }
+    $name = if ($Provider -eq 'Copilot') { 'copilot.exe' } else { 'claude.exe' }
+    try {
+        $processes = @(Get-CimInstance Win32_Process -Filter "Name='$name'" -ErrorAction Stop |
+            Where-Object { $_.CommandLine -match '(?i)--output-format(?:=|\s+)' } |
+            ForEach-Object {
+                $taskId = if ($_.CommandLine -match '(?i)(?:^|\s)--name\s+"?orch:([a-z0-9][a-z0-9._-]{0,48})(?::(?:review|resolve))?(?=["\s]|$)') { $Matches[1] } else { $null }
+                [pscustomobject]@{ ProcessId = $_.ProcessId; Name = $_.Name; TaskId = $taskId; StartedAt = $_.CreationDate }
+            } | Sort-Object ProcessId)
+        return @{ Available = $true; Processes = $processes }
+    }
+    catch { return @{ Available = $false; Processes = @() } }
+}
+
 function Get-ProgressLines {
     if (-not (Test-Path $paths.ProgressFile)) { return @() }
     @(Get-Content $paths.ProgressFile -Tail 400 -ErrorAction SilentlyContinue)
@@ -203,6 +218,7 @@ function New-Screen {
     $plan = Get-PlanInfo
     $state = Get-StateSafe
     $log = Get-ProgressLines
+    $agentProcesses = Get-AgentProcesses
 
     $iStart = -1; $iEnd = -1; $iPlan = -1
     for ($i = 0; $i -lt $log.Count; $i++) {
@@ -220,6 +236,16 @@ function New-Screen {
         $started = Get-LogTime $log[$iStart]
         $until = if ($runState -eq 'finished') { Get-LogTime $log[$iEnd] } else { $now }
         & $add ("Run started {0}, elapsed {1}" -f $started.ToString('HH:mm:ss'), (Format-Span ($until - $started))) 'DarkGray'
+    }
+    & $add ''
+    & $add "Live $Provider CLI processes (system-wide; task name is not repo-verified)" 'White'
+    if (-not $agentProcesses.Available) { & $add '  Process lookup unavailable' 'DarkYellow' }
+    elseif (-not $agentProcesses.Processes.Count) { & $add '  (none detected)' 'DarkGray' }
+    else {
+        foreach ($process in $agentProcesses.Processes) {
+            $task = if ($process.TaskId) { "  task $($process.TaskId)" } else { '  task unknown' }
+            & $add ("  PID {0}  {1}{2}" -f $process.ProcessId, $process.Name, $task) 'Cyan'
+        }
     }
 
     if (-not $plan) {
@@ -246,7 +272,9 @@ function New-Screen {
         $width = 30
         $filled = if ($total) { [int][math]::Round($width * $done / $total) } else { 0 }
         $pct = if ($total) { [int][math]::Round(100 * $done / $total) } else { 0 }
+        & $add ''
         & $add ("[{0}{1}] {2}/{3} done ({4}%)" -f ('█' * $filled), ('░' * ($width - $filled)), $done, $total, $pct) 'White'
+        & $add ''
 
         $views = @{}
         $cost = 0.0
@@ -272,11 +300,16 @@ function New-Screen {
         foreach ($t in $running) {
             $v = $views[$t.id]
             $s = $state.tasks[$t.id]
+            $startedAt = if ($s.startedAt) { [datetime]$s.startedAt } else { [datetime]::MinValue }
+            $matched = @($agentProcesses.Processes | Where-Object {
+                $_.TaskId -eq $t.id -and $_.StartedAt -ge $startedAt.AddSeconds(-5)
+            })
+            $pids = if ($matched.Count) { " · PID $(($matched.ProcessId -join ', '))" } else { '' }
             $since = if ($s.startedAt) { Format-Span ($now - [datetime]$s.startedAt) } else { '' }
             $calls = if ($v.Feed) { " · $($v.Feed.Calls) tool calls" } else { '' }
             $idle = if ($null -ne $v.Idle) { " · last activity $(Format-Span $v.Idle) ago" } else { '' }
             $warn = if ($null -ne $v.Idle -and $v.Idle.TotalMinutes -ge 5) { 'Yellow' } else { 'Cyan' }
-            & $add ("▶ {0} - {1}{2}{3} · running {4}" -f $t.id, $v.Phase, $calls, $idle, $since) $warn
+            & $add ("▶ {0} - {1}{2}{3}{4} · running {5}" -f $t.id, $v.Phase, $pids, $calls, $idle, $since) $warn
             if ($v.Feed) { foreach ($r in $v.Feed.Recent) { & $add "    $r" } }
         }
 
