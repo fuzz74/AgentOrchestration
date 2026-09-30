@@ -26,7 +26,7 @@ param(
     [string]$Setup,
     [string]$IntegrationCheck,
     [string]$AgentPath,
-    [double]$MaxBudgetUsd = 5,
+    [double]$MaxBudgetUsd = 0,   # 0 = no cap
     [switch]$Force
 )
 

@@ -22,7 +22,7 @@ param(
     [Parameter(Mandatory)][ValidateSet('Claude', 'Copilot')][string]$Provider,
     [string]$Model = 'sonnet',
     [string]$AgentPath,
-    [double]$MaxBudgetUsd = 5,
+    [double]$MaxBudgetUsd = 0,   # 0 = no cap
     [int]$MaxAttempts = 3
 )
 

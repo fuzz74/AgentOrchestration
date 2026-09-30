@@ -332,7 +332,7 @@ never loses progress. The JSON Schema is
 | `permissionMode` | `acceptEdits` | Worker permission mode: `acceptEdits`, `auto`, `dontAsk`, `bypassPermissions`. |
 | `allowedTools` | `Read, Edit, Write, Glob, Grep, Bash, PowerShell` | Tools the worker may use without a prompt, in permission-rule syntax (e.g. `Bash(npm *)`). |
 | `maxAttempts` | `3` | Worker runs per task before it fails. |
-| `maxBudgetUsd` | `10` | `--max-budget-usd` for Claude calls; Copilot does not support this USD limit. |
+| `maxBudgetUsd` | `0` | `--max-budget-usd` for Claude calls; `0` means no cap. Copilot does not support this USD limit. |
 | `review` | `true` | Run the review agent after acceptance passes. |
 | `setup` | none | Command run once in each fresh worktree (e.g. `npm ci`, `uv sync`). |
 | `integrationCheck` | none | Command run in the integration worktree after each merge, after `setup`. A failure undoes the merge and fails the task. |
@@ -489,8 +489,8 @@ to the plan between runs.
 
 | Script | Parameters |
 | --- | --- |
-| `Initialize-Project.ps1` | `-Provider Claude|Copilot`, `-Spec` and `-RepoPath` (required), `-Model` (`sonnet`), `-AgentPath`, `-MaxBudgetUsd` (`5`, Claude only), `-MaxAttempts` (`3`). Creates and checks the skeleton of a new repo; does nothing if the repo has commits. `Plan-Tasks.ps1` calls it. |
-| `Plan-Tasks.ps1` | `-Provider Claude|Copilot`, `-Spec` (required), `-RepoPath` (`.`), `-Out` (plan path), `-Model` (planner, `opus`), `-WorkerModel` (`sonnet`), `-Setup`, `-IntegrationCheck` (both default to `project.json`), `-AgentPath`, `-MaxBudgetUsd` (`5`, Claude only), `-Force` (overwrite) |
+| `Initialize-Project.ps1` | `-Provider Claude|Copilot`, `-Spec` and `-RepoPath` (required), `-Model` (`sonnet`), `-AgentPath`, `-MaxBudgetUsd` (`0` = no cap, Claude only), `-MaxAttempts` (`3`). Creates and checks the skeleton of a new repo; does nothing if the repo has commits. `Plan-Tasks.ps1` calls it. |
+| `Plan-Tasks.ps1` | `-Provider Claude|Copilot`, `-Spec` (required), `-RepoPath` (`.`), `-Out` (plan path), `-Model` (planner, `opus`), `-WorkerModel` (`sonnet`), `-Setup`, `-IntegrationCheck` (both default to `project.json`), `-AgentPath`, `-MaxBudgetUsd` (`0` = no cap, Claude only), `-Force` (overwrite) |
 | `Invoke-Orchestrator.ps1` | `-Provider Claude|Copilot` (required, even for `-DryRun`), `-RepoPath` (`.`), `-Plan`, `-MaxParallel` (`3`), `-AgentPath`, `-DryRun` (print waves and exit), `-RetryFailed`, `-PollSeconds` (`5`). Exit code 0 = all done, 2 = some failed or blocked, 1 = invalid plan. |
 | `Show-Tasks.ps1` | `-Provider Claude|Copilot` (required), `-RepoPath`, `-Plan`. Validates the plan and prints wave, status, deps, attempts, cost and detail per task. |
 | `Watch-Orchestrator.ps1` | `-Provider Claude|Copilot` (required), `-RepoPath`, `-Plan`, `-Once`. Watches either provider's JSON event stream. |
@@ -507,7 +507,7 @@ to the plan between runs.
 | Resolver | worker tools + `git add/status/diff` | `acceptEdits` |
 | Reviewer | `Read`, `Glob`, `Grep` only | `dontAsk` |
 
-Claude calls use `--permission-prompts none` and `--max-budget-usd`. Copilot calls use
+Claude calls use `--permission-prompts none`, plus `--max-budget-usd` when a cap is set. Copilot calls use
 `--allow-all-tools` with `--available-tools` mapped from the requested categories; its
 CLI has no equivalent to Claude's USD cap or command-scoped `Bash(...)` rules (those rules
 are rejected for Copilot). Copilot's JSON results are checked against the local schemas;

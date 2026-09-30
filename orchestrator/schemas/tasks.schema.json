@@ -35,7 +35,7 @@
           "description": "Tools the worker may use without a prompt (permission rule syntax, e.g. \"Bash(npm *)\")."
         },
         "maxAttempts": { "type": "integer", "minimum": 1, "description": "Worker attempts per task before it fails. Default: 3." },
-        "maxBudgetUsd": { "type": "number", "description": "Spend cap per claude call. Default: 10." },
+        "maxBudgetUsd": { "type": "number", "description": "Spend cap per claude call in USD. Default: 0 (no cap)." },
         "review": { "type": "boolean", "description": "Run the review agent after tests pass. Default: true." },
         "setup": { "type": ["string", "null"], "description": "Command run once in each fresh worktree, e.g. \"npm ci\"." },
         "integrationCheck": {

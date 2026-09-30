@@ -14,7 +14,7 @@ $script:DefaultSettings = [ordered]@{
     permissionMode    = 'acceptEdits'
     allowedTools      = @('Read', 'Edit', 'Write', 'Glob', 'Grep', 'Bash', 'PowerShell')
     maxAttempts       = 3
-    maxBudgetUsd      = 10
+    maxBudgetUsd      = 0     # 0 = no cap
     review            = $true
     setup             = $null
     integrationCheck  = $null
