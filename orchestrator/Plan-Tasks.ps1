@@ -32,6 +32,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'Orchestrator.psm1') -Force
+$Model = Resolve-AgentModel -Provider $Provider -Model $Model
+$WorkerModel = Resolve-AgentModel -Provider $Provider -Model $WorkerModel
 
 # A new project gets its skeleton (git repo, manifest, test runner) before planning.
 & (Join-Path $PSScriptRoot 'Initialize-Project.ps1') -Spec $Spec -RepoPath $RepoPath -Model $WorkerModel `

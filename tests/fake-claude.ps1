@@ -4,6 +4,9 @@
 # No param block on purpose: CLI flags land in $args and the piped prompt in $input.
 
 $copilot = $args -contains '--output-format' -and $args[[array]::IndexOf($args, '--output-format') + 1] -eq 'json'
+if ($copilot -and $env:FAKE_REQUIRE_MODEL -and $args[[array]::IndexOf($args, '--model') + 1] -ne $env:FAKE_REQUIRE_MODEL) {
+    throw "Expected Copilot model $env:FAKE_REQUIRE_MODEL"
+}
 $prompt = if ($copilot) { $args[[array]::IndexOf($args, '-p') + 1] } else { @($input) -join "`n" }
 $role = if ($prompt -match 'orchestrator-role: (\w+)') { $Matches[1] } else { 'unknown' }
 $here = (Get-Location).Path

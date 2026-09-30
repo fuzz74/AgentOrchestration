@@ -29,18 +29,25 @@ $gitIdentity.GetEnumerator() | ForEach-Object { Set-Item "Env:$($_.Key)" $_.Valu
 $env:FAKE_FAIL_ONCE = 'feature-b'
 $env:FAKE_SHARED = '1'
 $env:FAKE_NO_STRUCTURED = 'contracts'
+if ($Provider -eq 'Copilot') { $env:FAKE_REQUIRE_MODEL = 'gpt-6-sol' }
 try {
     & (Join-Path $orch 'Plan-Tasks.ps1') -Provider $Provider -Spec $spec -RepoPath $repo -AgentPath $fake
     # Let every task touch registry.txt so the parallel tasks conflict and the resolver path runs.
     $planFile = Join-Path $repo '.orchestrator/tasks.json'
     $planDoc = Get-Content $planFile -Raw | ConvertFrom-Json -AsHashtable
     $planDoc.settings.shared = @('registry.txt')
+    if ($Provider -eq 'Copilot') {
+        if ($planDoc.settings.model -ne 'gpt-6-sol' -or $planDoc.settings.reviewModel -ne 'gpt-6-sol') { throw 'Copilot plan did not pin GPT-6 Sol.' }
+        $planDoc.settings.model = 'sonnet'
+        $planDoc.settings.reviewModel = 'haiku'
+        $planDoc.tasks[0].model = 'opus'
+    }
     $planDoc | ConvertTo-Json -Depth 10 | Set-Content $planFile
     & (Join-Path $orch 'Invoke-Orchestrator.ps1') -Provider $Provider -RepoPath $repo -AgentPath $fake -MaxParallel 2 -PollSeconds 1
     $exit = $LASTEXITCODE
 }
 finally {
-    Remove-Item Env:FAKE_FAIL_ONCE, Env:FAKE_SHARED, Env:FAKE_NO_STRUCTURED
+    Remove-Item Env:FAKE_FAIL_ONCE, Env:FAKE_SHARED, Env:FAKE_NO_STRUCTURED, Env:FAKE_REQUIRE_MODEL -ErrorAction SilentlyContinue
     $gitIdentity.Keys | ForEach-Object { Remove-Item "Env:$_" }
 }
 

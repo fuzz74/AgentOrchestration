@@ -28,6 +28,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'Orchestrator.psm1') -Force
+$Model = Resolve-AgentModel -Provider $Provider -Model $Model
 
 $specText = Get-Content (Resolve-Path $Spec).Path -Raw
 if (-not (Test-Path $RepoPath)) { New-Item -ItemType Directory -Path $RepoPath | Out-Null }

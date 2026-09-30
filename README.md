@@ -320,7 +320,7 @@ never loses progress. The JSON Schema is
 | `deps` | no | Ids that must be merged before this task starts. |
 | `owns` | no | Repo-relative globs the task may edit (`**`, `*`, `?`; a plain path covers a file or a folder). Tasks with overlapping `owns` never run together. Empty = whole repo, so the task runs alone. |
 | `acceptance` | no | Command run with `pwsh` in the worktree root. Exit code 0 = pass. |
-| `model` | no | Worker model for this task only. |
+| `model` | no | Worker model for this task only (Claude; Copilot is pinned to GPT-6 Sol). |
 
 **Settings** (all optional; the defaults are in `Orchestrator.psm1`)
 
@@ -511,8 +511,9 @@ Claude calls use `--permission-prompts none` and `--max-budget-usd`. Copilot cal
 `--allow-all-tools` with `--available-tools` mapped from the requested categories; its
 CLI has no equivalent to Claude's USD cap or command-scoped `Bash(...)` rules (those rules
 are rejected for Copilot). Copilot's JSON results are checked against the local schemas;
-Claude uses its native `--json-schema` output. Default Claude model names `sonnet`, `opus`
-and `haiku` map to Copilot's `auto`; set explicit Copilot model IDs to override.
+Claude uses its native `--json-schema` output. Every Copilot run (bootstrap, planner,
+worker, reviewer, and resolver) uses `--model gpt-6-sol`, including when command-line
+model arguments or an existing plan specify another model. Claude retains its model settings.
 
 - Workers run with `Bash`/`PowerShell` allowed by default, so they can run any command as
   you. Run the orchestrator only on repos you trust, or narrow `allowedTools` (for example

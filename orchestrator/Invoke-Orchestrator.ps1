@@ -101,7 +101,7 @@ function Start-Task($task) {
     }
     $ctx = @{
         Id = $task.id; Title = $task.title; Prompt = $task.prompt; Owns = @($task.owns); Shared = @($settings.shared)
-        Acceptance = $task.acceptance; Model = ($task.model ?? $settings.model); ReviewModel = $settings.reviewModel
+        Acceptance = $task.acceptance; Model = (Resolve-AgentModel -Provider $Provider -Model ($task.model ?? $settings.model)); ReviewModel = (Resolve-AgentModel -Provider $Provider -Model $settings.reviewModel)
         Effort = $settings.effort; PermissionMode = $settings.permissionMode; AllowedTools = @($settings.allowedTools)
         MaxAttempts = [int]$settings.maxAttempts; MaxBudgetUsd = [double]$settings.maxBudgetUsd; Review = [bool]$settings.review
         Ignore = @($settings.ignore); EnforceOwns = [bool]$settings.enforceOwns; CommandTimeoutSec = [int]$settings.commandTimeoutSec; Setup = $settings.setup

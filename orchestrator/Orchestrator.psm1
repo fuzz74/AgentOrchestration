@@ -5,6 +5,7 @@
 
 $script:PromptDir = Join-Path $PSScriptRoot 'prompts'
 $script:SchemaDir = Join-Path $PSScriptRoot 'schemas'
+$script:CopilotModel = 'gpt-6-sol'
 
 $script:DefaultSettings = [ordered]@{
     model             = 'sonnet'
@@ -25,6 +26,12 @@ $script:DefaultSettings = [ordered]@{
 }
 
 function Get-DefaultSettings { [ordered]@{} + $script:DefaultSettings }
+
+function Resolve-AgentModel {
+    param([string]$Provider, [string]$Model)
+    if ($Provider -eq 'Copilot') { return $script:CopilotModel }
+    return $Model
+}
 
 #region Paths, logging, agent discovery
 
@@ -466,6 +473,7 @@ function Invoke-Agent {
         [double]$MaxBudgetUsd, [string]$ResumeSessionId, [string]$Name, [string]$LogPath,
         [string]$ProgressFile, [string]$ActivityLabel, [ValidateSet('none', 'each', 'heartbeat')][string]$Activity = 'none'
     )
+    $Model = Resolve-AgentModel -Provider $Provider -Model $Model
     $cliArgs = [Collections.Generic.List[string]]::new()
     if ($Provider -eq 'Claude') {
         $cliArgs.AddRange([string[]]@('-p', '--output-format', 'stream-json', '--verbose', '--permission-prompts', 'none'))
@@ -484,7 +492,7 @@ function Invoke-Agent {
             $Prompt += "`n`nReturn ONLY a JSON object matching this schema (no Markdown fence or explanation):`n$(Get-CompactSchema $Schema)"
         }
         $cliArgs.AddRange([string[]]@('--output-format', 'json', '--allow-all-tools'))
-        if ($Model) { $cliArgs.AddRange([string[]]@('--model', $(if ($Model -in 'sonnet', 'opus', 'haiku') { 'auto' } else { $Model }))) }
+        $cliArgs.AddRange([string[]]@('--model', $Model))
         if ($Effort -in 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max') { $cliArgs.AddRange([string[]]@('--reasoning-effort', $Effort)) }
         $requested = if ($Tools) { $Tools } else { $AllowedTools }
         if ($requested) {
