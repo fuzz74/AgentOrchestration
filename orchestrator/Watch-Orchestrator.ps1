@@ -31,6 +31,7 @@ $repoName = Split-Path $paths.Repo -Leaf
 
 $feeds = @{}        # events file -> what has been read from it so far
 $costs = @{}        # result file -> total_cost_usd
+$reviews = @{}      # review events file + size -> parsed verdict
 $planCache = @{ Stamp = $null; Plan = $null; Waves = @{} }
 $lastState = [ordered]@{ tasks = [ordered]@{} }
 
@@ -98,6 +99,33 @@ function Get-LatestLogDir([string]$Id) {
     $root = Join-Path $paths.LogDir $Id
     if (-not (Test-Path $root)) { return $null }
     Get-ChildItem $root -Directory | Sort-Object Name | Select-Object -Last 1
+}
+
+function Get-ReviewFeedback([string]$Id) {
+    $root = Join-Path $paths.LogDir $Id
+    if (-not (Test-Path $root)) { return $null }
+    $files = Get-ChildItem $root -Recurse -File -Filter 'attempt-*-review-*.json.events.jsonl' |
+        Sort-Object LastWriteTime -Descending
+    foreach ($file in $files) {
+        $key = "$($file.FullName)|$($file.Length)"
+        if ($reviews.ContainsKey($key)) { return $reviews[$key] }
+        $final = Get-Content $file.FullName -Tail 80 | ForEach-Object {
+            try { $_ | ConvertFrom-Json -AsHashtable } catch { $null }
+        } | Where-Object { $_.type -eq 'assistant.message' -and $_.data.phase -eq 'final_answer' } |
+            Select-Object -Last 1
+        if (-not $final) { continue }
+        try {
+            $content = $final.data.content.Trim() -replace '^```(?:json)?\s*', '' -replace '\s*```$', ''
+            $verdict = $content | ConvertFrom-Json -AsHashtable
+            if (-not $verdict.ContainsKey('issues')) { continue }
+            $feedback = if ($verdict.spec_verdict -eq 'pass' -and $verdict.quality_verdict -eq 'pass') { $null }
+                        else { $verdict }
+            $reviews[$key] = $feedback
+            return $feedback
+        }
+        catch { continue }
+    }
+    $null
 }
 
 function Get-AgentView([string]$Id) {
@@ -192,6 +220,20 @@ function Format-Span([TimeSpan]$t) {
 function Get-LogTime([string]$Line) {
     if ($Line -match '^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)') { return [datetime]::ParseExact($Matches[1], 'yyyy-MM-dd HH:mm:ss', $null) }
     $null
+}
+
+function Format-WrappedFeedback([string]$Text, [string]$Prefix, [int]$Width) {
+    $indent = ' ' * $Prefix.Length
+    $remaining = $Text.Trim()
+    while ($remaining) {
+        $room = [math]::Max(1, $Width - $Prefix.Length)
+        if ($remaining.Length -le $room) { "$Prefix$remaining"; break }
+        $cut = $remaining.LastIndexOf(' ', $room)
+        if ($cut -le 0) { $cut = $room }
+        "$Prefix$($remaining.Substring(0, $cut))"
+        $remaining = $remaining.Substring($cut).TrimStart()
+        $Prefix = $indent
+    }
 }
 
 $ansi = @{
@@ -311,6 +353,25 @@ function New-Screen {
             $warn = if ($null -ne $v.Idle -and $v.Idle.TotalMinutes -ge 5) { 'Yellow' } else { 'Cyan' }
             & $add ("▶ {0} - {1}{2}{3}{4} · running {5}" -f $t.id, $v.Phase, $pids, $calls, $idle, $since) $warn
             if ($v.Feed) { foreach ($r in $v.Feed.Recent) { & $add "    $r" } }
+        }
+
+        $feedback = @($tasks | Where-Object { $status[$_.id] -in 'running', 'failed' } |
+            ForEach-Object { $review = Get-ReviewFeedback $_.id; if ($review) { [pscustomobject]@{ Id = $_.id; Review = $review } } })
+        if ($feedback.Count) {
+            & $add ''
+            & $add 'Latest review feedback' 'White'
+            try { $width = [math]::Max(40, [Console]::WindowWidth - 1); $short = [Console]::WindowHeight -lt 35 }
+            catch { $width = 160; $short = $false }
+            foreach ($item in $feedback) {
+                $review = $item.Review
+                & $add ("  {0}: spec {1}, quality {2}" -f $item.Id, $review.spec_verdict, $review.quality_verdict) 'Yellow'
+                foreach ($line in (Format-WrappedFeedback $review.summary '    ' $width)) { & $add $line 'Yellow' }
+                $issues = @($review.issues)
+                foreach ($issue in ($issues | Select-Object -First $(if ($short) { 1 } else { $issues.Count }))) {
+                    foreach ($line in (Format-WrappedFeedback $issue.description '    - ' $width)) { & $add $line 'Yellow' }
+                }
+                if ($short -and $issues.Count -gt 1) { & $add "    + $($issues.Count - 1) more issue(s) in the review log" 'DarkYellow' }
+            }
         }
 
         & $add ''

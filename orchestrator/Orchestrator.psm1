@@ -47,6 +47,7 @@ function Get-OrchPaths {
         RunDir              = $runDir
         PlanFile            = if ($PlanFile) { [IO.Path]::GetFullPath($PlanFile) } else { Join-Path $runDir 'tasks.json' }
         StateFile           = Join-Path $runDir 'state.json'
+        StopFile            = Join-Path $runDir 'stop-requested'
         ProgressFile        = Join-Path $runDir 'progress.md'
         LogDir              = Join-Path $runDir 'logs'
         WorktreeRoot        = $wtRoot
@@ -269,7 +270,7 @@ function Save-State {
 function New-TaskState {
     [ordered]@{
         status = 'pending'; mode = 'fresh'; attempts = 0; syncRuns = 0; costUsd = 0.0
-        sessionId = $null; summary = $null; notes = $null; error = $null
+        sessionId = $null; summary = $null; notes = $null; error = $null; feedback = $null; specRejections = 0
         startedAt = $null; finishedAt = $null; mergedSha = $null
     }
 }
@@ -471,7 +472,7 @@ function Invoke-Agent {
         [ValidateSet('Claude', 'Copilot')][string]$Provider = 'Claude', [string]$AgentPath, [string]$WorkDir, [string]$Prompt, [string]$Schema,
         [string]$Model, [string]$Effort, [string]$PermissionMode, [string[]]$AllowedTools, [string[]]$Tools,
         [double]$MaxBudgetUsd, [string]$ResumeSessionId, [string]$Name, [string]$LogPath,
-        [string]$ProgressFile, [string]$ActivityLabel, [ValidateSet('none', 'each', 'heartbeat')][string]$Activity = 'none'
+        [string]$ProgressFile, [string]$StopFile, [string]$ActivityLabel, [ValidateSet('none', 'each', 'heartbeat')][string]$Activity = 'none'
     )
     $Model = Resolve-AgentModel -Provider $Provider -Model $Model
     $cliArgs = [Collections.Generic.List[string]]::new()
@@ -508,7 +509,6 @@ function Invoke-Agent {
         }
         if ($ResumeSessionId) { $cliArgs.AddRange([string[]]@('--resume', $ResumeSessionId)) }
         if ($Name -and -not $ResumeSessionId) { $cliArgs.AddRange([string[]]@('--name', $Name)) }
-        $cliArgs.AddRange([string[]]@('-p', $Prompt))
     }
 
     if ($LogPath) { Set-Content -Path "$LogPath.prompt.md" -Value $Prompt -Encoding utf8 }
@@ -521,7 +521,7 @@ function Invoke-Agent {
     $other = [Collections.Generic.List[string]]::new()
     Push-Location $WorkDir
     try {
-        $(if ($Provider -eq 'Claude') { $Prompt } else { $null }) | & $AgentPath @cliArgs 2> $errPath | ForEach-Object {
+        $Prompt | & $AgentPath @cliArgs 2> $errPath | ForEach-Object {
             $line = "$_"
             if ($events) { $events.WriteLine($line); $events.Flush() }
             $ev = $null
@@ -590,13 +590,14 @@ function Invoke-Agent {
 
     # Models sometimes finish the work but skip (or only claim) the structured result.
     # Resume the same session once and ask for just the result.
-    if ($Schema -and $finished -and -not $ok -and $r.SessionId -and -not $script:InNudge) {
+    if ($Schema -and $finished -and -not $ok -and $r.SessionId -and -not $script:InNudge -and
+        (-not $StopFile -or -not (Test-Path $StopFile))) {
         $script:InNudge = $true
         try {
             $nudge = Invoke-Agent -Provider $Provider -AgentPath $AgentPath -WorkDir $WorkDir -Schema $Schema -Model $Model -Effort $Effort `
                 -PermissionMode $PermissionMode -AllowedTools $AllowedTools -Tools $Tools -MaxBudgetUsd $MaxBudgetUsd `
                 -ResumeSessionId $r.SessionId -Name $Name -LogPath ($LogPath ? "$LogPath.nudge.json" : $null) `
-                -ProgressFile $ProgressFile -ActivityLabel $ActivityLabel -Activity $Activity `
+                -ProgressFile $ProgressFile -StopFile $StopFile -ActivityLabel $ActivityLabel -Activity $Activity `
                 -Prompt $(if ($Provider -eq 'Claude') { 'Your work is finished. Do not do any more work. Report your result now by calling the StructuredOutput tool with the required fields.' } else { "Your work is finished. Do not do any more work. Your previous JSON did not match the schema: $schemaError. Return the corrected JSON object now." })
         }
         finally { $script:InNudge = $false }
@@ -652,6 +653,10 @@ function Sync-WithIntegration {
         [void](Invoke-Git $wt @('merge', '--abort'))
         return "Merging $($Ctx.IntegrationBranch) failed:`n$($m.Output)"
     }
+    if ($Ctx.StopFile -and (Test-Path $Ctx.StopFile)) {
+        [void](Invoke-Git $wt @('merge', '--abort'))
+        return 'Integration sync deferred for graceful stop.'
+    }
     Write-OrchLog $Ctx.ProgressFile "[$($Ctx.Id)] merge conflicts with $($Ctx.IntegrationBranch); starting resolver"
     $prompt = Format-Template 'resolver.md' @{
         BRANCH = $Ctx.Branch; TASK_ID = $Ctx.Id; TITLE = $Ctx.Title; INTEGRATION = $Ctx.IntegrationBranch
@@ -662,7 +667,7 @@ function Sync-WithIntegration {
     $r = Invoke-Agent -Provider $Ctx.Provider -AgentPath $Ctx.AgentPath -WorkDir $wt -Prompt $prompt -Model $Ctx.ReviewModel `
         -PermissionMode 'acceptEdits' -AllowedTools $resolverTools `
         -MaxBudgetUsd $Ctx.MaxBudgetUsd -Name "orch:$($Ctx.Id):resolve" -LogPath (Join-Path $Ctx.LogDir "attempt-$Attempt-resolver.json") `
-        -ProgressFile $Ctx.ProgressFile -ActivityLabel "[$($Ctx.Id)] resolver:" -Activity 'heartbeat'
+        -ProgressFile $Ctx.ProgressFile -StopFile $Ctx.StopFile -ActivityLabel "[$($Ctx.Id)] resolver:" -Activity 'heartbeat'
     $Cost.Value += $r.Cost
     [void](Invoke-Git $wt @('add', '-A'))
     $left = (Invoke-Git $wt @('diff', '--name-only', '--diff-filter=U')).Output
@@ -689,10 +694,11 @@ function Invoke-Review {
         DIFF_STAT = (Invoke-Git $wt @('diff', '--stat', $range)).Output; DIFF = $diff
     }
     for ($try = 1; $try -le 2; $try++) {
+        if ($Ctx.StopFile -and (Test-Path $Ctx.StopFile)) { return @{ paused = $true } }
         $r = Invoke-Agent -Provider $Ctx.Provider -AgentPath $Ctx.AgentPath -WorkDir $wt -Prompt $prompt -Schema 'review-result.schema.json' `
             -Model $Ctx.ReviewModel -PermissionMode 'dontAsk' -Tools @('Read', 'Glob', 'Grep') -AllowedTools @('Read', 'Glob', 'Grep') `
             -MaxBudgetUsd $Ctx.MaxBudgetUsd -Name "orch:$($Ctx.Id):review" -LogPath (Join-Path $Ctx.LogDir "attempt-$Attempt-review-$try.json") `
-            -ProgressFile $Ctx.ProgressFile -ActivityLabel "[$($Ctx.Id)] review:" -Activity 'heartbeat'
+            -ProgressFile $Ctx.ProgressFile -StopFile $Ctx.StopFile -ActivityLabel "[$($Ctx.Id)] review:" -Activity 'heartbeat'
         $Cost.Value += $r.Cost
         if ($r.Ok) { return $r.Structured }
     }
@@ -706,11 +712,18 @@ function Invoke-TaskPipeline {
     $cost = 0.0
     $sessionId = $Ctx.SessionId
     $summary = $Ctx.PreviousSummary; $notes = $Ctx.PreviousNotes
-    $feedback = $null
+    $feedback = $Ctx.Feedback
     $workerRuns = 0
     $skipWorker = $Ctx.Mode -eq 'sync'
+    $specRejections = [int]$Ctx.SpecRejections
+    $retryMode = 'bounded'
     if (-not (Test-Path $Ctx.LogDir)) { New-Item -ItemType Directory -Path $Ctx.LogDir | Out-Null }
     $result = { param($ok, $err, $n) @{ Success = $ok; Summary = $summary; Notes = $notes; Error = $err; Cost = $cost; SessionId = $sessionId; Attempts = $n } }
+    $pause = { param($mode)
+        $r = & $result $false $null $workerRuns
+        $r.Paused = $true; $r.Mode = $mode; $r.Feedback = $feedback; $r.SpecRejections = $specRejections
+        $r
+    }
 
     try {
         if ($Ctx.Mode -eq 'fresh' -and $Ctx.Setup) {
@@ -719,11 +732,14 @@ function Invoke-TaskPipeline {
             if (-not $s.Ok) { return (& $result $false "Setup command failed:`n$($s.Tail)" $workerRuns) }
         }
 
-        for ($attempt = 1; $attempt -le $Ctx.MaxAttempts; $attempt++) {
+        for ($attempt = 1; $specRejections -lt 5 -and ($attempt -le $Ctx.MaxAttempts -or $retryMode -eq 'quality' -or $retryMode -eq 'spec'); $attempt++) {
+            if ($Ctx.StopFile -and (Test-Path $Ctx.StopFile)) { return (& $pause ($skipWorker ? 'sync' : 'resume')) }
+            $limit = if ($retryMode -eq 'quality') { 'unlimited' } elseif ($retryMode -eq 'spec') { '5 spec rejections' } else { "$($Ctx.MaxAttempts)" }
+            $retryMode = 'bounded'
             if (-not $skipWorker) {
                 if ($feedback -and $sessionId) {
                     $prompt = Format-Template 'retry.md' @{
-                        TASK_ID = $Ctx.Id; ATTEMPT = $attempt; MAX_ATTEMPTS = $Ctx.MaxAttempts
+                        TASK_ID = $Ctx.Id; ATTEMPT = $attempt; MAX_ATTEMPTS = $limit
                         FEEDBACK = $feedback; ACCEPTANCE = ($Ctx.Acceptance ?? '(none)')
                     }
                     $resume = $sessionId
@@ -737,13 +753,13 @@ function Invoke-TaskPipeline {
                     }
                     $resume = $null
                 }
-                & $log "attempt $attempt/$($Ctx.MaxAttempts): worker started ($($Ctx.Model))"
+                & $log "attempt $attempt/$($limit): worker started ($($Ctx.Model))"
                 $workerRuns++
                 $w = Invoke-Agent -Provider $Ctx.Provider -AgentPath $Ctx.AgentPath -WorkDir $Ctx.Worktree -Prompt $prompt -Schema 'worker-result.schema.json' `
                     -Model $Ctx.Model -Effort $Ctx.Effort -PermissionMode $Ctx.PermissionMode -AllowedTools $Ctx.AllowedTools `
                     -MaxBudgetUsd $Ctx.MaxBudgetUsd -ResumeSessionId $resume -Name "orch:$($Ctx.Id)" `
                     -LogPath (Join-Path $Ctx.LogDir "attempt-$attempt-worker.json") `
-                    -ProgressFile $Ctx.ProgressFile -ActivityLabel "[$($Ctx.Id)] worker:" -Activity 'heartbeat'
+                    -ProgressFile $Ctx.ProgressFile -StopFile $Ctx.StopFile -ActivityLabel "[$($Ctx.Id)] worker:" -Activity 'heartbeat'
                 $cost += $w.Cost
                 if ($w.SessionId) { $sessionId = $w.SessionId }
                 if ($w.Ok) { $out = $w.Structured }
@@ -765,6 +781,7 @@ function Invoke-TaskPipeline {
                 $ignore = if ($null -ne $Ctx.Ignore) { $Ctx.Ignore } else { $script:DefaultSettings.ignore }
                 $commitError = Save-WorkerChanges $Ctx.Worktree "orch($($Ctx.Id)): $($Ctx.Title)`n`nAttempt $attempt." $ignore
                 if ($commitError) { $feedback = $commitError; & $log 'commit failed'; continue }
+                if ($Ctx.StopFile -and (Test-Path $Ctx.StopFile)) { return (& $pause 'sync') }
             }
             $skipWorker = $false
 
@@ -782,7 +799,9 @@ function Invoke-TaskPipeline {
                 }
             }
 
+            if ($Ctx.StopFile -and (Test-Path $Ctx.StopFile)) { return (& $pause 'sync') }
             $syncError = Sync-WithIntegration $Ctx $attempt ([ref]$cost)
+            if ($Ctx.StopFile -and (Test-Path $Ctx.StopFile)) { return (& $pause 'sync') }
             if ($syncError) { $feedback = $syncError; & $log 'sync with integration failed'; continue }
 
             if ($Ctx.Acceptance) {
@@ -795,19 +814,23 @@ function Invoke-TaskPipeline {
             }
 
             if ($Ctx.Review) {
+                if ($Ctx.StopFile -and (Test-Path $Ctx.StopFile)) { return (& $pause 'sync') }
                 & $log "review started ($($Ctx.ReviewModel))"
                 $rv = Invoke-Review $Ctx $attempt ([ref]$cost)
+                if ($rv.paused) { return (& $pause 'sync') }
                 if ($rv.error) { return (& $result $false "Review agent failed: $($rv.error)" $workerRuns) }
                 if ($rv.spec_verdict -ne 'pass' -or $rv.quality_verdict -ne 'pass') {
                     $issues = @($rv.issues) | ForEach-Object { "- [$($_.severity)] $(if ($_.file) { "$($_.file): " })$($_.description)" }
                     $feedback = "The reviewer rejected the change (spec: $($rv.spec_verdict), quality: $($rv.quality_verdict)).`n$($rv.summary)`n" + ($issues -join "`n")
+                    if ($rv.spec_verdict -eq 'fail') { $specRejections++; $retryMode = 'spec' }
+                    else { $retryMode = 'quality' }
                     & $log "review rejected (spec $($rv.spec_verdict), quality $($rv.quality_verdict))"; continue
                 }
                 & $log 'review passed'
             }
             return (& $result $true $null $workerRuns)
         }
-        & $result $false "Gave up after $($Ctx.MaxAttempts) attempts. Last problem:`n$feedback" $workerRuns
+        & $result $false "Gave up after $($attempt - 1) attempts ($specRejections spec rejections). Last problem:`n$feedback" $workerRuns
     }
     catch {
         & $result $false "Pipeline error: $($_.Exception.Message)" $workerRuns

@@ -206,6 +206,8 @@ Where: **terminal**. Leave it open until the run ends.
   - live headless Claude or Copilot CLI process IDs on Windows, including on a running task
     line when the CLI's `orch:<task-id>` name matches; the process list is system-wide and
     names are not verified against this repository (resumed Copilot sessions may lack a name)
+  - the latest rejected review's verdict, summary and issues for running or failed tasks;
+    on short terminals it shows one issue and a count of the rest in the saved review log
   - every task's status
   - the last lines of the log
 
@@ -218,8 +220,19 @@ Where: **terminal**. Leave it open until the run ends.
 - Agents work in `C:\src\myapp.worktrees\<task-id>`. Don't edit files in `C:\src\myapp` or in
   those folders during the run.
 - The exit code is 0 when every task is done and 2 when some failed or were blocked.
-- To stop, press Ctrl+C. Running agent processes can keep going for a while; check Task
-  Manager. Rerun the same command later to resume: finished tasks stay finished.
+- To stop after active agent sessions finish, run this in a **second terminal**:
+  ```powershell
+  .\orchestrator\Request-OrchestratorStop.ps1 -RepoPath C:\src\myapp
+  ```
+  The runner finishes active sessions, saves their work in the task worktrees, and does not
+  start another agent session or task. It clears the request when it exits. Rerun the same
+  `Invoke-Orchestrator.ps1` command **without** `-RetryFailed` to resume paused tasks and
+  their review/acceptance checks; previously failed tasks remain failed. If you requested
+  a stop when no runner was active or changed your mind, clear the request with
+  `Request-OrchestratorStop.ps1 -RepoPath C:\src\myapp -Cancel`. A runner already started
+  before this feature was installed cannot observe the new stop request.
+- Ctrl+C interrupts the runner immediately. Running agent processes can keep going for a
+  while; check Task Manager. Prefer the stop request when you need to retain current work.
 
 ### Step 5: Fix failed tasks
 
@@ -334,8 +347,8 @@ never loses progress. The JSON Schema is
 | `effort` | none | `--effort` for workers: `low` … `max`. |
 | `permissionMode` | `acceptEdits` | Worker permission mode: `acceptEdits`, `auto`, `dontAsk`, `bypassPermissions`. |
 | `allowedTools` | `Read, Edit, Write, Glob, Grep, Bash, PowerShell` | Tools the worker may use without a prompt, in permission-rule syntax (e.g. `Bash(npm *)`). |
-| `maxAttempts` | `3` | Worker runs per task before it fails. |
 | `maxBudgetUsd` | `0` | `--max-budget-usd` for Claude calls; `0` means no cap. Copilot does not support this USD limit. |
+| `maxAttempts` | `3` | Limit for worker, ownership, merge-sync and acceptance failures. Review-only spec failures allow five rejections; quality-only failures have no count limit. |
 | `review` | `true` | Run the review agent after acceptance passes. |
 | `setup` | none | Command run once in each fresh worktree (e.g. `npm ci`, `uv sync`). |
 | `integrationCheck` | none | Command run in the integration worktree after each merge, after `setup`. A failure undoes the merge and fails the task. |
@@ -455,7 +468,11 @@ Each task runs this pipeline in its worktree (see `Invoke-TaskPipeline` in
    become feedback.
 
 When a gate fails, the same worker session is resumed (`--resume`) with the feedback
-([prompts/retry.md](orchestrator/prompts/retry.md)), up to `maxAttempts` worker runs.
+([prompts/retry.md](orchestrator/prompts/retry.md)). Non-review failures stop after
+`maxAttempts` attempts. Reviewer spec failures stop after five spec rejections (including
+mixed spec/quality failures); quality-only rejections retry without a count limit, until
+review passes, another kind of failure occurs, or the run is interrupted. Unlimited
+retries can incur ongoing model costs; Copilot has no USD budget cap.
 When all gates pass, the scheduler merges `orch/task/<id>` into `orch/integration` with
 `--no-ff`. If that merge conflicts (another task merged in the meantime), the task is
 re-queued in sync mode. A sync run repeats steps 5–7 in the same worktree without calling
@@ -486,7 +503,16 @@ appears in the worktrees.
 **Restarting**: rerun `Invoke-Orchestrator.ps1`. Done tasks stay done. Tasks left
 `running` by an interrupted run start again from scratch. Failed tasks stay failed until
 you pass `-RetryFailed`, usually after you edit their prompt or `owns`. You can add tasks
-to the plan between runs.
+to the plan between runs. A graceful stop instead records active tasks as `pending` with
+their worktrees and retry feedback intact; rerun without `-RetryFailed` to continue them.
+
+If a task fails after its work was committed (for example, its reviewer could not launch),
+`-RetryFailed` removes and recreates its worktree and branch. To keep that commit, first
+verify that its worktree is clean and the worker is no longer running. Then set that task's
+`status` to `pending` and `mode` to `sync` in `state.json` and rerun **without**
+`-RetryFailed`. Sync mode reuses the worktree, skips the worker, and reruns ownership,
+acceptance, and review checks before merging. Do not use sync mode for a task whose
+implementation or acceptance check needs repair.
 
 ## Command reference
 
@@ -495,6 +521,7 @@ to the plan between runs.
 | `Initialize-Project.ps1` | `-Provider Claude|Copilot`, `-Spec` and `-RepoPath` (required), `-Model` (`sonnet`), `-AgentPath`, `-MaxBudgetUsd` (`0` = no cap, Claude only), `-MaxAttempts` (`3`). Creates and checks the skeleton of a new repo; does nothing if the repo has commits. `Plan-Tasks.ps1` calls it. |
 | `Plan-Tasks.ps1` | `-Provider Claude|Copilot`, `-Spec` (required), `-RepoPath` (`.`), `-Out` (plan path), `-Model` (planner, `opus`), `-WorkerModel` (`sonnet`), `-Setup`, `-IntegrationCheck` (both default to `project.json`), `-AgentPath`, `-MaxBudgetUsd` (`0` = no cap, Claude only), `-Force` (overwrite) |
 | `Invoke-Orchestrator.ps1` | `-Provider Claude|Copilot` (required, even for `-DryRun`), `-RepoPath` (`.`), `-Plan`, `-MaxParallel` (`3`), `-AgentPath`, `-DryRun` (print waves and exit), `-RetryFailed`, `-PollSeconds` (`5`). Exit code 0 = all done, 2 = some failed or blocked, 1 = invalid plan. |
+| `Request-OrchestratorStop.ps1` | `-RepoPath` (`.`), `-Cancel` (remove a pending stop request). Graceful stop exits the runner with code 0 even if tasks are still pending. |
 | `Show-Tasks.ps1` | `-Provider Claude|Copilot` (required), `-RepoPath`, `-Plan`. Validates the plan and prints wave, status, deps, attempts, cost and detail per task. |
 | `Watch-Orchestrator.ps1` | `-Provider Claude|Copilot` (required), `-RepoPath`, `-Plan`, `-Once`. Watches either provider's JSON event stream. |
 | `Clear-Orchestrator.ps1` | `-Provider Claude|Copilot` (required), `-RepoPath`, `-All`. Without `-All`: removes task worktrees and `orch/task/*` branches, resets unfinished tasks to pending. With `-All`: also the integration worktree and branch, state, logs and progress. Supports `-WhatIf`. |

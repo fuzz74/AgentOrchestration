@@ -92,7 +92,8 @@ function Get-DepContext($task) {
 function Start-Task($task) {
     $s = $state.tasks[$task.id]
     $wtPath = Join-Path $paths.WorktreeRoot $task.id
-    if ($s.mode -eq 'sync' -and (Test-Path $wtPath)) {
+    if ($s.mode -in 'sync', 'resume') {
+        if (-not (Test-Path $wtPath)) { throw "Cannot resume $($task.id): worktree $wtPath is missing." }
         $wt = [pscustomobject]@{ Path = $wtPath; Branch = "orch/task/$($task.id)" }
     }
     else {
@@ -108,7 +109,8 @@ function Start-Task($task) {
         Worktree = $wt.Path; Branch = $wt.Branch; IntegrationBranch = $planObj.IntegrationBranch
         SpecText = $planObj.SpecText; DepContext = (Get-DepContext $task); Provider = $Provider; AgentPath = $agent
         LogDir = (Join-Path $paths.LogDir (Join-Path $task.id (Get-Date -Format 'yyyyMMdd-HHmmss')))
-        ProgressFile = $paths.ProgressFile; Mode = $s.mode; SessionId = $s.sessionId
+        ProgressFile = $paths.ProgressFile; StopFile = $paths.StopFile; Mode = $s.mode; SessionId = $s.sessionId
+        Feedback = $s.feedback; SpecRejections = [int]$s.specRejections
         PreviousSummary = $s.summary; PreviousNotes = $s.notes
     }
     $s.status = 'running'; $s.startedAt = (Get-Date).ToString('o'); $s.error = $null
@@ -132,6 +134,13 @@ function Complete-Task($id, $res) {
     if ($res.SessionId) { $s.sessionId = $res.SessionId }
     if ($res.Summary) { $s.summary = $res.Summary }
     if ($res.Notes) { $s.notes = $res.Notes }
+    if ($res.Paused) {
+        $s.status = 'pending'; $s.mode = $res.Mode; $s.feedback = $res.Feedback
+        $s.specRejections = $res.SpecRejections
+        & $log "[$id] paused after current session; worktree kept for resume"
+        return
+    }
+    $s.feedback = $null; $s.specRejections = 0
     if (-not $res.Success) {
         $s.status = 'failed'; $s.error = $res.Error; $s.finishedAt = (Get-Date).ToString('o')
         & $log "[$id] FAILED: $(Get-FirstLines $res.Error)"
@@ -173,6 +182,7 @@ function Complete-Task($id, $res) {
 }
 
 $interrupted = $true
+$stopRequested = $false
 try {
     while ($true) {
         foreach ($id in @($jobs.Keys)) {
@@ -188,12 +198,19 @@ try {
             Save-State $paths $state
         }
 
+        if (Test-Path $paths.StopFile) {
+            if (-not $stopRequested) { & $log 'Graceful stop requested; waiting for active sessions to finish' }
+            $stopRequested = $true
+        }
+        if ($stopRequested -and $jobs.Count -eq 0) { break }
+
         $ready = $planObj.Tasks | Where-Object {
             $state.tasks[$_.id].status -eq 'pending' -and
             @($_.deps | Where-Object { $state.tasks[$_].status -ne 'done' }).Count -eq 0
         } | Sort-Object @{ Expression = { $state.tasks[$_.id].mode -eq 'sync' }; Descending = $true },
                         @{ Expression = { $dependents[$_.id] }; Descending = $true }
         foreach ($t in $ready) {
+            if (Test-Path $paths.StopFile) { $stopRequested = $true; break }
             if ($jobs.Count -ge $MaxParallel) { break }
             $clash = $jobs.Keys | Where-Object { Test-OwnsOverlap $t.owns $byId[$_].owns } | Select-Object -First 1
             if ($clash) { continue }
@@ -213,6 +230,7 @@ finally {
         $jobs.Values | Remove-Job -Force -ErrorAction SilentlyContinue
     }
     Save-State $paths $state
+    if ($stopRequested -and -not $interrupted) { Remove-Item $paths.StopFile -Force -ErrorAction SilentlyContinue }
 }
 
 # Summary
@@ -234,6 +252,10 @@ $total = ($rows | Measure-Object CostUsd -Sum).Sum
 if (@($rows | Where-Object Status -ne 'done').Count -eq 0) {
     Write-Host "All tasks merged into $($planObj.IntegrationBranch). Review it, then merge it into your base branch, e.g.:" -ForegroundColor Green
     Write-Host "  git -C `"$($paths.Repo)`" merge --no-ff $($planObj.IntegrationBranch)"
+    exit 0
+}
+if ($stopRequested) {
+    Write-Host 'Stopped gracefully. Rerun the same Invoke-Orchestrator command to resume pending tasks (without -RetryFailed).' -ForegroundColor Yellow
     exit 0
 }
 Write-Host "Fix or edit the failed tasks, then rerun with -RetryFailed. Logs: $($paths.LogDir)" -ForegroundColor Yellow

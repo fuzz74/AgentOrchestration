@@ -7,7 +7,7 @@ $copilot = $args -contains '--output-format' -and $args[[array]::IndexOf($args, 
 if ($copilot -and $env:FAKE_REQUIRE_MODEL -and $args[[array]::IndexOf($args, '--model') + 1] -ne $env:FAKE_REQUIRE_MODEL) {
     throw "Expected Copilot model $env:FAKE_REQUIRE_MODEL"
 }
-$prompt = if ($copilot) { $args[[array]::IndexOf($args, '-p') + 1] } else { @($input) -join "`n" }
+$prompt = @($input) -join "`n"
 $role = if ($prompt -match 'orchestrator-role: (\w+)') { $Matches[1] } else { 'unknown' }
 $here = (Get-Location).Path
 $memo = Join-Path ([IO.Path]::GetTempPath()) 'fake-claude'
@@ -83,11 +83,34 @@ switch ($role) {
             # Every task appends to one shared file, so parallel tasks conflict on merge.
             if ($env:FAKE_SHARED) { Add-Content (Join-Path $here 'registry.txt') $id }
         }
+        if ($env:FAKE_STOP_TASK -eq $id) {
+            & (Join-Path $PSHOME ($IsWindows ? 'pwsh.exe' : 'pwsh')) -NoProfile -File (Join-Path $PSScriptRoot '../orchestrator/Request-OrchestratorStop.ps1') -RepoPath $env:FAKE_STOP_REPO
+            if ($LASTEXITCODE -ne 0) { throw 'Stop request script failed.' }
+        }
         # Set FAKE_NO_STRUCTURED to a task id to finish that task's first run without a structured result.
         if ($env:FAKE_NO_STRUCTURED -eq $id) { Out-Result $null "fake-$id" }
         Out-Result @{ status = 'done'; summary = "Fake work for $id"; notes_for_dependents = "See $dir/$id.txt" } "fake-$id"
     }
-    'reviewer' { Out-Result @{ spec_verdict = 'pass'; quality_verdict = 'pass'; issues = @(); summary = 'Looks fine.' } }
+    'reviewer' {
+        if ($prompt -match '## The task: (quality-only|spec-only|pause-retry) - ') {
+            $id = $Matches[1]
+            $counter = Join-Path $memo "$id.review-count"
+            $count = if (Test-Path $counter) { [int](Get-Content $counter) + 1 } else { 1 }
+            Set-Content $counter $count
+            if ($id -eq 'pause-retry' -and $count -eq 1) {
+                & (Join-Path $PSHOME ($IsWindows ? 'pwsh.exe' : 'pwsh')) -NoProfile -File (Join-Path $PSScriptRoot '../orchestrator/Request-OrchestratorStop.ps1') -RepoPath $env:FAKE_STOP_REPO
+                if ($LASTEXITCODE -ne 0) { throw 'Stop request script failed.' }
+                Out-Result @{ spec_verdict = 'pass'; quality_verdict = 'fail'; issues = @(@{ severity = 'major'; description = 'Fix the bug.' }); summary = 'Bug remains.' }
+            }
+            if ($id -eq 'quality-only' -and $count -le 4) {
+                Out-Result @{ spec_verdict = 'pass'; quality_verdict = 'fail'; issues = @(@{ severity = 'major'; description = 'Fix the bug.' }); summary = 'Bug remains.' }
+            }
+            if ($id -eq 'spec-only') {
+                Out-Result @{ spec_verdict = 'fail'; quality_verdict = 'fail'; issues = @(@{ severity = 'major'; description = 'Meet the spec.' }); summary = 'Spec remains incomplete.' }
+            }
+        }
+        Out-Result @{ spec_verdict = 'pass'; quality_verdict = 'pass'; issues = @(); summary = 'Looks fine.' }
+    }
     'resolver' {
         # Keep both sides: drop the conflict markers from each listed file and stage it.
         $section = ($prompt -split 'Conflicted files:')[1] -split 'Resolve every conflict' | Select-Object -First 1
