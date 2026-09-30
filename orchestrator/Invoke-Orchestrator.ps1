@@ -1,7 +1,7 @@
 #requires -Version 7.2
 <#
 .SYNOPSIS
-    Runs a task graph (.orchestrator/tasks.json) with parallel `claude -p` workers.
+    Runs a task graph (.orchestrator/tasks.json) with parallel Claude or Copilot workers.
 
 .DESCRIPTION
     Each ready task (all deps merged, no file-ownership overlap with running tasks) gets a
@@ -12,16 +12,17 @@
     unblocks their dependents. The run is restartable: state lives in .orchestrator/state.json.
 
 .EXAMPLE
-    ./Invoke-Orchestrator.ps1 -RepoPath C:\src\myapp -MaxParallel 3
+    ./Invoke-Orchestrator.ps1 -Provider Copilot -RepoPath C:\src\myapp -MaxParallel 3
 .EXAMPLE
-    ./Invoke-Orchestrator.ps1 -RepoPath C:\src\myapp -DryRun
+    ./Invoke-Orchestrator.ps1 -Provider Copilot -RepoPath C:\src\myapp -DryRun
 #>
 [CmdletBinding()]
 param(
+    [Parameter(Mandatory)][ValidateSet('Claude', 'Copilot')][string]$Provider,
     [string]$RepoPath = '.',
     [string]$Plan,
     [ValidateRange(1, 32)][int]$MaxParallel = 3,
-    [string]$ClaudePath,
+    [string]$AgentPath,
     [switch]$DryRun,
     [switch]$RetryFailed,
     [ValidateRange(1, 300)][int]$PollSeconds = 5
@@ -60,7 +61,7 @@ if ($DryRun) {
     exit 0
 }
 
-$claude = Resolve-ClaudePath $ClaudePath
+$agent = Resolve-AgentPath -Provider $Provider -AgentPath $AgentPath
 Initialize-RunDir $paths
 Initialize-Integration $paths $planObj
 $state = Read-State $paths
@@ -75,7 +76,7 @@ Save-State $paths $state
 
 $log = { param($m) Write-OrchLog $paths.ProgressFile $m }
 & $log "Run started: $($planObj.Tasks.Count) tasks, max $MaxParallel in parallel, integration branch $($planObj.IntegrationBranch)"
-& $log "claude: $claude"
+& $log "${Provider}: $agent"
 
 $streaming = (Get-Command Start-ThreadJob).Parameters.ContainsKey('StreamingHost')
 $jobs = @{}
@@ -105,7 +106,7 @@ function Start-Task($task) {
         MaxAttempts = [int]$settings.maxAttempts; MaxBudgetUsd = [double]$settings.maxBudgetUsd; Review = [bool]$settings.review
         Ignore = @($settings.ignore); EnforceOwns = [bool]$settings.enforceOwns; CommandTimeoutSec = [int]$settings.commandTimeoutSec; Setup = $settings.setup
         Worktree = $wt.Path; Branch = $wt.Branch; IntegrationBranch = $planObj.IntegrationBranch
-        SpecText = $planObj.SpecText; DepContext = (Get-DepContext $task); ClaudePath = $claude
+        SpecText = $planObj.SpecText; DepContext = (Get-DepContext $task); Provider = $Provider; AgentPath = $agent
         LogDir = (Join-Path $paths.LogDir (Join-Path $task.id (Get-Date -Format 'yyyyMMdd-HHmmss')))
         ProgressFile = $paths.ProgressFile; Mode = $s.mode; SessionId = $s.sessionId
         PreviousSummary = $s.summary; PreviousNotes = $s.notes
@@ -207,7 +208,7 @@ try {
 }
 finally {
     if ($interrupted -and $jobs.Count) {
-        Write-Warning "Interrupted. Stopping $($jobs.Count) task(s); they restart from scratch on the next run. Check for leftover claude processes."
+        Write-Warning "Interrupted. Stopping $($jobs.Count) task(s); they restart from scratch on the next run. Check for leftover $Provider processes."
         $jobs.Values | Stop-Job -ErrorAction SilentlyContinue
         $jobs.Values | Remove-Job -Force -ErrorAction SilentlyContinue
     }

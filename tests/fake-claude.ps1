@@ -3,13 +3,20 @@
 # Set FAKE_FAIL_ONCE to a task id to make that task's first worker attempt edit a file outside its owns.
 # No param block on purpose: CLI flags land in $args and the piped prompt in $input.
 
-$prompt = @($input) -join "`n"
+$copilot = $args -contains '--output-format' -and $args[[array]::IndexOf($args, '--output-format') + 1] -eq 'json'
+$prompt = if ($copilot) { $args[[array]::IndexOf($args, '-p') + 1] } else { @($input) -join "`n" }
 $role = if ($prompt -match 'orchestrator-role: (\w+)') { $Matches[1] } else { 'unknown' }
 $here = (Get-Location).Path
 $memo = Join-Path ([IO.Path]::GetTempPath()) 'fake-claude'
 New-Item -ItemType Directory -Force -Path $memo | Out-Null
 
 function Out-Result($structured, $session = [guid]::NewGuid().ToString()) {
+    if ($copilot) {
+        $content = if ($structured) { $structured | ConvertTo-Json -Depth 20 -Compress } else { 'ok' }
+        @{ type = 'assistant.message'; data = @{ phase = 'final_answer'; content = $content } } | ConvertTo-Json -Depth 20 -Compress
+        @{ type = 'result'; sessionId = $session; exitCode = 0 } | ConvertTo-Json -Compress
+        exit 0
+    }
     [ordered]@{
         type = 'result'; subtype = 'success'; is_error = $false; session_id = $session
         total_cost_usd = 0.01; result = 'ok'; structured_output = $structured
@@ -19,6 +26,10 @@ function Out-Result($structured, $session = [guid]::NewGuid().ToString()) {
 
 # The orchestrator's follow-up when a run finished without a structured result.
 if ($prompt -match 'Report your result now') {
+    $sid = $args[[array]::IndexOf($args, '--resume') + 1]
+    Out-Result @{ status = 'done'; summary = "Result after nudge ($sid)"; notes_for_dependents = '' } $sid
+}
+if ($prompt -match 'Your previous JSON did not match the schema') {
     $sid = $args[[array]::IndexOf($args, '--resume') + 1]
     Out-Result @{ status = 'done'; summary = "Result after nudge ($sid)"; notes_for_dependents = '' } $sid
 }

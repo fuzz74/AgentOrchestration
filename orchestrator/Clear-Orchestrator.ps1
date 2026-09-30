@@ -3,11 +3,11 @@
 .SYNOPSIS
     Removes task worktrees and orch/task/* branches. Optionally also the integration branch and run state.
 .EXAMPLE
-    ./Clear-Orchestrator.ps1 -RepoPath C:\src\myapp                 # task worktrees + branches only
-    ./Clear-Orchestrator.ps1 -RepoPath C:\src\myapp -All            # also integration branch, state and logs
+    ./Clear-Orchestrator.ps1 -Provider Copilot -RepoPath C:\src\myapp                 # task worktrees + branches only
+    ./Clear-Orchestrator.ps1 -Provider Copilot -RepoPath C:\src\myapp -All            # also integration branch, state and logs
 #>
 [CmdletBinding(SupportsShouldProcess)]
-param([string]$RepoPath = '.', [switch]$All)
+param([Parameter(Mandatory)][ValidateSet('Claude', 'Copilot')][string]$Provider, [string]$RepoPath = '.', [switch]$All)
 
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'Orchestrator.psm1') -Force

@@ -7,7 +7,7 @@ description: Write a spec for the agent orchestrator together with the user, by 
 
 You help the user write one Markdown spec that `/plan-tasks` or `orchestrator/Plan-Tasks.ps1`
 turns into `.orchestrator/tasks.json`. The orchestrator then builds each task with a separate
-`claude -p` worker in its own git worktree, in parallel where the graph allows. Each task is
+Claude or Copilot headless worker in its own git worktree, in parallel where the graph allows. Each task is
 checked by an acceptance command and a review agent.
 
 Who reads the spec decides what goes in it:
@@ -34,13 +34,11 @@ the spec.
    has a draft spec, start from it: review it against the rules below and interview only
    for the gaps.
 
-   **Access.** The target repo is usually outside this workspace. Claude Code then asks
-   before each read or write there. Check `.claude/settings.local.json` in this workspace.
-   If `permissions.additionalDirectories` doesn't list the repo or a folder above it, offer
-   to add one. Suggest the repo's parent folder (for example `C:\src`), which covers every
-   future project there, or the repo itself. Edit the file only after the user agrees,
-   and keep its other settings. Claude Code shows the edit for approval, and the running
-   session picks up the change at once.
+  **Access.** The target repo is usually outside this workspace. Ask for approval to access
+  it using the active assistant's directory permissions. In Claude Code, use
+  `.claude/settings.local.json` and `permissions.additionalDirectories`; in Copilot CLI,
+  use `--add-dir <repo>` or the session's directory permission flow. Never change access
+  settings without the user's approval.
 2. **Explore** the target repo (read-only): language, layout, test runner, conventions, and
    what already exists. Don't ask what the code can tell you. If the folder doesn't exist
    or has no commits, it's a **new project**. Planning then creates its skeleton from the
@@ -83,7 +81,7 @@ the spec.
 10. **User review.** Give the path and ask the user to read the spec. Revise until they
     approve.
 11. **Hand off.** Offer `/plan-tasks`, or give the command
-    `.\orchestrator\Plan-Tasks.ps1 -Spec <path> -RepoPath <repo>`. For a new project, that
+    `.\orchestrator\Plan-Tasks.ps1 -Provider <Claude|Copilot> -Spec <path> -RepoPath <repo>`. Ask which provider to use. For a new project, that
     command creates the skeleton first and takes the setup and check commands from it. For
     an existing repo, add `-Setup '<setup command>' -IntegrationCheck '<whole-project check>'`.
     Don't plan or run unless asked.

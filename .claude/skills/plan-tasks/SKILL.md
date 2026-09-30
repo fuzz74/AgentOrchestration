@@ -7,7 +7,7 @@ description: Turn a spec into an orchestrator task graph (.orchestrator/tasks.js
 
 You help the user write `.orchestrator/tasks.json` in a target git repo. The orchestrator
 (`orchestrator/Invoke-Orchestrator.ps1` in the AgentOrchestration repo) runs each task
-with a separate `claude -p` worker in its own git worktree, in parallel where the graph
+with a separate Claude or Copilot headless worker in its own git worktree, in parallel where the graph
 allows, gates each on an acceptance command and a review agent, and merges approved work
 into `orch/integration`.
 
@@ -20,15 +20,14 @@ you discuss the split with the user before writing it.
    spec is only in the conversation, save it as `.orchestrator/spec.md` in the target repo.
    If there is no real spec yet (only an idea), suggest writing one first with `/write-spec`.
 
-   **Access.** The target repo is usually outside this workspace. Claude Code then asks
-   before each read or write there. Check `.claude/settings.local.json` in this workspace.
-   If `permissions.additionalDirectories` doesn't list the repo or a folder above it, offer
-   to add one. Suggest the repo's parent folder (for example `C:\src`), which covers every
-   future project there, or the repo itself. Edit the file only after the user agrees,
-   and keep its other settings. Claude Code shows the edit for approval, and the running
-   session picks up the change at once.
+   **Access.** The target repo is usually outside this workspace. Ask for approval to access
+   it using the active assistant's directory permissions. In Claude Code, use
+   `.claude/settings.local.json` and `permissions.additionalDirectories`; in Copilot CLI,
+   use `--add-dir <repo>` or the session's directory permission flow. Never change access
+   settings without the user's approval.
+   Ask which headless provider (Claude or Copilot) to use for the scripted stages.
 2. If the target repo doesn't exist or has no commits yet, create its skeleton first:
-   run `orchestrator/Initialize-Project.ps1 -Spec <spec> -RepoPath <repo>` from the
+   run `orchestrator/Initialize-Project.ps1 -Provider <Claude|Copilot> -Spec <spec> -RepoPath <repo>` from the
    AgentOrchestration repo. It needs a spec that names the stack. It runs `git init`, lets
    a bootstrap agent create the manifest, test runner and one smoke test, commits them, and
    checks them in a clean checkout. It writes `setup` and `integrationCheck` to
@@ -53,8 +52,8 @@ you discuss the split with the user before writing it.
      ]
    }
    ```
-6. Validate by running `orchestrator/Show-Tasks.ps1 -RepoPath <repo>` (it reports bad ids,
-   unknown deps and cycles) and `orchestrator/Invoke-Orchestrator.ps1 -RepoPath <repo> -DryRun`
+6. Validate by running `orchestrator/Show-Tasks.ps1 -Provider <Claude|Copilot> -RepoPath <repo>` (it reports bad ids,
+   unknown deps and cycles) and `orchestrator/Invoke-Orchestrator.ps1 -Provider <Claude|Copilot> -RepoPath <repo> -DryRun`
    (it prints the waves and same-wave owns overlaps). Fix anything reported.
 7. Tell the user the command to start the run; do not start it yourself unless asked.
 

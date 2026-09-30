@@ -10,12 +10,13 @@
     logs, and redraws every few seconds. Press Ctrl+C to quit; the run is not affected.
 
 .EXAMPLE
-    ./Watch-Orchestrator.ps1 -RepoPath C:\src\myapp
+    ./Watch-Orchestrator.ps1 -Provider Copilot -RepoPath C:\src\myapp
 .EXAMPLE
-    ./Watch-Orchestrator.ps1 -RepoPath C:\src\myapp -Once    # print one snapshot and exit
+    ./Watch-Orchestrator.ps1 -Provider Copilot -RepoPath C:\src\myapp -Once    # print one snapshot and exit
 #>
 [CmdletBinding()]
 param(
+    [Parameter(Mandatory)][ValidateSet('Claude', 'Copilot')][string]$Provider,
     [string]$RepoPath = '.',
     [string]$Plan,
     [ValidateRange(1, 60)][int]$RefreshSeconds = 2,
@@ -62,6 +63,14 @@ function Update-Feed([string]$File, [string]$WorkDir) {
         if (-not $line.TrimStart().StartsWith('{')) { continue }
         try { $ev = $line | ConvertFrom-Json -AsHashtable } catch { continue }
         if ($ev.type -eq 'result') { $f.Done = $true; continue }
+        if ($ev.type -eq 'tool.execution_start') {
+            $f.Calls++; $f.Recent.Add("$($ev.data.toolName) $($ev.data.arguments.path ?? '')".Trim())
+            continue
+        }
+        if ($ev.type -eq 'assistant.message' -and $ev.data.phase -eq 'final_answer') {
+            $f.Recent.Add('» ' + (("$($ev.data.content)".Trim() -split "`r?`n")[0]))
+            continue
+        }
         if ($ev.type -ne 'assistant') { continue }
         foreach ($b in @($ev.message.content)) {
             if ($b -isnot [Collections.IDictionary]) { continue }

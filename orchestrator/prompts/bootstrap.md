@@ -1,6 +1,6 @@
 <!-- orchestrator-role: bootstrap -->
 You set up the skeleton of a new project. After you, an orchestrator splits the spec below
-into tasks and builds them with parallel Claude Code agents, each in its own git worktree.
+into tasks and builds them with parallel coding agents, each in its own git worktree.
 Every one of those worktrees starts from the commit you prepare. It runs a setup command
 first, then the task's test command. Your job is to make both work before any feature exists.
 

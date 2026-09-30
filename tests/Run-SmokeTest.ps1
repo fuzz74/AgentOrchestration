@@ -7,7 +7,10 @@
     diamond: contracts -> a, b -> wire-up), makes feature-b fail its first attempt, and checks
     everything lands on orch/integration.
 #>
-param([string]$WorkDir = (Join-Path ([IO.Path]::GetTempPath()) "orch-smoke-$(Get-Random)"))
+param(
+    [Parameter(Mandatory)][ValidateSet('Claude', 'Copilot')][string]$Provider,
+    [string]$WorkDir = (Join-Path ([IO.Path]::GetTempPath()) "orch-smoke-$(Get-Random)")
+)
 
 $ErrorActionPreference = 'Stop'
 $orch = Join-Path $PSScriptRoot '..\orchestrator'
@@ -27,13 +30,13 @@ $env:FAKE_FAIL_ONCE = 'feature-b'
 $env:FAKE_SHARED = '1'
 $env:FAKE_NO_STRUCTURED = 'contracts'
 try {
-    & (Join-Path $orch 'Plan-Tasks.ps1') -Spec $spec -RepoPath $repo -ClaudePath $fake
+    & (Join-Path $orch 'Plan-Tasks.ps1') -Provider $Provider -Spec $spec -RepoPath $repo -AgentPath $fake
     # Let every task touch registry.txt so the parallel tasks conflict and the resolver path runs.
     $planFile = Join-Path $repo '.orchestrator/tasks.json'
     $planDoc = Get-Content $planFile -Raw | ConvertFrom-Json -AsHashtable
     $planDoc.settings.shared = @('registry.txt')
     $planDoc | ConvertTo-Json -Depth 10 | Set-Content $planFile
-    & (Join-Path $orch 'Invoke-Orchestrator.ps1') -RepoPath $repo -ClaudePath $fake -MaxParallel 2 -PollSeconds 1
+    & (Join-Path $orch 'Invoke-Orchestrator.ps1') -Provider $Provider -RepoPath $repo -AgentPath $fake -MaxParallel 2 -PollSeconds 1
     $exit = $LASTEXITCODE
 }
 finally {
@@ -59,8 +62,8 @@ $checks = [ordered]@{
     'wire-up saw its deps'              = (Get-Content (Get-ChildItem (Join-Path $repo '.orchestrator/logs/wire-up') -Recurse -Filter 'attempt-1-worker.json.prompt.md' | Select-Object -First 1) -Raw) -match 'See a/feature-a.txt'
 }
 $checks.GetEnumerator() | ForEach-Object { Write-Host ("{0,-38} {1}" -f $_.Key, ($_.Value ? 'PASS' : 'FAIL')) -ForegroundColor ($_.Value ? 'Green' : 'Red') }
-& (Join-Path $orch 'Show-Tasks.ps1') -RepoPath $repo
+& (Join-Path $orch 'Show-Tasks.ps1') -Provider $Provider -RepoPath $repo
 if ($checks.Values -contains $false) { Write-Host "Smoke test FAILED. Repo left at $repo"; exit 1 }
-& (Join-Path $orch 'Clear-Orchestrator.ps1') -RepoPath $repo -All
+& (Join-Path $orch 'Clear-Orchestrator.ps1') -Provider $Provider -RepoPath $repo -All
 Remove-Item $WorkDir -Recurse -Force
 Write-Host 'Smoke test passed.' -ForegroundColor Green

@@ -7,24 +7,25 @@
     A new project (the folder does not exist, is not a git repo, or has no commits) first gets
     its skeleton from Initialize-Project.ps1, which also supplies the default -Setup and
     -IntegrationCheck commands.
-    Then runs `claude -p` in the target repo with only Read/Glob/Grep, asks for a plan that matches
+    Then runs the selected headless CLI in the target repo with read-only tools, asks for a plan that matches
     schemas/plan-output.schema.json, validates the graph (ids, deps, cycles) and writes
     tasks.json with default settings. If the graph is invalid the planner gets one chance to fix it.
     Review and edit the file before running Invoke-Orchestrator.ps1.
 
 .EXAMPLE
-    ./Plan-Tasks.ps1 -Spec .\spec.md -RepoPath C:\src\myapp -Setup 'npm ci'
+    ./Plan-Tasks.ps1 -Provider Copilot -Spec .\spec.md -RepoPath C:\src\myapp -Setup 'npm ci'
 #>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string]$Spec,
+    [Parameter(Mandatory)][ValidateSet('Claude', 'Copilot')][string]$Provider,
     [string]$RepoPath = '.',
     [string]$Out,
     [string]$Model = 'opus',
     [string]$WorkerModel = 'sonnet',
     [string]$Setup,
     [string]$IntegrationCheck,
-    [string]$ClaudePath,
+    [string]$AgentPath,
     [double]$MaxBudgetUsd = 5,
     [switch]$Force
 )
@@ -34,7 +35,7 @@ Import-Module (Join-Path $PSScriptRoot 'Orchestrator.psm1') -Force
 
 # A new project gets its skeleton (git repo, manifest, test runner) before planning.
 & (Join-Path $PSScriptRoot 'Initialize-Project.ps1') -Spec $Spec -RepoPath $RepoPath -Model $WorkerModel `
-    -ClaudePath $ClaudePath -MaxBudgetUsd $MaxBudgetUsd
+    -Provider $Provider -AgentPath $AgentPath -MaxBudgetUsd $MaxBudgetUsd
 
 $paths = Get-OrchPaths -RepoPath $RepoPath -PlanFile $Out
 $projectFile = Join-Path $paths.RunDir 'project.json'
@@ -45,7 +46,7 @@ if (Test-Path $projectFile) {
 }
 if ((Test-Path $paths.PlanFile) -and -not $Force) { throw "$($paths.PlanFile) exists. Use -Force to overwrite it." }
 Initialize-RunDir $paths
-$claude = Resolve-ClaudePath $ClaudePath
+$agent = Resolve-AgentPath -Provider $Provider -AgentPath $AgentPath
 
 # Keep the spec next to the plan unless it already lives in the repo.
 $specFull = (Resolve-Path $Spec).Path
@@ -63,12 +64,12 @@ $logBase = Join-Path $paths.LogDir ("planner-{0}" -f (Get-Date -Format 'yyyyMMdd
 Write-OrchLog $paths.ProgressFile "Planning from $specRel with $Model"
 
 $call = @{
-    ClaudePath = $claude; WorkDir = $paths.Repo; Schema = 'plan-output.schema.json'; Model = $Model
+    Provider = $Provider; AgentPath = $agent; WorkDir = $paths.Repo; Schema = 'plan-output.schema.json'; Model = $Model
     PermissionMode = 'dontAsk'; Tools = @('Read', 'Glob', 'Grep'); AllowedTools = @('Read', 'Glob', 'Grep')
     MaxBudgetUsd = $MaxBudgetUsd; Name = 'orch:planner'
     ProgressFile = $paths.ProgressFile; ActivityLabel = '[planner]'; Activity = 'each'
 }
-$r = Invoke-Claude @call -Prompt $prompt -LogPath "$logBase-1.json"
+$r = Invoke-Agent @call -Prompt $prompt -LogPath "$logBase-1.json"
 $cost = $r.Cost
 if (-not $r.Ok) { throw "Planner failed: $($r.Error)" }
 
@@ -110,13 +111,13 @@ for ($round = 1; $round -le 2; $round++) {
     }
     Write-OrchLog $paths.ProgressFile "Plan invalid ($($problems.Count) problem(s)); asking the planner to fix it"
     $fix = "Your plan has these problems. Return the whole corrected plan.`n" + (($problems | ForEach-Object { "- $_" }) -join "`n")
-    $r = Invoke-Claude @call -Prompt $fix -ResumeSessionId $r.SessionId -LogPath "$logBase-2.json"
+    $r = Invoke-Agent @call -Prompt $fix -ResumeSessionId $r.SessionId -LogPath "$logBase-2.json"
     $cost += $r.Cost
     if (-not $r.Ok) { throw "Planner failed while fixing the plan: $($r.Error)" }
 }
 
 Write-OrchLog $paths.ProgressFile ("Plan written: {0} tasks, {1:N2} USD" -f $doc.tasks.Count, $cost)
 if ($r.Structured.notes) { Write-Host "`nPlanner notes:`n$($r.Structured.notes)`n" -ForegroundColor Yellow }
-& (Join-Path $PSScriptRoot 'Invoke-Orchestrator.ps1') -RepoPath $paths.Repo -Plan $paths.PlanFile -DryRun
+& (Join-Path $PSScriptRoot 'Invoke-Orchestrator.ps1') -Provider $Provider -RepoPath $paths.Repo -Plan $paths.PlanFile -DryRun
 Write-Host "`nReview and edit $($paths.PlanFile), then run:" -ForegroundColor Green
-Write-Host "  $(Join-Path $PSScriptRoot 'Invoke-Orchestrator.ps1') -RepoPath `"$($paths.Repo)`""
+Write-Host "  $(Join-Path $PSScriptRoot 'Invoke-Orchestrator.ps1') -Provider $Provider -RepoPath `"$($paths.Repo)`""

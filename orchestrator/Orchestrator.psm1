@@ -1,6 +1,6 @@
 #requires -Version 7.2
 # Shared functions for the agent orchestrator: plan and state files, the task graph,
-# git worktrees, calls to `claude -p`, and the per-task pipeline
+# git worktrees, headless CLI calls, and the per-task pipeline
 # (worker -> commit -> ownership check -> sync -> acceptance -> review).
 
 $script:PromptDir = Join-Path $PSScriptRoot 'prompts'
@@ -26,7 +26,7 @@ $script:DefaultSettings = [ordered]@{
 
 function Get-DefaultSettings { [ordered]@{} + $script:DefaultSettings }
 
-#region Paths, logging, claude discovery
+#region Paths, logging, agent discovery
 
 function Get-OrchPaths {
     param([string]$RepoPath = '.', [string]$PlanFile)
@@ -80,23 +80,39 @@ function Write-OrchLog {
     }
 }
 
-function Resolve-ClaudePath {
-    param([string]$ClaudePath)
-    if ($ClaudePath) { return (Resolve-Path $ClaudePath).Path }
-    if ($env:ORCH_CLAUDE) { return $env:ORCH_CLAUDE }
-    $cmd = Get-Command claude -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+function Resolve-AgentPath {
+    param([ValidateSet('Claude', 'Copilot')][string]$Provider, [string]$AgentPath)
+    if ($AgentPath) { return (Resolve-Path $AgentPath).Path }
+    $override = [Environment]::GetEnvironmentVariable("ORCH_$($Provider.ToUpperInvariant())")
+    if ($override) { return (Resolve-Path $override).Path }
+    $commandName = if ($Provider -eq 'Copilot') { 'copilot.exe' } else { 'claude' }
+    $cmd = Get-Command $commandName -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($cmd) { return $cmd.Source }
+    if ($Provider -eq 'Copilot') {
+        $cmd = Get-Command copilot -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($cmd -and $cmd.Source -notlike '*github.copilot-chat*') { return $cmd.Source }
+    }
     # Fall back to the binary bundled with the VS Code extension (newest version first).
     $extRoot = Join-Path $HOME '.vscode/extensions'
-    $candidates = Get-ChildItem $extRoot -Directory -Filter 'anthropic.claude-code-*' -ErrorAction SilentlyContinue |
-        Sort-Object { try { [version]($_.Name -replace '^anthropic\.claude-code-([\d.]+).*$', '$1') } catch { [version]'0.0' } } -Descending
+    $filter = if ($Provider -eq 'Claude') { 'anthropic.claude-code-*' } else { 'github.copilot-chat-*' }
+    $candidates = Get-ChildItem $extRoot -Directory -Filter $filter -ErrorAction SilentlyContinue |
+        Sort-Object { try { [version]($_.Name -replace '^.*?-([\d.]+).*$', '$1') } catch { [version]'0.0' } } -Descending
     foreach ($dir in $candidates) {
-        foreach ($name in 'claude.exe', 'claude') {
-            $p = Join-Path $dir.FullName "resources/native-binary/$name"
+        $relativePaths = if ($Provider -eq 'Claude') { @('resources/native-binary/claude.exe', 'resources/native-binary/claude') }
+                         else { @('dist/copilot.exe', 'resources/copilot.exe', 'resources/app/copilot.exe') }
+        foreach ($name in $relativePaths) {
+            $p = Join-Path $dir.FullName $name
             if (Test-Path $p) { return $p }
         }
     }
-    throw 'Could not find claude. Put it on PATH, set $env:ORCH_CLAUDE, or pass -ClaudePath.'
+    if ($Provider -eq 'Copilot') {
+        $managed = Join-Path $env:APPDATA 'Code/User/globalStorage/github.copilot-chat/copilotCli'
+        foreach ($name in 'copilot.exe', 'copilot.bat', 'copilot') {
+            $path = Join-Path $managed $name
+            if (Test-Path $path) { return $path }
+        }
+    }
+    throw "Could not find $Provider. Put it on PATH, set ORCH_$($Provider.ToUpperInvariant()), or pass -AgentPath."
 }
 
 #endregion
@@ -399,7 +415,7 @@ function Invoke-ShellCommand {
 
 #endregion
 
-#region claude
+#region agent CLI
 
 function Get-CompactSchema {
     param([string]$Name)
@@ -440,27 +456,52 @@ function Format-ToolUse {
     if ($detail) { "$($Block.name) $detail" } else { $Block.name }
 }
 
-function Invoke-Claude {
+function Invoke-Agent {
     # One non-interactive claude call. The prompt goes in on stdin. Output is read as a stream of JSON
     # events (kept in <LogPath>.events.jsonl); the final result event is logged and parsed.
     # Activity: 'each' logs every tool call, 'heartbeat' logs a summary at most once a minute.
     param(
-        [string]$ClaudePath, [string]$WorkDir, [string]$Prompt, [string]$Schema,
+        [ValidateSet('Claude', 'Copilot')][string]$Provider = 'Claude', [string]$AgentPath, [string]$WorkDir, [string]$Prompt, [string]$Schema,
         [string]$Model, [string]$Effort, [string]$PermissionMode, [string[]]$AllowedTools, [string[]]$Tools,
         [double]$MaxBudgetUsd, [string]$ResumeSessionId, [string]$Name, [string]$LogPath,
         [string]$ProgressFile, [string]$ActivityLabel, [ValidateSet('none', 'each', 'heartbeat')][string]$Activity = 'none'
     )
     $cliArgs = [Collections.Generic.List[string]]::new()
-    $cliArgs.AddRange([string[]]@('-p', '--output-format', 'stream-json', '--verbose', '--permission-prompts', 'none'))
-    if ($Schema) { $cliArgs.AddRange([string[]]@('--json-schema', (Get-CompactSchema $Schema))) }
-    if ($Model) { $cliArgs.AddRange([string[]]@('--model', $Model)) }
-    if ($Effort) { $cliArgs.AddRange([string[]]@('--effort', $Effort)) }
-    if ($PermissionMode) { $cliArgs.AddRange([string[]]@('--permission-mode', $PermissionMode)) }
-    if ($AllowedTools) { $cliArgs.AddRange([string[]]@('--allowedTools', ($AllowedTools -join ','))) }
-    if ($Tools) { $cliArgs.AddRange([string[]]@('--tools', ($Tools -join ','))) }
-    if ($MaxBudgetUsd -gt 0) { $cliArgs.AddRange([string[]]@('--max-budget-usd', [string]$MaxBudgetUsd)) }
-    if ($ResumeSessionId) { $cliArgs.AddRange([string[]]@('--resume', $ResumeSessionId)) }
-    if ($Name) { $cliArgs.AddRange([string[]]@('--name', $Name)) }
+    if ($Provider -eq 'Claude') {
+        $cliArgs.AddRange([string[]]@('-p', '--output-format', 'stream-json', '--verbose', '--permission-prompts', 'none'))
+        if ($Schema) { $cliArgs.AddRange([string[]]@('--json-schema', (Get-CompactSchema $Schema))) }
+        if ($Model) { $cliArgs.AddRange([string[]]@('--model', $Model)) }
+        if ($Effort) { $cliArgs.AddRange([string[]]@('--effort', $Effort)) }
+        if ($PermissionMode) { $cliArgs.AddRange([string[]]@('--permission-mode', $PermissionMode)) }
+        if ($AllowedTools) { $cliArgs.AddRange([string[]]@('--allowedTools', ($AllowedTools -join ','))) }
+        if ($Tools) { $cliArgs.AddRange([string[]]@('--tools', ($Tools -join ','))) }
+        if ($MaxBudgetUsd -gt 0) { $cliArgs.AddRange([string[]]@('--max-budget-usd', [string]$MaxBudgetUsd)) }
+        if ($ResumeSessionId) { $cliArgs.AddRange([string[]]@('--resume', $ResumeSessionId)) }
+        if ($Name) { $cliArgs.AddRange([string[]]@('--name', $Name)) }
+    }
+    else {
+        if ($Schema) {
+            $Prompt += "`n`nReturn ONLY a JSON object matching this schema (no Markdown fence or explanation):`n$(Get-CompactSchema $Schema)"
+        }
+        $cliArgs.AddRange([string[]]@('--output-format', 'json', '--allow-all-tools'))
+        if ($Model) { $cliArgs.AddRange([string[]]@('--model', $(if ($Model -in 'sonnet', 'opus', 'haiku') { 'auto' } else { $Model }))) }
+        if ($Effort -in 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max') { $cliArgs.AddRange([string[]]@('--reasoning-effort', $Effort)) }
+        $requested = if ($Tools) { $Tools } else { $AllowedTools }
+        if ($requested) {
+            $available = foreach ($tool in $requested) {
+                switch -Regex ($tool) {
+                    '^(Read|Glob|Grep)$' { 'view'; break }
+                    '^(Edit|Write)$' { 'apply_patch'; break }
+                    '^(Bash|PowerShell)$' { 'powershell'; break }
+                    default { throw "Copilot cannot enforce tool rule '$tool'. Use whole-tool names in allowedTools." }
+                }
+            }
+            $cliArgs.Add("--available-tools=$(($available | Select-Object -Unique) -join ',')")
+        }
+        if ($ResumeSessionId) { $cliArgs.AddRange([string[]]@('--resume', $ResumeSessionId)) }
+        if ($Name -and -not $ResumeSessionId) { $cliArgs.AddRange([string[]]@('--name', $Name)) }
+        $cliArgs.AddRange([string[]]@('-p', $Prompt))
+    }
 
     if ($LogPath) { Set-Content -Path "$LogPath.prompt.md" -Value $Prompt -Encoding utf8 }
     $errPath = if ($LogPath) { "$LogPath.stderr" } else { [IO.Path]::GetTempFileName() }
@@ -468,16 +509,25 @@ function Invoke-Claude {
     $label = if ($ActivityLabel) { "$ActivityLabel " } else { '' }
     $act = @{ Calls = 0; Last = $null; Reported = 0; Next = (Get-Date).AddSeconds(60) }
     $parsed = $null
+    $copilotText = $null
     $other = [Collections.Generic.List[string]]::new()
     Push-Location $WorkDir
     try {
-        $Prompt | & $ClaudePath @cliArgs 2> $errPath | ForEach-Object {
+        $(if ($Provider -eq 'Claude') { $Prompt } else { $null }) | & $AgentPath @cliArgs 2> $errPath | ForEach-Object {
             $line = "$_"
             if ($events) { $events.WriteLine($line); $events.Flush() }
             $ev = $null
             if ($line.TrimStart().StartsWith('{')) { try { $ev = $line | ConvertFrom-Json -AsHashtable } catch { } }
             if (-not $ev) { if ($line.Trim()) { $other.Add($line) }; return }
             if ($ev.type -eq 'result') { $parsed = $ev; return }
+            if ($Provider -eq 'Copilot') {
+                if ($ev.type -eq 'assistant.message' -and $ev.data.phase -eq 'final_answer') { $copilotText = $ev.data.content }
+                if ($ev.type -eq 'tool.execution_start' -and $Activity -ne 'none') {
+                    $act.Calls++; $act.Last = "tool: $($ev.data.toolName)"
+                    if ($Activity -eq 'each') { Write-OrchLog $ProgressFile "$label$($act.Last)" }
+                }
+                return
+            }
             if ($ev.type -ne 'assistant' -or $Activity -eq 'none') { return }
             foreach ($block in @($ev.message.content)) {
                 if ($block -isnot [Collections.IDictionary] -or $block.type -ne 'tool_use') { continue }
@@ -500,23 +550,33 @@ function Invoke-Claude {
     $text = if ($parsed) { $parsed | ConvertTo-Json -Depth 50 } else { ($other -join "`n").Trim() }
     if ($LogPath) { Set-Content -Path $LogPath -Value $text -Encoding utf8 }
     $stderrTail = ((Get-Content $errPath -ErrorAction SilentlyContinue) | Select-Object -Last 20) -join "`n"
-    $finished = $exit -eq 0 -and $parsed -and -not $parsed.is_error
-    $ok = $finished -and (-not $Schema -or $parsed.structured_output)
+    $finished = $exit -eq 0 -and $parsed -and $(if ($Provider -eq 'Copilot') { $parsed.exitCode -eq 0 } else { -not $parsed.is_error })
+    $structured = $parsed.structured_output
+    $schemaError = $null
+    if ($Provider -eq 'Copilot' -and $Schema -and $copilotText) {
+        $jsonText = $copilotText.Trim() -replace '^```(?:json)?\s*', '' -replace '\s*```$', ''
+        try {
+            if (Test-Json -Json $jsonText -Schema (Get-CompactSchema $Schema) -ErrorAction Stop) {
+                $structured = $jsonText | ConvertFrom-Json -AsHashtable
+            }
+        } catch { $schemaError = $_.Exception.Message }
+    }
+    $ok = $finished -and (-not $Schema -or $structured)
     $err = $null
     if (-not $ok) {
-        $err = if ($finished) { "the run finished without a structured result: $($parsed.result)" }
+        $err = if ($finished) { "the run finished without a valid structured result: $schemaError $copilotText" }
                elseif ($parsed -and $parsed.result) { "$($parsed.subtype): $($parsed.result)" }
-               elseif ($parsed -and $parsed.subtype) { "claude ended with $($parsed.subtype)" }
-               else { "claude exited with $exit. $stderrTail" }
+               elseif ($parsed -and $parsed.subtype) { "$Provider ended with $($parsed.subtype)" }
+               else { "$Provider exited with $exit. $stderrTail" }
     }
     $r = [pscustomobject]@{
         Ok         = [bool]$ok
         Finished   = [bool]$finished
         Exit       = $exit
-        SessionId  = $parsed ? $parsed.session_id : $null
+        SessionId  = $parsed ? $(if ($Provider -eq 'Copilot') { $parsed.sessionId } else { $parsed.session_id }) : $null
         Cost       = [double]($parsed ? ($parsed.total_cost_usd ?? 0) : 0)
-        Structured = $parsed ? $parsed.structured_output : $null
-        Text       = $parsed ? $parsed.result : $text
+        Structured = $structured
+        Text       = if ($Provider -eq 'Copilot') { $copilotText } elseif ($parsed) { $parsed.result } else { $text }
         Error      = $err
     }
 
@@ -525,11 +585,11 @@ function Invoke-Claude {
     if ($Schema -and $finished -and -not $ok -and $r.SessionId -and -not $script:InNudge) {
         $script:InNudge = $true
         try {
-            $nudge = Invoke-Claude -ClaudePath $ClaudePath -WorkDir $WorkDir -Schema $Schema -Model $Model -Effort $Effort `
+            $nudge = Invoke-Agent -Provider $Provider -AgentPath $AgentPath -WorkDir $WorkDir -Schema $Schema -Model $Model -Effort $Effort `
                 -PermissionMode $PermissionMode -AllowedTools $AllowedTools -Tools $Tools -MaxBudgetUsd $MaxBudgetUsd `
                 -ResumeSessionId $r.SessionId -Name $Name -LogPath ($LogPath ? "$LogPath.nudge.json" : $null) `
                 -ProgressFile $ProgressFile -ActivityLabel $ActivityLabel -Activity $Activity `
-                -Prompt 'Your work is finished. Do not do any more work. Report your result now by calling the StructuredOutput tool with the required fields.'
+                -Prompt $(if ($Provider -eq 'Claude') { 'Your work is finished. Do not do any more work. Report your result now by calling the StructuredOutput tool with the required fields.' } else { "Your work is finished. Do not do any more work. Your previous JSON did not match the schema: $schemaError. Return the corrected JSON object now." })
         }
         finally { $script:InNudge = $false }
         $nudge.Cost += $r.Cost
@@ -589,8 +649,10 @@ function Sync-WithIntegration {
         BRANCH = $Ctx.Branch; TASK_ID = $Ctx.Id; TITLE = $Ctx.Title; INTEGRATION = $Ctx.IntegrationBranch
         FILES = (($conflicts -split "`n") | ForEach-Object { "- $_" }) -join "`n"; PROMPT = $Ctx.Prompt
     }
-    $r = Invoke-Claude -ClaudePath $Ctx.ClaudePath -WorkDir $wt -Prompt $prompt -Model $Ctx.ReviewModel `
-        -PermissionMode 'acceptEdits' -AllowedTools ($Ctx.AllowedTools + @('Bash(git add *)', 'Bash(git status *)', 'Bash(git diff *)')) `
+    $resolverTools = if ($Ctx.Provider -eq 'Copilot') { @($Ctx.AllowedTools) + @('Bash') }
+                     else { @($Ctx.AllowedTools) + @('Bash(git add *)', 'Bash(git status *)', 'Bash(git diff *)') }
+    $r = Invoke-Agent -Provider $Ctx.Provider -AgentPath $Ctx.AgentPath -WorkDir $wt -Prompt $prompt -Model $Ctx.ReviewModel `
+        -PermissionMode 'acceptEdits' -AllowedTools $resolverTools `
         -MaxBudgetUsd $Ctx.MaxBudgetUsd -Name "orch:$($Ctx.Id):resolve" -LogPath (Join-Path $Ctx.LogDir "attempt-$Attempt-resolver.json") `
         -ProgressFile $Ctx.ProgressFile -ActivityLabel "[$($Ctx.Id)] resolver:" -Activity 'heartbeat'
     $Cost.Value += $r.Cost
@@ -619,7 +681,7 @@ function Invoke-Review {
         DIFF_STAT = (Invoke-Git $wt @('diff', '--stat', $range)).Output; DIFF = $diff
     }
     for ($try = 1; $try -le 2; $try++) {
-        $r = Invoke-Claude -ClaudePath $Ctx.ClaudePath -WorkDir $wt -Prompt $prompt -Schema 'review-result.schema.json' `
+        $r = Invoke-Agent -Provider $Ctx.Provider -AgentPath $Ctx.AgentPath -WorkDir $wt -Prompt $prompt -Schema 'review-result.schema.json' `
             -Model $Ctx.ReviewModel -PermissionMode 'dontAsk' -Tools @('Read', 'Glob', 'Grep') -AllowedTools @('Read', 'Glob', 'Grep') `
             -MaxBudgetUsd $Ctx.MaxBudgetUsd -Name "orch:$($Ctx.Id):review" -LogPath (Join-Path $Ctx.LogDir "attempt-$Attempt-review-$try.json") `
             -ProgressFile $Ctx.ProgressFile -ActivityLabel "[$($Ctx.Id)] review:" -Activity 'heartbeat'
@@ -669,7 +731,7 @@ function Invoke-TaskPipeline {
                 }
                 & $log "attempt $attempt/$($Ctx.MaxAttempts): worker started ($($Ctx.Model))"
                 $workerRuns++
-                $w = Invoke-Claude -ClaudePath $Ctx.ClaudePath -WorkDir $Ctx.Worktree -Prompt $prompt -Schema 'worker-result.schema.json' `
+                $w = Invoke-Agent -Provider $Ctx.Provider -AgentPath $Ctx.AgentPath -WorkDir $Ctx.Worktree -Prompt $prompt -Schema 'worker-result.schema.json' `
                     -Model $Ctx.Model -Effort $Ctx.Effort -PermissionMode $Ctx.PermissionMode -AllowedTools $Ctx.AllowedTools `
                     -MaxBudgetUsd $Ctx.MaxBudgetUsd -ResumeSessionId $resume -Name "orch:$($Ctx.Id)" `
                     -LogPath (Join-Path $Ctx.LogDir "attempt-$attempt-worker.json") `

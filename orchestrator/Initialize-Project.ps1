@@ -13,14 +13,15 @@
     up. Plan-Tasks.ps1 calls this script itself, so you rarely need to run it directly.
 
 .EXAMPLE
-    ./Initialize-Project.ps1 -Spec C:\src\myapp\.orchestrator\spec.md -RepoPath C:\src\myapp
+    ./Initialize-Project.ps1 -Provider Copilot -Spec C:\src\myapp\.orchestrator\spec.md -RepoPath C:\src\myapp
 #>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string]$Spec,
     [Parameter(Mandatory)][string]$RepoPath,
+    [Parameter(Mandatory)][ValidateSet('Claude', 'Copilot')][string]$Provider,
     [string]$Model = 'sonnet',
-    [string]$ClaudePath,
+    [string]$AgentPath,
     [double]$MaxBudgetUsd = 5,
     [int]$MaxAttempts = 3
 )
@@ -43,7 +44,7 @@ if ((Invoke-Git $RepoPath @('rev-parse', '--verify', '--quiet', 'HEAD')).Exit -e
 
 $paths = Get-OrchPaths -RepoPath $RepoPath
 Initialize-RunDir $paths   # excludes .orchestrator/ before anything is committed
-$claude = Resolve-ClaudePath $ClaudePath
+$agent = Resolve-AgentPath -Provider $Provider -AgentPath $AgentPath
 $defaults = Get-DefaultSettings
 $logBase = Join-Path $paths.LogDir ("bootstrap-{0}" -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
 New-Item -ItemType Directory -Path $logBase | Out-Null
@@ -51,7 +52,7 @@ $log = { param($m) Write-OrchLog $paths.ProgressFile "[bootstrap] $m" }
 & $log "Creating the project skeleton in $($paths.Repo) with $Model"
 
 $call = @{
-    ClaudePath = $claude; WorkDir = $paths.Repo; Schema = 'bootstrap-result.schema.json'; Model = $Model
+    Provider = $Provider; AgentPath = $agent; WorkDir = $paths.Repo; Schema = 'bootstrap-result.schema.json'; Model = $Model
     PermissionMode = $defaults.permissionMode; AllowedTools = $defaults.allowedTools
     MaxBudgetUsd = $MaxBudgetUsd; Name = 'orch:bootstrap'
     ProgressFile = $paths.ProgressFile; ActivityLabel = '[bootstrap]'; Activity = 'each'
@@ -65,7 +66,7 @@ $feedback = $null
 for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
     $prompt = if ($attempt -eq 1) { Format-Template 'bootstrap.md' @{ SPEC = $specText } }
               else { "<!-- orchestrator-role: bootstrap -->`nAttempt $attempt of ${MaxAttempts}. $feedback`n`nFix it in the current directory, run both commands again, and report the result." }
-    $r = Invoke-Claude @call -Prompt $prompt -ResumeSessionId $sessionId -LogPath (Join-Path $logBase "attempt-$attempt.json")
+    $r = Invoke-Agent @call -Prompt $prompt -ResumeSessionId $sessionId -LogPath (Join-Path $logBase "attempt-$attempt.json")
     $cost += $r.Cost
     if ($r.SessionId) { $sessionId = $r.SessionId }
     if (-not $r.Ok) { throw "Bootstrap agent failed: $($r.Error)" }

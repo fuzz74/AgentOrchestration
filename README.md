@@ -1,8 +1,10 @@
 # Agent Orchestrator: Design & Usage
 
 A small PowerShell harness that runs a dependency graph of coding tasks with parallel
-`claude -p` agents. Each agent works in its own git worktree, and only work that passes
-tests and a review agent is merged. No framework: PowerShell 7, git and the Claude Code CLI.
+Claude Code or GitHub Copilot CLI headless agents. Each agent works in its own git worktree,
+and only work that passes tests and a review agent is merged. Requires PowerShell 7, git,
+and the selected provider's CLI. Use `-Provider Claude` or `-Provider Copilot` on every
+agent-running script; the same task plan works with either provider.
 
 ```
 /write-spec ──► spec.md ──► Plan-Tasks.ps1 ─────────────────────► .orchestrator/tasks.json ──► (you review) ──► Invoke-Orchestrator.ps1 ──► orch/integration ──► (you merge)
@@ -58,7 +60,7 @@ result. Creating the repo, the project skeleton, the plan and the code is automa
 | Place | What it is | How to open it |
 | --- | --- | --- |
 | **Terminal** | PowerShell 7 (`pwsh`), not Windows PowerShell 5.1 | Windows Terminal with the *PowerShell* profile, or in VS Code **Terminal → New Terminal**. Check with `$PSVersionTable.PSVersion` (7.2 or later). |
-| **Claude chat** | Claude Code, interactive, started in the `AgentOrchestration` folder. The `/write-spec` and `/plan-tasks` skills live in this repo, so they are only available there. | VS Code: **File → Open Folder…** → `C:\Data\AgentOrchestration`, then open the Claude Code panel (Spark icon, or **Ctrl+Esc**). Or in a terminal: `cd C:\Data\AgentOrchestration; claude`. |
+| **Agent chat** | Claude Code or Copilot, interactive, started in the `AgentOrchestration` folder. Both can discover the shared `/write-spec` and `/plan-tasks` skills in `.claude/skills`. | Open this folder in VS Code and use Claude Code or GitHub Copilot chat; or start `claude` or `copilot` in a terminal. |
 | **Editor** | VS Code, for reading and editing files | **File → Open File…** or **File → Open Folder…** |
 
 Orchestrator commands in the terminal steps assume the current folder is
@@ -66,23 +68,17 @@ Orchestrator commands in the terminal steps assume the current folder is
 
 ### Step 0: One-time setup
 
-1. **Install** (any way you like): PowerShell 7.2+, git 2.20+, VS Code, and Claude Code (the
-   VS Code extension, the CLI, or both).
-2. **Log in to Claude Code.** In VS Code, open the Claude Code panel and sign in. For the CLI,
-   run `claude` in a terminal and follow the login prompt. The scripts look for `claude` in
-   this order: `-ClaudePath`, the `ORCH_CLAUDE` environment variable, `claude` on `PATH`,
-   then the binary bundled with the VS Code extension. So the extension alone is enough.
+1. **Install** PowerShell 7.2+, git 2.20+, and the Claude Code or Copilot CLI you intend to use.
+2. **Log in** to the selected CLI (`claude` or `copilot login`). Scripts require `-Provider`
+    and resolve `-AgentPath`, then `ORCH_CLAUDE` / `ORCH_COPILOT`, then the standalone
+    executable on PATH, then the VS Code extension-managed install (Claude extension binary
+    or Copilot CLI under VS Code globalStorage). You may install and use both at once.
 3. **Get this repo** (terminal):
    ```powershell
    git clone https://github.com/fuzz74/AgentOrchestration C:\Data\AgentOrchestration
    cd C:\Data\AgentOrchestration
    ```
-4. **Check that it works, without spending tokens** (terminal):
-   ```powershell
-   .\tests\Run-SmokeTest.ps1
-   ```
-   This runs the whole flow with a fake `claude`, from a folder that doesn't exist yet to
-   merged work. It covers:
+4. **Check that it works, without spending tokens** (terminal): run `.\tests\Run-SmokeTest.ps1 -Provider Claude` and `.\tests\Run-SmokeTest.ps1 -Provider Copilot`. Each runs the whole flow with a fake provider, from a folder that doesn't exist yet to merged work. It covers:
    - creating the project skeleton, with one failed attempt that gets fixed
    - a 4-task diamond
    - a forced edit outside `owns`, with a retry
@@ -90,22 +86,24 @@ Orchestrator commands in the terminal steps assume the current folder is
    - a merge conflict and a resolver run
 
    It ends with 12 passing checks.
-5. **Access to your projects: nothing to do now.** The target repo is outside this folder,
-   and Claude Code asks before reading or writing there. The first time you give
+5. **Access to your projects.** The target repo is outside this folder. In Claude Code,
+   Claude asks before reading or writing there. The first time you give
    `/write-spec` or `/plan-tasks` a repo path, Claude offers to allow that repo or its
    parent folder, such as `C:\src`. The parent folder covers all future projects. Say yes,
    then approve the edit Claude Code shows. It adds the folder to
    `.claude\settings.local.json`, which applies at once and is excluded by this repo's
    `.gitignore`. After that you aren't asked again.
 
-   Claude can't grant itself access without that approval. The approval is Claude Code's
-   safety boundary, not a missing feature. To set access up yourself instead, add
-   `{ "permissions": { "additionalDirectories": ["C:\\src"] } }` to that file. In the CLI,
-   you can also use `/add-dir C:\src\myapp` or start with `claude --add-dir C:\src`.
+    Claude can't grant itself access without that approval. To set access up yourself, add
+    `{ "permissions": { "additionalDirectories": ["C:\\src"] } }` to that file. In the CLI,
+    you can also use `/add-dir C:\src\myapp` or start with `claude --add-dir C:\src`.
+    In interactive Copilot CLI, grant access through its own permission flow or use
+    `copilot --add-dir C:\src\myapp`. The orchestration scripts run inside target repos
+    and do not edit either assistant's interactive access settings.
 
 ### Step 1: Turn the idea into a spec
 
-Where: **Claude chat** in `C:\Data\AgentOrchestration`.
+Where: **Agent chat** in `C:\Data\AgentOrchestration`.
 
 1. Type:
    ```
@@ -156,13 +154,13 @@ The two commands are saved in `.orchestrator/project.json` and become the plan's
 
 Pick one:
 
-- **Interactive** (**Claude chat**, same conversation): accept the hand-off, or type
+- **Interactive** (**agent chat**, same conversation): accept the hand-off, or type
   `/plan-tasks`. For a new project, Claude first runs `Initialize-Project.ps1` for you. Then
   it proposes the task table and lets you adjust it. Finally it writes
   `C:\src\myapp\.orchestrator\tasks.json` and validates it.
 - **Scripted** (**terminal**): one planner agent (Opus by default) plans without questions.
   ```powershell
-  .\orchestrator\Plan-Tasks.ps1 -Spec C:\src\myapp\.orchestrator\spec.md -RepoPath C:\src\myapp
+  .\orchestrator\Plan-Tasks.ps1 -Provider Copilot -Spec C:\src\myapp\.orchestrator\spec.md -RepoPath C:\src\myapp
   ```
   While it works, it prints one line per tool call of the skeleton and planner agents (for
   example `[planner] Read src/app.csproj`), so you can see it is making progress. Planning a
@@ -184,11 +182,7 @@ Where: **editor**, then **terminal**.
      orchestrator runs both, in that order.
 
    See [The task file](#the-task-file) for every field.
-2. Validate and preview the run:
-   ```powershell
-   .\orchestrator\Show-Tasks.ps1 -RepoPath C:\src\myapp
-   .\orchestrator\Invoke-Orchestrator.ps1 -RepoPath C:\src\myapp -DryRun
-   ```
+2. Validate and preview the run with `.\orchestrator\Show-Tasks.ps1 -Provider Copilot -RepoPath C:\src\myapp` and `.\orchestrator\Invoke-Orchestrator.ps1 -Provider Copilot -RepoPath C:\src\myapp -DryRun`.
    `-DryRun` prints the waves and warns about `owns` overlaps within a wave. Fix anything it
    reports, then run it again.
 
@@ -197,13 +191,13 @@ Where: **editor**, then **terminal**.
 Where: **terminal**. Leave it open until the run ends.
 
 ```powershell
-.\orchestrator\Invoke-Orchestrator.ps1 -RepoPath C:\src\myapp -MaxParallel 3
+.\orchestrator\Invoke-Orchestrator.ps1 -Provider Copilot -RepoPath C:\src\myapp -MaxParallel 3
 ```
 
 - Progress prints live. For a live dashboard, open a **second terminal** in
   `C:\Data\AgentOrchestration` and run:
   ```powershell
-  .\orchestrator\Watch-Orchestrator.ps1 -RepoPath C:\src\myapp
+  .\orchestrator\Watch-Orchestrator.ps1 -Provider Copilot -RepoPath C:\src\myapp
   ```
   It redraws every 2 seconds and shows:
   - a progress bar, task counts and cost so far
@@ -214,37 +208,30 @@ Where: **terminal**. Leave it open until the run ends.
 
   Press Ctrl+C to close it; the run keeps going. It also works during `Plan-Tasks.ps1`, where
   it shows the skeleton or planner agent. For a one-off status table instead, run
-  `.\orchestrator\Show-Tasks.ps1 -RepoPath C:\src\myapp`.
+  `.\orchestrator\Show-Tasks.ps1 -Provider Copilot -RepoPath C:\src\myapp`.
   You can also open `C:\src\myapp\.orchestrator\progress.md` in the **editor**. While an
   agent works, a heartbeat line at most once a minute shows how many tool calls it has made
   and the latest one, for example `[s2] worker: 14 tool calls, last: Edit src/Game.cs`.
 - Agents work in `C:\src\myapp.worktrees\<task-id>`. Don't edit files in `C:\src\myapp` or in
   those folders during the run.
 - The exit code is 0 when every task is done and 2 when some failed or were blocked.
-- To stop, press Ctrl+C. Running `claude` processes can keep going for a while; check Task
+- To stop, press Ctrl+C. Running agent processes can keep going for a while; check Task
   Manager. Rerun the same command later to resume: finished tasks stay finished.
 
 ### Step 5: Fix failed tasks
 
 Skip this step if every task is done.
 
-1. **Find out why** (terminal):
-   ```powershell
-   .\orchestrator\Show-Tasks.ps1 -RepoPath C:\src\myapp
-   ```
+1. **Find out why** (terminal): run `.\orchestrator\Show-Tasks.ps1 -Provider Copilot -RepoPath C:\src\myapp`.
    The detail column shows the error. For the full story, open the task's latest log
-   folder, `C:\src\myapp\.orchestrator\logs\<task-id>\<timestamp>\`, in the **editor**. It
-   holds the prompts, the Claude results and the command output. Each `*.events.jsonl` file
+  folder, `C:\src\myapp\.orchestrator\logs\<task-id>\<timestamp>\`, in the **editor**. It holds the prompts, the agent results and the command output. Each `*.events.jsonl` file
    is the agent's full event stream, one JSON event per line: every message and tool call.
 2. **Fix the cause** (editor):
    - Usually edit the task in `tasks.json`: a clearer `prompt`, wider `owns`, or a correct
      `acceptance` command.
    - If the spec itself was wrong, fix `spec.md` as well.
    - If the work is too big for one task, add a task. Adding tasks between runs is fine.
-3. **Retry** (terminal):
-   ```powershell
-   .\orchestrator\Invoke-Orchestrator.ps1 -RepoPath C:\src\myapp -RetryFailed
-   ```
+3. **Retry** (terminal): run `.\orchestrator\Invoke-Orchestrator.ps1 -Provider Copilot -RepoPath C:\src\myapp -RetryFailed`.
 
 ### Step 6: Try the finished application
 
@@ -281,10 +268,7 @@ Where: **terminal**.
    ```
 2. Push if the repo has a remote: `git -C C:\src\myapp push`. The orchestrator never pushes.
 3. Remove the worktrees, the `orch/*` branches, the run state and the logs (run from
-   `C:\Data\AgentOrchestration`):
-   ```powershell
-   .\orchestrator\Clear-Orchestrator.ps1 -RepoPath C:\src\myapp -All
-   ```
+  `C:\Data\AgentOrchestration`): `.\orchestrator\Clear-Orchestrator.ps1 -Provider Copilot -RepoPath C:\src\myapp -All`.
    `-All` keeps `tasks.json` and `spec.md`. Add `-WhatIf` first if you want to see what it
    removes. First close any VS Code window or terminal that is open in a worktree folder:
    Windows can't delete a folder that is in use.
@@ -348,7 +332,7 @@ never loses progress. The JSON Schema is
 | `permissionMode` | `acceptEdits` | Worker permission mode: `acceptEdits`, `auto`, `dontAsk`, `bypassPermissions`. |
 | `allowedTools` | `Read, Edit, Write, Glob, Grep, Bash, PowerShell` | Tools the worker may use without a prompt, in permission-rule syntax (e.g. `Bash(npm *)`). |
 | `maxAttempts` | `3` | Worker runs per task before it fails. |
-| `maxBudgetUsd` | `10` | `--max-budget-usd` for each claude call. |
+| `maxBudgetUsd` | `10` | `--max-budget-usd` for Claude calls; Copilot does not support this USD limit. |
 | `review` | `true` | Run the review agent after acceptance passes. |
 | `setup` | none | Command run once in each fresh worktree (e.g. `npm ci`, `uv sync`). |
 | `integrationCheck` | none | Command run in the integration worktree after each merge, after `setup`. A failure undoes the merge and fails the task. |
@@ -505,12 +489,13 @@ to the plan between runs.
 
 | Script | Parameters |
 | --- | --- |
-| `Initialize-Project.ps1` | `-Spec` and `-RepoPath` (required), `-Model` (`sonnet`), `-ClaudePath`, `-MaxBudgetUsd` (`5`), `-MaxAttempts` (`3`). Creates and checks the skeleton of a new repo; does nothing if the repo has commits. `Plan-Tasks.ps1` calls it. |
-| `Plan-Tasks.ps1` | `-Spec` (required), `-RepoPath` (`.`), `-Out` (plan path), `-Model` (planner, `opus`), `-WorkerModel` (`sonnet`), `-Setup`, `-IntegrationCheck` (both default to `project.json`), `-ClaudePath`, `-MaxBudgetUsd` (`5`), `-Force` (overwrite) |
-| `Invoke-Orchestrator.ps1` | `-RepoPath` (`.`), `-Plan`, `-MaxParallel` (`3`), `-ClaudePath`, `-DryRun` (print waves and exit), `-RetryFailed`, `-PollSeconds` (`5`). Exit code 0 = all done, 2 = some failed or blocked, 1 = invalid plan. |
-| `Show-Tasks.ps1` | `-RepoPath`, `-Plan`. Validates the plan and prints wave, status, deps, attempts, cost and detail per task. |
-| `Clear-Orchestrator.ps1` | `-RepoPath`, `-All`. Without `-All`: removes task worktrees and `orch/task/*` branches, resets unfinished tasks to pending. With `-All`: also the integration worktree and branch, state, logs and progress. Supports `-WhatIf`. |
-| `tests/Run-SmokeTest.ps1` | `-WorkDir`. End-to-end test with the fake claude, from an empty folder to merged work. |
+| `Initialize-Project.ps1` | `-Provider Claude|Copilot`, `-Spec` and `-RepoPath` (required), `-Model` (`sonnet`), `-AgentPath`, `-MaxBudgetUsd` (`5`, Claude only), `-MaxAttempts` (`3`). Creates and checks the skeleton of a new repo; does nothing if the repo has commits. `Plan-Tasks.ps1` calls it. |
+| `Plan-Tasks.ps1` | `-Provider Claude|Copilot`, `-Spec` (required), `-RepoPath` (`.`), `-Out` (plan path), `-Model` (planner, `opus`), `-WorkerModel` (`sonnet`), `-Setup`, `-IntegrationCheck` (both default to `project.json`), `-AgentPath`, `-MaxBudgetUsd` (`5`, Claude only), `-Force` (overwrite) |
+| `Invoke-Orchestrator.ps1` | `-Provider Claude|Copilot` (required, even for `-DryRun`), `-RepoPath` (`.`), `-Plan`, `-MaxParallel` (`3`), `-AgentPath`, `-DryRun` (print waves and exit), `-RetryFailed`, `-PollSeconds` (`5`). Exit code 0 = all done, 2 = some failed or blocked, 1 = invalid plan. |
+| `Show-Tasks.ps1` | `-Provider Claude|Copilot` (required), `-RepoPath`, `-Plan`. Validates the plan and prints wave, status, deps, attempts, cost and detail per task. |
+| `Watch-Orchestrator.ps1` | `-Provider Claude|Copilot` (required), `-RepoPath`, `-Plan`, `-Once`. Watches either provider's JSON event stream. |
+| `Clear-Orchestrator.ps1` | `-Provider Claude|Copilot` (required), `-RepoPath`, `-All`. Without `-All`: removes task worktrees and `orch/task/*` branches, resets unfinished tasks to pending. With `-All`: also the integration worktree and branch, state, logs and progress. Supports `-WhatIf`. |
+| `tests/Run-SmokeTest.ps1` | `-Provider Claude|Copilot` (required), `-WorkDir`. End-to-end fake-CLI test from an empty folder to merged work. |
 
 ## Agent permissions and safety
 
@@ -522,8 +507,12 @@ to the plan between runs.
 | Resolver | worker tools + `git add/status/diff` | `acceptEdits` |
 | Reviewer | `Read`, `Glob`, `Grep` only | `dontAsk` |
 
-Every call runs with `--permission-prompts none`, so a tool that is not allowed is denied
-and never waits for a person, and with `--max-budget-usd`.
+Claude calls use `--permission-prompts none` and `--max-budget-usd`. Copilot calls use
+`--allow-all-tools` with `--available-tools` mapped from the requested categories; its
+CLI has no equivalent to Claude's USD cap or command-scoped `Bash(...)` rules (those rules
+are rejected for Copilot). Copilot's JSON results are checked against the local schemas;
+Claude uses its native `--json-schema` output. Default Claude model names `sonnet`, `opus`
+and `haiku` map to Copilot's `auto`; set explicit Copilot model IDs to override.
 
 - Workers run with `Bash`/`PowerShell` allowed by default, so they can run any command as
   you. Run the orchestrator only on repos you trust, or narrow `allowedTools` (for example
@@ -536,7 +525,7 @@ and never waits for a person, and with `--max-budget-usd`.
 
 ## Limits and known gaps
 
-- **Interrupting**: Ctrl+C stops the thread jobs, but `claude` processes already running
+- **Interrupting**: Ctrl+C stops the thread jobs, but agent processes already running
   can keep going until they finish. Check Task Manager. Their tasks restart from scratch
   on the next run.
 - **Shared machine resources**: parallel tasks share ports, databases and caches. Tests
@@ -552,7 +541,10 @@ and never waits for a person, and with `--max-budget-usd`.
   That is deliberate, because it keeps every worker's context small.
 - **Cost**: each task costs at least one worker call and one review call. Set
   `review: false` for trivial tasks or use a cheaper `reviewModel`. `state.json` records
-  the cost per task (the CLI's client-side estimate).
+  Claude's client-side USD estimate; Copilot does not provide this value (shown as zero).
+- **Large Copilot prompts on Windows**: the CLI requires `-p` for a reliable headless run.
+  The entire task prompt is passed as a command argument, so very large specs or diffs can
+  exceed Windows command-line limits. Keep specs and reviewer diffs concise.
 - **Model choice**: Haiku workers do fine on small, well-specified tasks. They are more
   likely to skip the structured result, and the nudge covers that. Use Sonnet or better for
   real work and for the reviewer.
