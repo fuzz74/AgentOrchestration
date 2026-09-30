@@ -47,9 +47,12 @@ finally {
 $files = git -C $repo ls-tree -r --name-only orch/integration
 $state = Get-Content (Join-Path $repo '.orchestrator/state.json') -Raw | ConvertFrom-Json -AsHashtable
 $planSettings = (Get-Content $planFile -Raw | ConvertFrom-Json).settings
+$plannerPrompt = Get-Content (Get-ChildItem (Join-Path $repo '.orchestrator/logs') -Filter 'planner-*-1.json.prompt.md' | Select-Object -First 1) -Raw
+$planningRules = (Get-Content (Join-Path $orch 'prompts/planning-rules.md') -Raw).TrimEnd()
 $checks = [ordered]@{
     'skeleton fixed and amended'        = (git -C $repo rev-list --count main) -eq '1' -and @('skeleton.txt', 'tool.txt' | Where-Object { $_ -notin (git -C $repo ls-tree -r --name-only main) }).Count -eq 0
     'plan uses skeleton commands'       = $planSettings.setup -like '*skeleton.txt*' -and $planSettings.integrationCheck -like '*tool.txt*'
+    'planner received shared rules'     = $plannerPrompt.Contains($planningRules) -and -not $plannerPrompt.Contains('{{PLANNING_RULES}}')
     'integration check ran after merge' = @(Get-ChildItem (Join-Path $repo '.orchestrator/logs') -Filter '*-integration-check.log').Count -eq 4
     'orchestrator exit code 0'          = $exit -eq 0
     'all tasks done'                    = @($state.tasks.Values | Where-Object { $_.status -ne 'done' }).Count -eq 0

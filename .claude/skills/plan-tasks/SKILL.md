@@ -14,6 +14,10 @@ into `orch/integration`.
 This is the interactive alternative to `orchestrator/Plan-Tasks.ps1`: same output, but
 you discuss the split with the user before writing it.
 
+Before planning, read `orchestrator/prompts/planning-rules.md` in the AgentOrchestration
+repo. It is the shared source of truth for task size, dependencies, ownership,
+acceptance, prompts, ids and integration. The headless planner receives the same rules.
+
 ## Steps
 
 1. Ask for the target repo path and the spec (a file, or the user's description). If the
@@ -56,13 +60,4 @@ you discuss the split with the user before writing it.
    unknown deps and cycles) and `orchestrator/Invoke-Orchestrator.ps1 -Provider <Claude|Copilot> -RepoPath <repo> -DryRun`
    (it prints the waves and same-wave owns overlaps). Fix anything reported.
 7. Tell the user the command to start the run; do not start it yourself unless asked.
-
-## Rules for a good plan
-
-- **Size**: one task = one agent session of roughly 15-60 minutes, ending in a testable change.
-- **Dependencies** only when a task needs code or interfaces another creates. Fewer deps = more parallelism. No cycles.
-- **Contracts first**: when tasks must agree on an interface, add a small early task that defines it and make the others depend on it.
-- **owns**: repo-relative globs (forward slashes, `**` allowed) the task may edit. Overlapping owns never run at the same time, and edits outside owns are rejected. An empty list means the whole repo (the task runs alone). Files every task may touch (lock files, registries) go in `settings.shared`.
-- **acceptance**: one command run with `pwsh` from the worktree root; exit code 0 = pass. Prefer a targeted test the task writes itself. Chain steps with `&&`.
-- **prompt**: self-contained. The worker sees only the spec, its prompt, and summaries from its dependencies. Say what to build, where, which interfaces to use or expose, and which tests to write.
-- **ids**: short kebab-case, unique (`^[a-z0-9][a-z0-9._-]{0,48}$`); they become branch names `orch/task/<id>`.
+Apply the shared planning rules while discussing the split, not just when validating the final plan.

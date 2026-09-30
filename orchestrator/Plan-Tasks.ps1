@@ -59,7 +59,8 @@ else {
 }
 $specText = Get-Content $specFull -Raw
 
-$prompt = Format-Template 'planner.md' @{ SPEC = $specText }
+$planningRules = Get-Content (Join-Path $PSScriptRoot 'prompts/planning-rules.md') -Raw
+$prompt = Format-Template 'planner.md' @{ SPEC = $specText; PLANNING_RULES = $planningRules.TrimEnd() }
 $logBase = Join-Path $paths.LogDir ("planner-{0}" -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
 Write-OrchLog $paths.ProgressFile "Planning from $specRel with $Model"
 
