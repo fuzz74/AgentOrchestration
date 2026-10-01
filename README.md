@@ -523,7 +523,7 @@ implementation or acceptance check needs repair.
 | `Invoke-Orchestrator.ps1` | `-Provider Claude|Copilot` (required, even for `-DryRun`), `-RepoPath` (`.`), `-Plan`, `-MaxParallel` (`3`), `-AgentPath`, `-DryRun` (print waves and exit), `-RetryFailed`, `-PollSeconds` (`5`). Exit code 0 = all done, 2 = some failed or blocked, 1 = invalid plan. |
 | `Request-OrchestratorStop.ps1` | `-RepoPath` (`.`), `-Cancel` (remove a pending stop request). Graceful stop exits the runner with code 0 even if tasks are still pending. |
 | `Show-Tasks.ps1` | `-Provider Claude|Copilot` (required), `-RepoPath`, `-Plan`. Validates the plan and prints wave, status, deps, attempts, cost and detail per task. |
-| `Watch-Orchestrator.ps1` | `-Provider Claude|Copilot` (required), `-RepoPath`, `-Plan`, `-Once`. Watches either provider's JSON event stream. |
+| `Watch-Orchestrator.ps1` | `-Provider Claude|Copilot` (required), `-RepoPath`, `-Plan`, `-RefreshSeconds` (`2`), `-ActivityLines` (`10`), `-Once`, `-NoMouse`. Watches either provider's JSON event stream. A screen taller than the window scrolls with the keys (↑↓, PgUp/PgDn, Home/End) and, on Windows, the mouse wheel and a draggable scrollbar; `-NoMouse` keeps normal text selection. `q` quits. |
 | `Clear-Orchestrator.ps1` | `-Provider Claude|Copilot` (required), `-RepoPath`, `-All`. Without `-All`: removes task worktrees and `orch/task/*` branches, resets unfinished tasks to pending. With `-All`: also the integration worktree and branch, state, logs and progress. Supports `-WhatIf`. |
 | `tests/Run-SmokeTest.ps1` | `-Provider Claude|Copilot` (required), `-WorkDir`. End-to-end fake-CLI test from an empty folder to merged work. |
 

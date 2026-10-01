@@ -7,12 +7,18 @@
 .DESCRIPTION
     Read-only. Run it in a second terminal while Invoke-Orchestrator.ps1 or Plan-Tasks.ps1 runs.
     It reads .orchestrator/tasks.json, state.json, progress.md and the agents' *.events.jsonl
-    logs, and redraws every few seconds. Press Ctrl+C to quit; the run is not affected.
+    logs, and redraws every few seconds. Press q or Ctrl+C to quit; the run is not affected.
+    A screen taller than the window scrolls with the arrow keys, PgUp/PgDn and Home/End, and on
+    Windows also with the mouse wheel and a clickable, draggable scrollbar. The mouse takes over
+    text selection while the watcher runs (Shift+drag still selects in Windows Terminal); use
+    -NoMouse to keep normal selection.
 
 .EXAMPLE
     ./Watch-Orchestrator.ps1 -Provider Copilot -RepoPath C:\src\myapp
 .EXAMPLE
     ./Watch-Orchestrator.ps1 -Provider Copilot -RepoPath C:\src\myapp -Once    # print one snapshot and exit
+.EXAMPLE
+    ./Watch-Orchestrator.ps1 -Provider Claude -RepoPath C:\src\myapp -NoMouse  # keyboard scrolling only
 #>
 [CmdletBinding()]
 param(
@@ -21,7 +27,8 @@ param(
     [string]$Plan,
     [ValidateRange(1, 60)][int]$RefreshSeconds = 2,
     [ValidateRange(1, 20)][int]$ActivityLines = 10,
-    [switch]$Once
+    [switch]$Once,
+    [switch]$NoMouse
 )
 
 $ErrorActionPreference = 'Stop'
@@ -186,15 +193,18 @@ function Get-StateSafe {
     $script:lastState
 }
 
-function Get-AgentProcesses {
+function Get-AgentProcesses([string[]]$TaskIds) {
+    # Only the orchestrator's own calls (--name orch:<task>[:review|:resolve]) for tasks in this plan,
+    # plus the planner and bootstrap; other headless claude sessions on the machine are left out.
     if (-not $IsWindows) { return @{ Available = $false; Processes = @() } }
     $name = if ($Provider -eq 'Copilot') { 'copilot.exe' } else { 'claude.exe' }
+    $known = @($TaskIds) + @('planner', 'bootstrap')
     try {
         $processes = @(Get-CimInstance Win32_Process -Filter "Name='$name'" -ErrorAction Stop |
-            Where-Object { $_.CommandLine -match '(?i)--output-format(?:=|\s+)' } |
             ForEach-Object {
-                $taskId = if ($_.CommandLine -match '(?i)(?:^|\s)--name\s+"?orch:([a-z0-9][a-z0-9._-]{0,48})(?::(?:review|resolve))?(?=["\s]|$)') { $Matches[1] } else { $null }
-                [pscustomobject]@{ ProcessId = $_.ProcessId; Name = $_.Name; TaskId = $taskId; StartedAt = $_.CreationDate }
+                if ($_.CommandLine -notmatch '(?i)(?:^|\s)--name[\s=]+"?orch:([a-z0-9][a-z0-9._-]{0,48})(?::(review|resolve))?(?=["\s]|$)') { return }
+                if ($Matches[1] -notin $known) { return }
+                [pscustomobject]@{ ProcessId = $_.ProcessId; Name = $_.Name; TaskId = $Matches[1]; Role = $Matches[2]; StartedAt = $_.CreationDate }
             } | Sort-Object ProcessId)
         return @{ Available = $true; Processes = $processes }
     }
@@ -260,7 +270,7 @@ function New-Screen {
     $plan = Get-PlanInfo
     $state = Get-StateSafe
     $log = Get-ProgressLines
-    $agentProcesses = Get-AgentProcesses
+    $agentProcesses = Get-AgentProcesses @($plan ? $plan.Tasks.id : @())
 
     $iStart = -1; $iEnd = -1; $iPlan = -1
     for ($i = 0; $i -lt $log.Count; $i++) {
@@ -280,13 +290,14 @@ function New-Screen {
         & $add ("Run started {0}, elapsed {1}" -f $started.ToString('HH:mm:ss'), (Format-Span ($until - $started))) 'DarkGray'
     }
     & $add ''
-    & $add "Live $Provider CLI processes (system-wide; task name is not repo-verified)" 'White'
+    & $add "Live $Provider CLI processes for this plan's tasks" 'White'
     if (-not $agentProcesses.Available) { & $add '  Process lookup unavailable' 'DarkYellow' }
     elseif (-not $agentProcesses.Processes.Count) { & $add '  (none detected)' 'DarkGray' }
     else {
         foreach ($process in $agentProcesses.Processes) {
-            $task = if ($process.TaskId) { "  task $($process.TaskId)" } else { '  task unknown' }
-            & $add ("  PID {0}  {1}{2}" -f $process.ProcessId, $process.Name, $task) 'Cyan'
+            $role = if ($process.Role) { " ($($process.Role))" } else { '' }
+            $age = Format-Span ($now - $process.StartedAt)
+            & $add ("  PID {0}  {1}  task {2}{3}  running {4}" -f $process.ProcessId, $process.Name, $process.TaskId, $role, $age) 'Cyan'
         }
     }
 
@@ -402,23 +413,190 @@ function New-Screen {
     $lines
 }
 
+# Scroll position of the live screen, and the scrollbar geometry of the last draw (for mouse hits).
+$scroll = @{ Top = 0; Page = 1; Max = 0; Follow = $false; BarCol = -1; BarRows = 0; ThumbTop = 0; ThumbSize = 0; Drag = $null }
+
 function Write-Screen($Lines, [switch]$Plain) {
     try { $w = [math]::Max(40, [Console]::WindowWidth - 1); $h = [math]::Max(10, [Console]::WindowHeight - 1) }
     catch { $w = 160; $h = 60 }   # no console window (output redirected)
+    $Lines = @($Lines)
+    $first = 0; $count = $Lines.Count; $footer = $null; $bar = $false
+    if (-not $Plain -and $Lines.Count -gt $h) {
+        # Longer than the window: show one page, a scrollbar on the right and a footer.
+        $count = $h - 1
+        $scroll.Page = $count
+        $scroll.Max = $Lines.Count - $count
+        if ($scroll.Follow) { $scroll.Top = $scroll.Max }
+        $scroll.Top = [math]::Min([math]::Max(0, $scroll.Top), $scroll.Max)
+        $first = $scroll.Top
+        $keys = if ($mouse) { 'wheel, scrollbar, ↑↓ PgUp PgDn Home End' } else { '↑↓ PgUp PgDn Home End' }
+        $footer = @{ Color = 'DarkGray'; Text = ("lines {0}-{1} of {2}  ·  {3} to scroll  ·  q to quit" -f ($first + 1), ($first + $count), $Lines.Count, $keys) }
+        # The bar sits one column in from the right edge: writing the last column would trigger a wrap.
+        $bar = $true
+        $scroll.BarCol = $w - 1
+        $scroll.BarRows = $count
+        $scroll.ThumbSize = [math]::Max(1, [math]::Round($count * $count / $Lines.Count))
+        $scroll.ThumbTop = [int][math]::Round(($count - $scroll.ThumbSize) * $scroll.Top / $scroll.Max)
+    }
+    elseif (-not $Plain) { $scroll.Top = 0; $scroll.Max = 0; $scroll.Page = [math]::Max(1, $h - 1); $scroll.BarCol = -1 }
+    $shownLines = @($Lines | Select-Object -Skip $first -First $count) + @($footer | Where-Object { $_ })
+
+    $textWidth = if ($bar) { $w - 1 } else { $w }
     $sb = [Text.StringBuilder]::new()
     if (-not $Plain) { [void]$sb.Append("`e[H") }
-    $shown = 0
-    foreach ($l in $Lines) {
-        if (-not $Plain -and $shown -ge $h) { break }
+    for ($row = 0; $row -lt $shownLines.Count; $row++) {
+        $l = $shownLines[$row]
         $text = $l.Text
-        if ($text.Length -gt $w) { $text = $text.Substring(0, $w - 1) + '…' }
+        if ($text.Length -gt $textWidth) { $text = $text.Substring(0, $textWidth - 1) + '…' }
         [void]$sb.Append($ansi[$l.Color]).Append($text).Append($ansi.Reset)
+        if ($bar -and $row -lt $count) {
+            $inThumb = $row -ge $scroll.ThumbTop -and $row -lt $scroll.ThumbTop + $scroll.ThumbSize
+            [void]$sb.Append(' ' * ($textWidth - $text.Length))
+            [void]$sb.Append($(if ($inThumb) { "$($ansi.Gray)█" } else { "$($ansi.DarkGray)░" })).Append($ansi.Reset)
+        }
         if (-not $Plain) { [void]$sb.Append("`e[K") }
         [void]$sb.Append("`n")
-        $shown++
     }
     if (-not $Plain) { [void]$sb.Append("`e[J") }
     [Console]::Write($sb.ToString())
+}
+
+function Set-ScrollTop([int]$Top) {
+    $scroll.Top = [math]::Min([math]::Max(0, $Top), $scroll.Max)
+    $scroll.Follow = $scroll.Max -gt 0 -and $scroll.Top -ge $scroll.Max   # at the bottom: stay there as the screen grows
+}
+
+function Invoke-ScrollKey([ConsoleKey]$Key) {
+    # Returns 'quit', 'moved' or $null (not a scroll key).
+    switch ($Key) {
+        'Q' { return 'quit' }
+        { $_ -in 'UpArrow', 'K' } { Set-ScrollTop ($scroll.Top - 1) }
+        { $_ -in 'DownArrow', 'J' } { Set-ScrollTop ($scroll.Top + 1) }
+        'PageUp' { Set-ScrollTop ($scroll.Top - $scroll.Page) }
+        { $_ -in 'PageDown', 'Spacebar' } { Set-ScrollTop ($scroll.Top + $scroll.Page) }
+        'Home' { Set-ScrollTop 0 }
+        'End' { Set-ScrollTop $scroll.Max }
+        default { return $null }
+    }
+    'moved'
+}
+
+function Invoke-ScrollMouse($m) {
+    # One console mouse event: the wheel scrolls anywhere; the scrollbar pages on a click and
+    # scrolls while its thumb is dragged. Returns 'moved' or $null.
+    $row = $m.Y - $m.WindowTop
+    if ($m.Wheel -ne 0) { Set-ScrollTop ($scroll.Top - [math]::Sign($m.Wheel) * 3); return 'moved' }
+    $leftDown = ($m.Buttons -band 1) -ne 0
+    if (-not $leftDown) { $scroll.Drag = $null; return $null }
+    if ($null -ne $scroll.Drag) {
+        # Dragging the thumb: map its new top row back to a scroll position.
+        $room = $scroll.BarRows - $scroll.ThumbSize
+        if ($room -le 0) { return $null }
+        $thumbTop = [math]::Min([math]::Max(0, $row - $scroll.Drag), $room)
+        Set-ScrollTop ([int][math]::Round($thumbTop * $scroll.Max / $room))
+        return 'moved'
+    }
+    $pressed = $m.Flags -eq 0 -or $m.Flags -eq 2   # a press or double click, not a move
+    $onBar = $scroll.BarCol -ge 0 -and [math]::Abs($m.X - $scroll.BarCol) -le 1 -and $row -ge 0 -and $row -lt $scroll.BarRows
+    if (-not ($pressed -and $onBar)) { return $null }
+    if ($row -lt $scroll.ThumbTop) { Set-ScrollTop ($scroll.Top - $scroll.Page) }
+    elseif ($row -ge $scroll.ThumbTop + $scroll.ThumbSize) { Set-ScrollTop ($scroll.Top + $scroll.Page) }
+    else { $scroll.Drag = $row - $scroll.ThumbTop }
+    'moved'
+}
+
+function Enable-ConsoleMouse {
+    # Switches the console input to mouse events (Windows only). Returns $false where that is
+    # not possible, and the watcher then falls back to keys read with [Console]::ReadKey.
+    if (-not $IsWindows) { return $false }
+    if (-not ('OrchWatch.ConsoleInput' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+namespace OrchWatch {
+    public sealed class InputEvent {
+        public bool IsKey; public int Key;                                    // key down: virtual-key code
+        public int X, Y, WindowTop, Wheel; public uint Buttons, Flags;       // mouse
+    }
+    public static class ConsoleInput {
+        [StructLayout(LayoutKind.Sequential)]
+        struct KEY_EVENT_RECORD { public int KeyDown; public ushort RepeatCount, VirtualKeyCode, VirtualScanCode, UnicodeChar; public uint ControlKeyState; }
+        [StructLayout(LayoutKind.Sequential)]
+        struct MOUSE_EVENT_RECORD { public short X, Y; public uint ButtonState, ControlKeyState, EventFlags; }
+        [StructLayout(LayoutKind.Explicit)]
+        struct INPUT_RECORD {
+            [FieldOffset(0)] public ushort EventType;
+            [FieldOffset(4)] public KEY_EVENT_RECORD Key;
+            [FieldOffset(4)] public MOUSE_EVENT_RECORD Mouse;
+        }
+        [DllImport("kernel32.dll", SetLastError = true)] static extern IntPtr GetStdHandle(int n);
+        [DllImport("kernel32.dll", SetLastError = true)] static extern bool GetConsoleMode(IntPtr h, out uint mode);
+        [DllImport("kernel32.dll", SetLastError = true)] static extern bool SetConsoleMode(IntPtr h, uint mode);
+        [DllImport("kernel32.dll", SetLastError = true)] static extern bool GetNumberOfConsoleInputEvents(IntPtr h, out uint n);
+        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        static extern bool ReadConsoleInputW(IntPtr h, [Out] INPUT_RECORD[] buffer, uint length, out uint read);
+
+        const uint WindowInput = 0x8, MouseInput = 0x10, QuickEdit = 0x40, ExtendedFlags = 0x80, VirtualTerminalInput = 0x200;
+        static IntPtr handle; static uint savedMode; static bool enabled;
+
+        public static bool Enable() {
+            handle = GetStdHandle(-10);
+            if (handle == IntPtr.Zero || handle == new IntPtr(-1) || !GetConsoleMode(handle, out savedMode)) return false;
+            // Mouse records instead of VT sequences, and no QuickEdit selection eating the clicks.
+            uint mode = (savedMode | MouseInput | WindowInput | ExtendedFlags) & ~(QuickEdit | VirtualTerminalInput);
+            enabled = SetConsoleMode(handle, mode);
+            return enabled;
+        }
+        public static void Restore() { if (enabled) { SetConsoleMode(handle, savedMode); enabled = false; } }
+
+        public static List<InputEvent> Read(int windowTop) {
+            var events = new List<InputEvent>();
+            uint pending;
+            if (!enabled || !GetNumberOfConsoleInputEvents(handle, out pending) || pending == 0) return events;
+            var buffer = new INPUT_RECORD[Math.Min(pending, 64u)];
+            uint read;
+            if (!ReadConsoleInputW(handle, buffer, (uint)buffer.Length, out read)) return events;
+            for (int i = 0; i < read; i++) {
+                var r = buffer[i];
+                if (r.EventType == 1 && r.Key.KeyDown != 0) {
+                    events.Add(new InputEvent { IsKey = true, Key = r.Key.VirtualKeyCode });
+                } else if (r.EventType == 2) {
+                    var m = r.Mouse;
+                    int wheel = (m.EventFlags & 0x4) != 0 ? (short)(m.ButtonState >> 16) : 0;
+                    events.Add(new InputEvent { X = m.X, Y = m.Y, WindowTop = windowTop, Wheel = wheel, Buttons = m.ButtonState & 0xFFFF, Flags = m.EventFlags });
+                }
+            }
+            return events;
+        }
+    }
+}
+'@
+    }
+    try { [OrchWatch.ConsoleInput]::Enable() } catch { $false }
+}
+
+function Read-ScrollInput {
+    # Handles all pending input. Returns 'quit', 'moved' or $null (nothing to redraw).
+    $result = $null
+    if ($mouse) {
+        $top = try { [Console]::WindowTop } catch { 0 }
+        foreach ($e in [OrchWatch.ConsoleInput]::Read($top)) {
+            # Modifier keys (Shift = 16, Ctrl, Alt, Caps Lock) have no ConsoleKey value; skip them.
+            if ($e.IsKey -and -not [Enum]::IsDefined([ConsoleKey], $e.Key)) { continue }
+            $r = if ($e.IsKey) { Invoke-ScrollKey ([ConsoleKey]$e.Key) } else { Invoke-ScrollMouse $e }
+            if ($r -eq 'quit') { return 'quit' }
+            if ($r) { $result = $r }
+        }
+        return $result
+    }
+    try { while ([Console]::KeyAvailable) {
+            $r = Invoke-ScrollKey ([Console]::ReadKey($true).Key)
+            if ($r -eq 'quit') { return 'quit' }
+            if ($r) { $result = $r }
+        } }
+    catch { }   # input redirected
+    $result
 }
 
 #endregion
@@ -426,13 +604,25 @@ function Write-Screen($Lines, [switch]$Plain) {
 try { [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch { }
 if ($Once) { Write-Screen (New-Screen) -Plain; return }
 
-[Console]::Write("`e[?1049h`e[?25l")   # alternate screen, hide cursor
+$mouse = $false
+[Console]::Write("`e[?1049h`e[?25l`e[?1007h")   # alternate screen, hide cursor, wheel sends arrow keys (-NoMouse)
 try {
-    while ($true) {
-        Write-Screen (New-Screen)
-        Start-Sleep -Seconds $RefreshSeconds
+    $mouse = -not $NoMouse -and (Enable-ConsoleMouse)
+    :refresh while ($true) {
+        $screen = New-Screen
+        Write-Screen $screen
+        # Wait for the next refresh, redrawing at once when a key or the mouse scrolls the view.
+        $next = (Get-Date).AddSeconds($RefreshSeconds)
+        while ((Get-Date) -lt $next) {
+            switch (Read-ScrollInput) {
+                'quit' { break refresh }
+                'moved' { Write-Screen $screen }
+                default { Start-Sleep -Milliseconds 30 }
+            }
+        }
     }
 }
 finally {
-    [Console]::Write("`e[?25h`e[?1049l")   # show cursor, back to the normal screen
+    if ($mouse) { [OrchWatch.ConsoleInput]::Restore() }
+    [Console]::Write("`e[?1007l`e[?25h`e[?1049l")   # restore wheel mode and cursor, back to the normal screen
 }
