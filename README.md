@@ -211,6 +211,31 @@ Where: **terminal**. Leave it open until the run ends.
   - every task's status
   - the last lines of the log
 
+  To follow the agents' requests, responses and review feedback instead of the dashboard,
+  open another terminal and run:
+  ```powershell
+  .\orchestrator\Watch-Conversations.ps1 -RepoPath C:\src\myapp
+  ```
+  Requests show the first 12 lines and a clickable Open control for the full prompt;
+  the latest request also has a pinned Open full request link at the top of the live view.
+  Request and response headings are not links. The full prompt opens in a scrollable in-terminal popup.
+  Use the wheel, the popup scrollbar (click or drag), or arrow/PgUp/PgDn keys to scroll;
+  Esc closes the popup; its [X] control is also clickable. `-NoMouse` preserves normal terminal selection,
+  with O opening the latest request instead. Use `-FullRequests` to print every line
+  in the transcript, or `-Task terminal` to focus on one task,
+  `-ShowTools` to include tool calls, or `-Once` to print recent messages and exit.
+  Ctrl+C stops the watcher, not the run.
+
+  To see how the orchestrator and agents work together, use the read-only teaching timeline:
+  ```powershell
+  .\orchestrator\Watch-AgentTimeline.ps1 -RepoPath C:\src\myapp
+  ```
+  It combines run decisions, saved prompts, model calls where logged, agent commentary,
+  tool starts/completions and review results. Use `-Task runtime-process` to focus on one task or `-Once` to
+  print a snapshot; arrows, PgUp/PgDn, Home/End and Q control the live view. Tool output
+  and private reasoning are not shown. The original conversation watcher remains the
+  place to read full agent responses and request text.
+
   Press Ctrl+C to close it; the run keeps going. It also works during `Plan-Tasks.ps1`, where
   it shows the skeleton or planner agent. For a one-off status table instead, run
   `.\orchestrator\Show-Tasks.ps1 -Provider Copilot -RepoPath C:\src\myapp`.
@@ -524,6 +549,7 @@ implementation or acceptance check needs repair.
 | `Request-OrchestratorStop.ps1` | `-RepoPath` (`.`), `-Cancel` (remove a pending stop request). Graceful stop exits the runner with code 0 even if tasks are still pending. |
 | `Show-Tasks.ps1` | `-Provider Claude|Copilot` (required), `-RepoPath`, `-Plan`. Validates the plan and prints wave, status, deps, attempts, cost and detail per task. |
 | `Watch-Orchestrator.ps1` | `-Provider Claude|Copilot` (required), `-RepoPath`, `-Plan`, `-RefreshSeconds` (`2`), `-ActivityLines` (`10`), `-Once`, `-NoMouse`. Watches either provider's JSON event stream. A screen taller than the window scrolls with the keys (↑↓, PgUp/PgDn, Home/End) and, on Windows, the mouse wheel and a draggable scrollbar; `-NoMouse` keeps normal text selection. `q` quits. |
+| `Watch-Conversations.ps1` | `-RepoPath` (`.`), `-Task` (optional task ID), `-Last` (`25`), `-RefreshSeconds` (`2`), `-ShowTools`, `-FullRequests`, `-NoMouse`, `-Once`. Live view has clickable request controls and a scrollable in-terminal popup (O opens the latest request without mouse); `-Once` prints plain output. Ctrl+C or Q quits. |
 | `Clear-Orchestrator.ps1` | `-Provider Claude|Copilot` (required), `-RepoPath`, `-All`. Without `-All`: removes task worktrees and `orch/task/*` branches, resets unfinished tasks to pending. With `-All`: also the integration worktree and branch, state, logs and progress. Supports `-WhatIf`. |
 | `tests/Run-SmokeTest.ps1` | `-Provider Claude|Copilot` (required), `-WorkDir`. End-to-end fake-CLI test from an empty folder to merged work. |
 

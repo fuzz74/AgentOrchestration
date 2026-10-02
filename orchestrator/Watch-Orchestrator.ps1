@@ -193,18 +193,30 @@ function Get-StateSafe {
     $script:lastState
 }
 
-function Get-AgentProcesses([string[]]$TaskIds) {
-    # Only the orchestrator's own calls (--name orch:<task>[:review|:resolve]) for tasks in this plan,
-    # plus the planner and bootstrap; other headless claude sessions on the machine are left out.
+function Get-AgentProcesses([string[]]$TaskIds, $State) {
+    # Named calls and resumed Copilot sessions recorded in this run's state belong to the plan.
     if (-not $IsWindows) { return @{ Available = $false; Processes = @() } }
     $name = if ($Provider -eq 'Copilot') { 'copilot.exe' } else { 'claude.exe' }
     $known = @($TaskIds) + @('planner', 'bootstrap')
+    $resumed = @{}
+    if ($Provider -eq 'Copilot' -and $State) {
+        foreach ($taskId in $TaskIds) {
+            $task = $State.tasks[$taskId]
+            if ($task -and $task.status -eq 'running' -and $task.sessionId) { $resumed[$task.sessionId] = $taskId }
+        }
+    }
     try {
         $processes = @(Get-CimInstance Win32_Process -Filter "Name='$name'" -ErrorAction Stop |
             ForEach-Object {
-                if ($_.CommandLine -notmatch '(?i)(?:^|\s)--name[\s=]+"?orch:([a-z0-9][a-z0-9._-]{0,48})(?::(review|resolve))?(?=["\s]|$)') { return }
-                if ($Matches[1] -notin $known) { return }
-                [pscustomobject]@{ ProcessId = $_.ProcessId; Name = $_.Name; TaskId = $Matches[1]; Role = $Matches[2]; StartedAt = $_.CreationDate }
+                $taskId = $null; $role = $null
+                if ($_.CommandLine -match '(?i)(?:^|\s)--name[\s=]+"?orch:([a-z0-9][a-z0-9._-]{0,48})(?::(review|resolve))?(?=["\s]|$)') {
+                    $taskId = $Matches[1]; $role = $Matches[2]
+                }
+                elseif ($Provider -eq 'Copilot' -and $_.CommandLine -match '(?i)(?:^|\s)--resume[\s=]+"?([0-9a-f-]{36})(?=["\s]|$)') {
+                    $taskId = $resumed[$Matches[1]]
+                }
+                if (-not $taskId -or $taskId -notin $known) { return }
+                [pscustomobject]@{ ProcessId = $_.ProcessId; Name = $_.Name; TaskId = $taskId; Role = $role; StartedAt = $_.CreationDate }
             } | Sort-Object ProcessId)
         return @{ Available = $true; Processes = $processes }
     }
@@ -270,7 +282,7 @@ function New-Screen {
     $plan = Get-PlanInfo
     $state = Get-StateSafe
     $log = Get-ProgressLines
-    $agentProcesses = Get-AgentProcesses @($plan ? $plan.Tasks.id : @())
+    $agentProcesses = Get-AgentProcesses @($plan ? $plan.Tasks.id : @()) $state
 
     $iStart = -1; $iEnd = -1; $iPlan = -1
     for ($i = 0; $i -lt $log.Count; $i++) {

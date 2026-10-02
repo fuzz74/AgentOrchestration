@@ -43,8 +43,24 @@ try {
         $planDoc.tasks[0].model = 'opus'
     }
     $planDoc | ConvertTo-Json -Depth 10 | Set-Content $planFile
+    $lockPath = Join-Path $repo '.orchestrator/run.lock'
+    $heldLock = [IO.File]::Open($lockPath, 'OpenOrCreate', 'ReadWrite', 'None')
+    $duplicateRejected = $false
+    try {
+        try {
+            & (Join-Path $orch 'Invoke-Orchestrator.ps1') -Provider $Provider -RepoPath $repo -AgentPath $fake
+        }
+        catch {
+            if ($_.Exception.Message -notlike 'Another orchestrator run may already be active*') { throw }
+            $duplicateRejected = $true
+        }
+    }
+    finally { $heldLock.Dispose() }
+    if (-not $duplicateRejected) { throw 'Concurrent orchestrator invocation was not rejected.' }
     & (Join-Path $orch 'Invoke-Orchestrator.ps1') -Provider $Provider -RepoPath $repo -AgentPath $fake -MaxParallel 2 -PollSeconds 1
     $exit = $LASTEXITCODE
+    $releasedLock = [IO.File]::Open($lockPath, 'OpenOrCreate', 'ReadWrite', 'None')
+    $releasedLock.Dispose()
     $longPromptOk = $true
     if ($Provider -eq 'Copilot') {
         Import-Module (Join-Path $orch 'Orchestrator.psm1') -Force
@@ -69,6 +85,7 @@ $checks = [ordered]@{
     'planner received shared rules'     = $plannerPrompt.Contains($planningRules) -and -not $plannerPrompt.Contains('{{PLANNING_RULES}}')
     'integration check ran after merge' = @(Get-ChildItem (Join-Path $repo '.orchestrator/logs') -Filter '*-integration-check.log').Count -eq 4
     'orchestrator exit code 0'          = $exit -eq 0
+    'duplicate run rejected'            = $duplicateRejected
     'long Copilot prompt uses stdin'    = $longPromptOk
     'all tasks done'                    = @($state.tasks.Values | Where-Object { $_.status -ne 'done' }).Count -eq 0
     'all four files on orch/integration' = @('contracts/contracts.txt', 'a/feature-a.txt', 'b/feature-b.txt', 'app/wire-up.txt' | Where-Object { $_ -notin $files }).Count -eq 0

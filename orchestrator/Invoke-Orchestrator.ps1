@@ -62,6 +62,13 @@ if ($DryRun) {
 }
 
 $agent = Resolve-AgentPath -Provider $Provider -AgentPath $AgentPath
+try {
+    $runLock = [IO.File]::Open((Join-Path $paths.RunDir 'run.lock'), 'OpenOrCreate', 'ReadWrite', 'None')
+}
+catch [IO.IOException] {
+    throw "Another orchestrator run may already be active for $($paths.Repo). Check its terminal before retrying."
+}
+try {
 Initialize-RunDir $paths
 Initialize-Integration $paths $planObj
 $state = Read-State $paths
@@ -69,8 +76,25 @@ $state = Read-State $paths
 foreach ($t in $planObj.Tasks) {
     if (-not $state.tasks[$t.id]) { $state.tasks[$t.id] = New-TaskState }
     $s = $state.tasks[$t.id]
-    if ($s.status -eq 'running') { $s.status = 'pending' }   # left over from an interrupted run
-    if ($RetryFailed -and $s.status -eq 'failed') { $s.status = 'pending'; $s.mode = 'fresh'; $s.error = $null; $s.sessionId = $null }
+    if ($s.status -eq 'running') {
+        $worktree = Join-Path $paths.WorktreeRoot $t.id
+        $branch = "orch/task/$($t.id)"
+        if ((Test-Path $worktree) -and (Invoke-Git $worktree @('branch', '--show-current')).Output -eq $branch) {
+            $s.mode = if ($s.mode -eq 'sync') { 'sync' } else { 'resume' }
+        }
+        $s.status = 'pending'
+    }
+    if ($RetryFailed -and $s.status -eq 'failed') {
+        $worktree = Join-Path $paths.WorktreeRoot $t.id
+        $branch = "orch/task/$($t.id)"
+        $canSync = $s.error -like 'Pipeline error:*' -and (Test-Path $worktree) -and
+            (Invoke-Git $worktree @('branch', '--show-current')).Output -eq $branch -and
+            -not (Invoke-Git $worktree @('status', '--porcelain')).Output -and
+            (Get-TaskChanges $worktree $planObj.IntegrationBranch).Count -gt 0
+        $s.status = 'pending'; $s.mode = if ($canSync) { 'sync' } else { 'fresh' }
+        $s.error = $null
+        if (-not $canSync) { $s.sessionId = $null }
+    }
 }
 Save-State $paths $state
 
@@ -260,3 +284,7 @@ if ($stopRequested) {
 }
 Write-Host "Fix or edit the failed tasks, then rerun with -RetryFailed. Logs: $($paths.LogDir)" -ForegroundColor Yellow
 exit 2
+}
+finally {
+    $runLock.Dispose()
+}

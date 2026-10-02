@@ -414,8 +414,6 @@ function Invoke-ShellCommand {
     else { $p.WaitForExit(); $exit = $p.ExitCode }
     $text = ((Get-Content $LogPath -Raw -ErrorAction SilentlyContinue) + (Get-Content $errPath -Raw -ErrorAction SilentlyContinue))
     if ($null -eq $text) { $text = '' }
-    Set-Content -Path $LogPath -Value "> $Command`n$text" -Encoding utf8
-    Remove-Item $errPath -ErrorAction SilentlyContinue
     $tail = (($text -split "`r?`n") | Select-Object -Last 80) -join "`n"
     if ($timedOut) { $tail = "Timed out after $TimeoutSec s.`n$tail" }
     [pscustomobject]@{ Ok = (-not $timedOut -and $exit -eq 0); Exit = $exit; Tail = $tail.Trim() }
