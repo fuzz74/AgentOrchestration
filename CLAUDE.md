@@ -20,4 +20,3 @@
   remembering goes into this repo: rules in this file, how-to in the skills, reference notes
   in `docs/`.
 - Do not keep it in an assistant's local memory or any other per-machine store.
-- `docs/earlier-projects.md` is history of specific projects, not a set of defaults.
