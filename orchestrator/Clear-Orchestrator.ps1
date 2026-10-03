@@ -38,7 +38,7 @@ else {
     # Task branches are gone, so only 'done' tasks keep meaning; everything else starts fresh.
     if (Test-Path $paths.StateFile) {
         $state = Read-State $paths
-        foreach ($k in @($state.tasks.Keys)) {
+        foreach ($k in @($state.tasks.psbase.Keys)) {
             $s = $state.tasks[$k]
             if ($s.status -ne 'done') { $s.status = 'pending'; $s.mode = 'fresh'; $s.sessionId = $null; $s.error = $null }
         }

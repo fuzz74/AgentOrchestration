@@ -49,7 +49,7 @@ $dependents = Get-DependentCounts $planObj.Tasks
 
 if ($DryRun) {
     Write-Host "Plan: $($paths.PlanFile)  ($($planObj.Tasks.Count) tasks, integration branch $($planObj.IntegrationBranch))"
-    foreach ($w in ($waves.Values | Sort-Object -Unique)) {
+    foreach ($w in ($waves.psbase.Values | Sort-Object -Unique)) {
         Write-Host "`nWave $w" -ForegroundColor Cyan
         foreach ($t in ($planObj.Tasks | Where-Object { $waves[$_.id] -eq $w })) {
             $deps = if ($t.deps.Count) { " <- $($t.deps -join ', ')" } else { '' }
@@ -121,6 +121,8 @@ $log = { param($m) Write-OrchLog $paths.ProgressFile $m }
 & $log "${Provider}: $agent"
 
 $streaming = (Get-Command Start-ThreadJob).Parameters.ContainsKey('StreamingHost')
+# Keyed by task id. An id such as 'count' or 'keys' hides the hashtable property of that name,
+# so Count, Keys and Values are read through psbase.
 $jobs = @{}
 
 function Get-DepContext($task) {
@@ -228,7 +230,7 @@ $interrupted = $true
 $stopRequested = $false
 try {
     while ($true) {
-        foreach ($id in @($jobs.Keys)) {
+        foreach ($id in @($jobs.psbase.Keys)) {
             $job = $jobs[$id]
             if ($job.State -notin 'Completed', 'Failed', 'Stopped') { continue }
             # With StreamingHost the job's Write-Host lines were already shown live; drop the replay.
@@ -245,7 +247,7 @@ try {
             if (-not $stopRequested) { & $log 'Graceful stop requested; waiting for active sessions to finish' }
             $stopRequested = $true
         }
-        if ($stopRequested -and $jobs.Count -eq 0) { break }
+        if ($stopRequested -and $jobs.psbase.Count -eq 0) { break }
 
         $ready = $planObj.Tasks | Where-Object {
             $state.tasks[$_.id].status -eq 'pending' -and
@@ -254,23 +256,23 @@ try {
                         @{ Expression = { $dependents[$_.id] }; Descending = $true }
         foreach ($t in $ready) {
             if (Test-Path $paths.StopFile) { $stopRequested = $true; break }
-            if ($jobs.Count -ge $MaxParallel) { break }
-            $clash = $jobs.Keys | Where-Object { Test-OwnsOverlap $t.owns $byId[$_].owns } | Select-Object -First 1
+            if ($jobs.psbase.Count -ge $MaxParallel) { break }
+            $clash = $jobs.psbase.Keys | Where-Object { Test-OwnsOverlap $t.owns $byId[$_].owns } | Select-Object -First 1
             if ($clash) { continue }
             Start-Task $t
             Save-State $paths $state
         }
 
-        if ($jobs.Count -eq 0) { break }
-        $null = Wait-Job -Job @($jobs.Values) -Any -Timeout $PollSeconds
+        if ($jobs.psbase.Count -eq 0) { break }
+        $null = Wait-Job -Job @($jobs.psbase.Values) -Any -Timeout $PollSeconds
     }
     $interrupted = $false
 }
 finally {
-    if ($interrupted -and $jobs.Count) {
-        Write-Warning "Interrupted. Stopping $($jobs.Count) task(s); they restart from scratch on the next run. Check for leftover $Provider processes."
-        $jobs.Values | Stop-Job -ErrorAction SilentlyContinue
-        $jobs.Values | Remove-Job -Force -ErrorAction SilentlyContinue
+    if ($interrupted -and $jobs.psbase.Count) {
+        Write-Warning "Interrupted. Stopping $($jobs.psbase.Count) task(s); they restart from scratch on the next run. Check for leftover $Provider processes."
+        $jobs.psbase.Values | Stop-Job -ErrorAction SilentlyContinue
+        $jobs.psbase.Values | Remove-Job -Force -ErrorAction SilentlyContinue
     }
     Save-State $paths $state
     if ($stopRequested -and -not $interrupted) { Remove-Item $paths.StopFile -Force -ErrorAction SilentlyContinue }

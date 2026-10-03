@@ -257,7 +257,7 @@ function Get-DependentCounts {
     foreach ($t in $Tasks) {
         $seen = @{}; $queue = [Collections.Generic.Queue[string]]::new(); $queue.Enqueue($t.id)
         while ($queue.Count) { foreach ($c in $children[$queue.Dequeue()]) { if (-not $seen[$c]) { $seen[$c] = $true; $queue.Enqueue($c) } } }
-        $counts[$t.id] = $seen.Count
+        $counts[$t.id] = $seen.psbase.Count   # psbase: a task called 'count' would hide the property
     }
     $counts
 }

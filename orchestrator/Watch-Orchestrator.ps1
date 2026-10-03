@@ -350,8 +350,8 @@ function New-Screen {
         }
         & $add ("{0} running · {1} pending · {2} failed · {3} blocked · cost ≈ {4:N2} USD" -f
             (& $count 'running'), (& $count 'pending'), (& $count 'failed'), (& $count 'blocked'), $cost)
-        $agents = @($views.Keys | Sort-Object | Where-Object { $views[$_].Kind } | ForEach-Object { "$($views[$_].Kind) $_" })
-        $between = @($views.Keys | Where-Object { -not $views[$_].Kind }).Count
+        $agents = @($views.psbase.Keys | Sort-Object | Where-Object { $views[$_].Kind } | ForEach-Object { "$($views[$_].Kind) $_" })
+        $between = @($views.psbase.Keys | Where-Object { -not $views[$_].Kind }).Count
         $max = if ($iStart -ge 0 -and $log[$iStart] -match 'max (\d+) in parallel') { " (max $($Matches[1]) tasks in parallel)" } else { '' }
         $who = if ($agents.Count) { ': ' + ($agents -join ', ') } else { '' }
         $gap = if ($between) { " · $between task(s) between agents (setup, checks, merge)" } else { '' }

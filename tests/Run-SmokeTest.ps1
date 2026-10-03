@@ -117,6 +117,13 @@ foreach ($id in 'quality-only', 'spec-only') {
         prompt = "Build $id."
     }
 }
+# Task ids that are also hashtable property names must not confuse the scheduler's bookkeeping.
+foreach ($id in 'count', 'keys', 'values') {
+    $retryPlan.tasks += @{
+        id = $id; title = "Task called $id"; deps = @('contracts'); owns = @("$id/**")
+        acceptance = "if (-not (Test-Path '$id/$id.txt')) { exit 1 }"; prompt = "Build $id."
+    }
+}
 $retryPlan | ConvertTo-Json -Depth 10 | Set-Content $planFile
 & (Join-Path $orch 'Invoke-Orchestrator.ps1') -Provider $Provider -RepoPath $repo -AgentPath $fake -MaxParallel 2 -PollSeconds 1
 $retryExit = $LASTEXITCODE
@@ -125,6 +132,7 @@ $retryChecks = [ordered]@{
     'quality bug retried beyond three' = $retryState.tasks['quality-only'].status -eq 'done' -and $retryState.tasks['quality-only'].attempts -eq 5
     'five spec rejections stop task'    = $retryState.tasks['spec-only'].status -eq 'failed' -and $retryState.tasks['spec-only'].attempts -eq 5
     'rejection leaves earlier work done' = $retryExit -eq 2 -and $retryState.tasks['contracts'].status -eq 'done'
+    'property-named task ids run'      = @('count', 'keys', 'values' | Where-Object { $retryState.tasks[$_].status -ne 'done' }).Count -eq 0
 }
 $retryChecks.GetEnumerator() | ForEach-Object { Write-Host ("{0,-38} {1}" -f $_.Key, ($_.Value ? 'PASS' : 'FAIL')) -ForegroundColor ($_.Value ? 'Green' : 'Red') }
 if ($retryChecks.Values -contains $false) { Write-Host "Retry test FAILED. Repo left at $repo"; exit 1 }
