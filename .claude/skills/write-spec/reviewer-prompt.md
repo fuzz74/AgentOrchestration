@@ -12,7 +12,8 @@ agent. Every one of those agents sees this whole spec, but only the planner sees
 repository layout up front. Nobody can ask the author a question.
 
 Spec: [SPEC_PATH]
-Target repository: [REPO_PATH] (read it as needed; do not edit anything)
+Target repository: [REPO_PATH] (read it as needed; do not edit anything; do not read any
+other project)
 
 Check, in this order:
 

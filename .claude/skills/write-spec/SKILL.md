@@ -28,6 +28,19 @@ tasks.json. Read-only exploration of the target repo is allowed. The only file y
 the spec.
 </HARD-GATE>
 
+<HARD-GATE>
+Every project is a blank canvas. The one exception is when the user explicitly says this
+spec builds on an existing project: then that project, and no other, may be read and its
+stack and conventions followed. Otherwise, while writing a spec, read only the target repo,
+this skill's own files, and what the user explicitly tells you to read for this spec (in a
+message, or in a brief or draft they hand you). Do not open, search or copy from any other
+project: no other repos, specs, briefs, code or run folders, and not as a style example
+either. Do not carry over a stack, layout, rule or convention because an earlier project
+used it, even when a memory note records it as the user's usual choice. Ask the user
+instead, without presenting the earlier choice as the default. If you think another project
+would help, say which one and why, and wait for a yes.
+</HARD-GATE>
+
 ## Steps
 
 1. **Target.** Ask for the target repo path and the topic, unless already given. If the user
@@ -39,12 +52,13 @@ the spec.
   `.claude/settings.local.json` and `permissions.additionalDirectories`; in Copilot CLI,
   use `--add-dir <repo>` or the session's directory permission flow. Never change access
   settings without the user's approval.
-2. **Explore** the target repo (read-only): language, layout, test runner, conventions, and
-   what already exists. Don't ask what the code can tell you. If the folder doesn't exist
-   or has no commits, it's a **new project**. Planning then creates its skeleton from the
-   spec automatically (`orchestrator/Initialize-Project.ps1`): git repo, manifest, test
-   runner, and one smoke test. So the interview must settle the stack and the setup and
-   test commands. Don't create the folder or any files other than the spec yourself.
+2. **Explore** the target repo, and only the target repo (read-only): language, layout, test
+   runner, conventions, and what already exists. Don't ask what the code can tell you. If
+   the folder doesn't exist or has no commits, it's a **new project**. Planning then creates
+   its skeleton from the spec automatically (`orchestrator/Initialize-Project.ps1`): git
+   repo, manifest, test runner, and one smoke test. So the interview must settle the stack
+   and the setup and test commands. Don't create the folder or any files other than the
+   spec yourself.
 3. **Check scope.** If the request covers several independent subsystems, stop and propose a
    split into separate specs with an order. Then continue with the first one. Signs that a
    spec is too big: more than about 8 modules, or more than about 400 lines.
@@ -115,8 +129,9 @@ the spec.
   what glue comes last. The planner does the split: don't write task prompts in the spec.
 - **Concise.** Aim for 150-400 lines. Every line costs tokens in every worker's prompt. Use
   tables and code over prose. Don't repeat content across sections.
-- **Fit the repo.** Use its language, layout, test runner and conventions. Point to an
-  existing file as the example to follow.
+- **Fit the repo.** Use the target repo's language, layout, test runner and conventions.
+  Point to an existing file in it as the example to follow. A file in another project is
+  never the example.
 
 ## EARS quick reference
 
