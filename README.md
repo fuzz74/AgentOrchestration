@@ -385,7 +385,7 @@ never loses progress. The JSON Schema is
 | `integrationCheck` | none | Command run in the integration worktree after each merge, after `setup`. A failure undoes the merge and fails the task. |
 | `commandTimeoutSec` | `1800` | Timeout for setup, acceptance and integration commands. |
 | `enforceOwns` | `true` | Reject a task that edits files outside `owns` + `shared`. |
-| `shared` | `[]` | Globs any task may edit (lock files, registries). Not used for scheduling, so edits to them can conflict. The resolver handles those conflicts. |
+| `shared` | `[]` | Globs any task may edit (lock files, registries). Not used for scheduling, so edits to them can conflict. The resolver handles those conflicts. `Plan-Tasks.ps1` fills it from the planner's `shared` list. |
 | `additionalDirectories` | `[]` | Existing folders agents must access outside their worktree, e.g. `"additionalDirectories": ["C:\\src\\reference", "../shared-source"]`. Relative paths resolve from the project root; missing folders fail plan validation. Passed as `--add-dir` to worker, reviewer and resolver CLI sessions (including retries). Grants file access, not read-only enforcement; only list trusted folders and do not rely on `owns` to protect files outside the worktree. |
 | `ignore` | `__pycache__`, `*.pyc`, `.pytest_cache`, `.mypy_cache`, `.venv`, `node_modules`, `.DS_Store` | Globs never committed from a worktree, even when the repo's `.gitignore` misses them. Setting this replaces the whole default list. |
 
@@ -439,7 +439,7 @@ match [plan-output.schema.json](orchestrator/schemas/plan-output.schema.json)
 The script then:
 
 1. Copies the spec to `.orchestrator/spec.md` if the spec lives outside the repo.
-2. Writes `tasks.json` with the planner's tasks and your settings (`-WorkerModel`, `-Setup`, `-IntegrationCheck`).
+2. Writes `tasks.json` with the planner's tasks, its shared files (`settings.shared`) and your settings (`-WorkerModel`, `-Setup`, `-IntegrationCheck`).
 3. Validates the graph: schema, ids, unknown deps, self-deps, cycles. If the graph is
    invalid, the planner session is resumed once with the list of problems.
 4. Prints the planner's notes (assumptions and open questions) and the waves (`-DryRun`).

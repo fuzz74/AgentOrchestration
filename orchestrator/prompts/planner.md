@@ -10,7 +10,8 @@ that is already done.
 
 {{PLANNING_RULES}}
 
-Put assumptions, open questions and risks in `notes`.
+Put assumptions, open questions and risks in `notes`. List the globs for `settings.shared`
+(rule 4) in `shared`, or an empty list if there are none.
 
 ## Spec
 

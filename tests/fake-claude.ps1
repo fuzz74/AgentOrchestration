@@ -58,6 +58,7 @@ switch ($role) {
         $check = { param($f) "if (-not (Test-Path '$f')) { Write-Output 'missing $f'; exit 1 }" }
         Out-Result @{
             notes = 'Fake plan for the smoke test.'
+            shared = @(if ($env:FAKE_SHARED) { 'registry.txt' })
             tasks = @(
                 @{ id = 'contracts'; title = 'Define contracts'; deps = @(); owns = @('contracts/**'); acceptance = (& $check 'contracts/contracts.txt'); prompt = 'Write contracts.' }
                 @{ id = 'feature-a'; title = 'Feature A'; deps = @('contracts'); owns = @('a/**'); acceptance = (& $check 'a/feature-a.txt'); prompt = 'Build A.' }

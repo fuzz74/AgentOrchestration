@@ -9,7 +9,8 @@
     -IntegrationCheck commands.
     Then runs the selected headless CLI in the target repo with read-only tools, asks for a plan that matches
     schemas/plan-output.schema.json, validates the graph (ids, deps, cycles) and writes
-    tasks.json with default settings. If the graph is invalid the planner gets one chance to fix it.
+    tasks.json with the planner's shared files and default settings. If the graph is invalid the
+    planner gets one chance to fix it.
     Review and edit the file before running Invoke-Orchestrator.ps1.
 
 .EXAMPLE
@@ -90,7 +91,7 @@ function New-PlanDoc($structured) {
             review           = $true
             setup            = if ($Setup) { $Setup } else { $null }
             integrationCheck = if ($IntegrationCheck) { $IntegrationCheck } else { $null }
-            shared           = @()
+            shared           = @($structured.shared | Where-Object { $_ })
         }
         tasks             = @($structured.tasks | ForEach-Object {
                 [ordered]@{

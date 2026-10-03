@@ -32,10 +32,11 @@ $env:FAKE_NO_STRUCTURED = 'contracts'
 if ($Provider -eq 'Copilot') { $env:FAKE_REQUIRE_MODEL = 'gpt-6-sol' }
 try {
     & (Join-Path $orch 'Plan-Tasks.ps1') -Provider $Provider -Spec $spec -RepoPath $repo -AgentPath $fake
-    # Let every task touch registry.txt so the parallel tasks conflict and the resolver path runs.
+    # The fake planner lists registry.txt as shared. Every task touches it, so the parallel tasks
+    # conflict and the resolver path runs.
     $planFile = Join-Path $repo '.orchestrator/tasks.json'
     $planDoc = Get-Content $planFile -Raw | ConvertFrom-Json -AsHashtable
-    $planDoc.settings.shared = @('registry.txt')
+    $plannerShared = @($planDoc.settings.shared) -join ','
     $reference = Join-Path $WorkDir 'reference library'
     New-Item -ItemType Directory -Path $reference | Out-Null
     $planDoc.settings.additionalDirectories = @('../reference library')
@@ -87,6 +88,7 @@ $planningRules = (Get-Content (Join-Path $orch 'prompts/planning-rules.md') -Raw
 $checks = [ordered]@{
     'skeleton fixed and amended'        = (git -C $repo rev-list --count main) -eq '1' -and @('skeleton.txt', 'tool.txt' | Where-Object { $_ -notin (git -C $repo ls-tree -r --name-only main) }).Count -eq 0
     'plan uses skeleton commands'       = $planSettings.setup -like '*skeleton.txt*' -and $planSettings.integrationCheck -like '*tool.txt*'
+    'plan uses planner shared files'    = $plannerShared -eq 'registry.txt'
     'planner received shared rules'     = $plannerPrompt.Contains($planningRules) -and -not $plannerPrompt.Contains('{{PLANNING_RULES}}')
     'integration check ran after merge' = @(Get-ChildItem (Join-Path $repo '.orchestrator/logs') -Filter '*-integration-check.log').Count -eq 4
     'orchestrator exit code 0'          = $exit -eq 0

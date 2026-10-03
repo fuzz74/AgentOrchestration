@@ -1,10 +1,15 @@
 {
   "type": "object",
-  "required": ["tasks", "notes"],
+  "required": ["tasks", "notes", "shared"],
   "properties": {
     "notes": {
       "type": "string",
       "description": "Assumptions, open questions and anything the human should check before running the plan."
+    },
+    "shared": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Globs any task may edit although no task owns them (lock files, registries several tasks add to). Becomes settings.shared. Empty if there are none."
     },
     "tasks": {
       "type": "array",
