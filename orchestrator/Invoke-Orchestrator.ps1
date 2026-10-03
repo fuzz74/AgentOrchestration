@@ -25,10 +25,12 @@ param(
     [string]$AgentPath,
     [switch]$DryRun,
     [switch]$RetryFailed,
+    [switch]$FreshFailed,
     [ValidateRange(1, 300)][int]$PollSeconds = 5
 )
 
 $ErrorActionPreference = 'Stop'
+if ($FreshFailed -and -not $RetryFailed) { throw '-FreshFailed requires -RetryFailed.' }
 $modulePath = Join-Path $PSScriptRoot 'Orchestrator.psm1'
 Import-Module $modulePath -Force
 
@@ -87,10 +89,26 @@ foreach ($t in $planObj.Tasks) {
     if ($RetryFailed -and $s.status -eq 'failed') {
         $worktree = Join-Path $paths.WorktreeRoot $t.id
         $branch = "orch/task/$($t.id)"
-        $canSync = $s.error -like 'Pipeline error:*' -and (Test-Path $worktree) -and
-            (Invoke-Git $worktree @('branch', '--show-current')).Output -eq $branch -and
-            -not (Invoke-Git $worktree @('status', '--porcelain')).Output -and
-            (Get-TaskChanges $worktree $planObj.IntegrationBranch).Count -gt 0
+        $canSync = $false
+        if (Test-Path $worktree) {
+            if ((Invoke-Git $worktree @('branch', '--show-current')).Output -ne $branch) {
+                throw "Cannot retry $($t.id): worktree $worktree is not on $branch."
+            }
+            if ((Invoke-Git $worktree @('status', '--porcelain')).Output) {
+                throw "Cannot retry $($t.id): worktree $worktree has uncommitted changes. Preserve them before retrying."
+            }
+            $canSync = (Get-TaskChanges $worktree $planObj.IntegrationBranch).Count -gt 0
+        }
+        elseif ((Test-GitBranch $paths.Repo $branch) -and -not $FreshFailed) {
+            throw "Cannot retry $($t.id): branch $branch exists without its worktree. Restore it or use -FreshFailed."
+        }
+        if ($FreshFailed -and (Test-GitBranch $paths.Repo $branch)) {
+            $archive = "orch/archive/$($t.id)/$(Get-Date -Format 'yyyyMMdd-HHmmssfff')"
+            $saved = Invoke-Git $paths.Repo @('branch', $archive, $branch)
+            if ($saved.Exit -ne 0) { throw "Cannot archive $branch before fresh retry: $($saved.Output)" }
+            Write-Host "Archived $branch as $archive before fresh retry."
+        }
+        if ($FreshFailed) { $canSync = $false }
         $s.status = 'pending'; $s.mode = if ($canSync) { 'sync' } else { 'fresh' }
         $s.error = $null
         if (-not $canSync) { $s.sessionId = $null }
@@ -130,6 +148,7 @@ function Start-Task($task) {
         Effort = $settings.effort; PermissionMode = $settings.permissionMode; AllowedTools = @($settings.allowedTools)
         MaxAttempts = [int]$settings.maxAttempts; MaxBudgetUsd = [double]$settings.maxBudgetUsd; Review = [bool]$settings.review
         Ignore = @($settings.ignore); EnforceOwns = [bool]$settings.enforceOwns; CommandTimeoutSec = [int]$settings.commandTimeoutSec; Setup = $settings.setup
+        AdditionalDirectories = @($settings.additionalDirectories)
         Worktree = $wt.Path; Branch = $wt.Branch; IntegrationBranch = $planObj.IntegrationBranch
         SpecText = $planObj.SpecText; DepContext = (Get-DepContext $task); Provider = $Provider; AgentPath = $agent
         LogDir = (Join-Path $paths.LogDir (Join-Path $task.id (Get-Date -Format 'yyyyMMdd-HHmmss')))

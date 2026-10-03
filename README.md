@@ -273,6 +273,12 @@ Skip this step if every task is done.
    - If the spec itself was wrong, fix `spec.md` as well.
    - If the work is too big for one task, add a task. Adding tasks between runs is fine.
 3. **Retry** (terminal): run `.\orchestrator\Invoke-Orchestrator.ps1 -Provider Copilot -RepoPath C:\src\myapp -RetryFailed`.
+  A clean failed task branch with committed changes is preserved and synchronized with
+  newer dependencies before its checks and reviewer run again. A dirty failed worktree
+  stops the retry so uncommitted work is not lost. To deliberately start failed tasks
+  over, add `-FreshFailed` to `-RetryFailed`: each existing task branch is archived
+  under `orch/archive/<task-id>/<timestamp>` before its worktree is recreated. Review
+  the archived branch if you need to recover the earlier attempt.
 
 ### Step 6: Try the finished application
 
@@ -380,6 +386,7 @@ never loses progress. The JSON Schema is
 | `commandTimeoutSec` | `1800` | Timeout for setup, acceptance and integration commands. |
 | `enforceOwns` | `true` | Reject a task that edits files outside `owns` + `shared`. |
 | `shared` | `[]` | Globs any task may edit (lock files, registries). Not used for scheduling, so edits to them can conflict. The resolver handles those conflicts. |
+| `additionalDirectories` | `[]` | Existing folders agents must access outside their worktree, e.g. `"additionalDirectories": ["C:\\src\\reference", "../shared-source"]`. Relative paths resolve from the project root; missing folders fail plan validation. Passed as `--add-dir` to worker, reviewer and resolver CLI sessions (including retries). Grants file access, not read-only enforcement; only list trusted folders and do not rely on `owns` to protect files outside the worktree. |
 | `ignore` | `__pycache__`, `*.pyc`, `.pytest_cache`, `.mypy_cache`, `.venv`, `node_modules`, `.DS_Store` | Globs never committed from a worktree, even when the repo's `.gitignore` misses them. Setting this replaces the whole default list. |
 
 ## Writing a spec
@@ -545,7 +552,7 @@ implementation or acceptance check needs repair.
 | --- | --- |
 | `Initialize-Project.ps1` | `-Provider Claude|Copilot`, `-Spec` and `-RepoPath` (required), `-Model` (`sonnet`), `-AgentPath`, `-MaxBudgetUsd` (`0` = no cap, Claude only), `-MaxAttempts` (`3`). Creates and checks the skeleton of a new repo; does nothing if the repo has commits. `Plan-Tasks.ps1` calls it. |
 | `Plan-Tasks.ps1` | `-Provider Claude|Copilot`, `-Spec` (required), `-RepoPath` (`.`), `-Out` (plan path), `-Model` (planner, `opus`), `-WorkerModel` (`sonnet`), `-Setup`, `-IntegrationCheck` (both default to `project.json`), `-AgentPath`, `-MaxBudgetUsd` (`0` = no cap, Claude only), `-Force` (overwrite) |
-| `Invoke-Orchestrator.ps1` | `-Provider Claude|Copilot` (required, even for `-DryRun`), `-RepoPath` (`.`), `-Plan`, `-MaxParallel` (`3`), `-AgentPath`, `-DryRun` (print waves and exit), `-RetryFailed`, `-PollSeconds` (`5`). Exit code 0 = all done, 2 = some failed or blocked, 1 = invalid plan. |
+| `Invoke-Orchestrator.ps1` | `-Provider Claude|Copilot` (required, even for `-DryRun`), `-RepoPath` (`.`), `-Plan`, `-MaxParallel` (`3`), `-AgentPath`, `-DryRun` (print waves and exit), `-RetryFailed` (preserve committed work), `-FreshFailed` (with `-RetryFailed`, archive and start over), `-PollSeconds` (`5`). Exit code 0 = all done, 2 = some failed or blocked, 1 = invalid plan. |
 | `Request-OrchestratorStop.ps1` | `-RepoPath` (`.`), `-Cancel` (remove a pending stop request). Graceful stop exits the runner with code 0 even if tasks are still pending. |
 | `Show-Tasks.ps1` | `-Provider Claude|Copilot` (required), `-RepoPath`, `-Plan`. Validates the plan and prints wave, status, deps, attempts, cost and detail per task. |
 | `Watch-Orchestrator.ps1` | `-Provider Claude|Copilot` (required), `-RepoPath`, `-Plan`, `-RefreshSeconds` (`2`), `-ActivityLines` (`10`), `-Once`, `-NoMouse`. Watches either provider's JSON event stream. A screen taller than the window scrolls with the keys (↑↓, PgUp/PgDn, Home/End) and, on Windows, the mouse wheel and a draggable scrollbar; `-NoMouse` keeps normal text selection. `q` quits. |

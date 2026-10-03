@@ -7,6 +7,12 @@ $copilot = $args -contains '--output-format' -and $args[[array]::IndexOf($args, 
 if ($copilot -and $env:FAKE_REQUIRE_MODEL -and $args[[array]::IndexOf($args, '--model') + 1] -ne $env:FAKE_REQUIRE_MODEL) {
     throw "Expected Copilot model $env:FAKE_REQUIRE_MODEL"
 }
+if ($env:FAKE_REQUIRE_ADD_DIR) {
+    $positions = @(for ($index = 0; $index -lt $args.Count - 1; $index++) { if ($args[$index] -eq '--add-dir') { $index } })
+    if ($positions.Count -ne 1 -or $args[$positions[0] + 1] -ne $env:FAKE_REQUIRE_ADD_DIR) {
+        throw "Expected --add-dir $env:FAKE_REQUIRE_ADD_DIR"
+    }
+}
 $prompt = @($input) -join "`n"
 $role = if ($prompt -match 'orchestrator-role: (\w+)') { $Matches[1] } else { 'unknown' }
 $here = (Get-Location).Path

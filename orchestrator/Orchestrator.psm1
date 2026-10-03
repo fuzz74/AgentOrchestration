@@ -21,6 +21,7 @@ $script:DefaultSettings = [ordered]@{
     commandTimeoutSec = 1800
     enforceOwns       = $true
     shared            = @()
+    additionalDirectories = @()
     # Never committed from a worktree: build and tool artifacts that repos often forget to .gitignore.
     ignore            = @('**/__pycache__/**', '**/*.pyc', '**/.pytest_cache/**', '**/.mypy_cache/**', '**/.venv/**', '**/node_modules/**', '**/.DS_Store')
 }
@@ -142,6 +143,13 @@ function Read-Plan {
     $settings = [ordered]@{}
     foreach ($k in $script:DefaultSettings.Keys) { $settings[$k] = $script:DefaultSettings[$k] }
     if ($doc.settings) { foreach ($k in $doc.settings.Keys) { $settings[$k] = $doc.settings[$k] } }
+    $settings.additionalDirectories = @($settings.additionalDirectories | ForEach-Object {
+        if (-not $_ -or -not $_.Trim()) { $schemaErrors += 'additionalDirectories cannot contain an empty path'; return }
+        $directory = if ([IO.Path]::IsPathRooted($_)) { $_ } else { Join-Path $Repo $_ }
+        $directory = [IO.Path]::GetFullPath($directory)
+        if (-not [IO.Directory]::Exists($directory)) { $schemaErrors += "Additional directory not found: $directory" }
+        $directory
+    })
 
     $tasks = foreach ($t in @($doc.tasks)) {
         [pscustomobject]@{
@@ -390,6 +398,9 @@ function New-TaskWorktree {
     $wt = Join-Path $Paths.WorktreeRoot $Id
     $branch = "orch/task/$Id"
     if (Test-Path $wt) {
+        if ((Invoke-Git $wt @('status', '--porcelain')).Output) {
+            throw "Cannot recreate $($Id): worktree $wt has uncommitted changes. Preserve them before retrying."
+        }
         [void](Invoke-Git $repo @('worktree', 'remove', '--force', $wt))
         if (Test-Path $wt) { Remove-Item -Recurse -Force $wt }
     }
@@ -469,11 +480,12 @@ function Invoke-Agent {
     param(
         [ValidateSet('Claude', 'Copilot')][string]$Provider = 'Claude', [string]$AgentPath, [string]$WorkDir, [string]$Prompt, [string]$Schema,
         [string]$Model, [string]$Effort, [string]$PermissionMode, [string[]]$AllowedTools, [string[]]$Tools,
-        [double]$MaxBudgetUsd, [string]$ResumeSessionId, [string]$Name, [string]$LogPath,
+        [double]$MaxBudgetUsd, [string]$ResumeSessionId, [string]$Name, [string]$LogPath, [string[]]$AdditionalDirectories,
         [string]$ProgressFile, [string]$StopFile, [string]$ActivityLabel, [ValidateSet('none', 'each', 'heartbeat')][string]$Activity = 'none'
     )
     $Model = Resolve-AgentModel -Provider $Provider -Model $Model
     $cliArgs = [Collections.Generic.List[string]]::new()
+    foreach ($directory in $AdditionalDirectories) { $cliArgs.AddRange([string[]]@('--add-dir', $directory)) }
     if ($Provider -eq 'Claude') {
         $cliArgs.AddRange([string[]]@('-p', '--output-format', 'stream-json', '--verbose', '--permission-prompts', 'none'))
         if ($Schema) { $cliArgs.AddRange([string[]]@('--json-schema', (Get-CompactSchema $Schema))) }
@@ -593,7 +605,7 @@ function Invoke-Agent {
         $script:InNudge = $true
         try {
             $nudge = Invoke-Agent -Provider $Provider -AgentPath $AgentPath -WorkDir $WorkDir -Schema $Schema -Model $Model -Effort $Effort `
-                -PermissionMode $PermissionMode -AllowedTools $AllowedTools -Tools $Tools -MaxBudgetUsd $MaxBudgetUsd `
+                -PermissionMode $PermissionMode -AllowedTools $AllowedTools -Tools $Tools -MaxBudgetUsd $MaxBudgetUsd -AdditionalDirectories $AdditionalDirectories `
                 -ResumeSessionId $r.SessionId -Name $Name -LogPath ($LogPath ? "$LogPath.nudge.json" : $null) `
                 -ProgressFile $ProgressFile -StopFile $StopFile -ActivityLabel $ActivityLabel -Activity $Activity `
                 -Prompt $(if ($Provider -eq 'Claude') { 'Your work is finished. Do not do any more work. Report your result now by calling the StructuredOutput tool with the required fields.' } else { "Your work is finished. Do not do any more work. Your previous JSON did not match the schema: $schemaError. Return the corrected JSON object now." })
@@ -663,7 +675,7 @@ function Sync-WithIntegration {
     $resolverTools = if ($Ctx.Provider -eq 'Copilot') { @($Ctx.AllowedTools) + @('Bash') }
                      else { @($Ctx.AllowedTools) + @('Bash(git add *)', 'Bash(git status *)', 'Bash(git diff *)') }
     $r = Invoke-Agent -Provider $Ctx.Provider -AgentPath $Ctx.AgentPath -WorkDir $wt -Prompt $prompt -Model $Ctx.ReviewModel `
-        -PermissionMode 'acceptEdits' -AllowedTools $resolverTools `
+        -PermissionMode 'acceptEdits' -AllowedTools $resolverTools -AdditionalDirectories $Ctx.AdditionalDirectories `
         -MaxBudgetUsd $Ctx.MaxBudgetUsd -Name "orch:$($Ctx.Id):resolve" -LogPath (Join-Path $Ctx.LogDir "attempt-$Attempt-resolver.json") `
         -ProgressFile $Ctx.ProgressFile -StopFile $Ctx.StopFile -ActivityLabel "[$($Ctx.Id)] resolver:" -Activity 'heartbeat'
     $Cost.Value += $r.Cost
@@ -688,13 +700,14 @@ function Invoke-Review {
     if ($diff.Length -gt $limit) { $diff = $diff.Substring(0, $limit) + "`n... (diff truncated; read the files for the rest)" }
     $prompt = Format-Template 'reviewer.md' @{
         TASK_ID = $Ctx.Id; TITLE = $Ctx.Title; PROMPT = $Ctx.Prompt; OWNS = (Format-Owns $Ctx.Owns $Ctx.Shared)
+        ADDITIONAL_DIRECTORIES = $(if ($Ctx.AdditionalDirectories.Count) { ($Ctx.AdditionalDirectories | ForEach-Object { "- ``$_``" }) -join "`n" } else { '(none)' })
         SPEC = ($Ctx.SpecText ?? '(no spec file)'); BASE = $Ctx.IntegrationBranch
         DIFF_STAT = (Invoke-Git $wt @('diff', '--stat', $range)).Output; DIFF = $diff
     }
     for ($try = 1; $try -le 2; $try++) {
         if ($Ctx.StopFile -and (Test-Path $Ctx.StopFile)) { return @{ paused = $true } }
         $r = Invoke-Agent -Provider $Ctx.Provider -AgentPath $Ctx.AgentPath -WorkDir $wt -Prompt $prompt -Schema 'review-result.schema.json' `
-            -Model $Ctx.ReviewModel -PermissionMode 'dontAsk' -Tools @('Read', 'Glob', 'Grep') -AllowedTools @('Read', 'Glob', 'Grep') `
+            -Model $Ctx.ReviewModel -PermissionMode 'dontAsk' -Tools @('Read', 'Glob', 'Grep') -AllowedTools @('Read', 'Glob', 'Grep') -AdditionalDirectories $Ctx.AdditionalDirectories `
             -MaxBudgetUsd $Ctx.MaxBudgetUsd -Name "orch:$($Ctx.Id):review" -LogPath (Join-Path $Ctx.LogDir "attempt-$Attempt-review-$try.json") `
             -ProgressFile $Ctx.ProgressFile -StopFile $Ctx.StopFile -ActivityLabel "[$($Ctx.Id)] review:" -Activity 'heartbeat'
         $Cost.Value += $r.Cost
@@ -747,6 +760,7 @@ function Invoke-TaskPipeline {
                     $prompt = Format-Template 'worker.md' @{
                         TASK_ID = $Ctx.Id; TITLE = $Ctx.Title; PROMPT = $Ctx.Prompt; BRANCH = $Ctx.Branch
                         OWNS = (Format-Owns $Ctx.Owns $Ctx.Shared); ACCEPTANCE = ($Ctx.Acceptance ?? '(none - explain in your summary how you checked the work)')
+                        ADDITIONAL_DIRECTORIES = $(if ($Ctx.AdditionalDirectories.Count) { ($Ctx.AdditionalDirectories | ForEach-Object { "- ``$_``" }) -join "`n" } else { '(none)' })
                         DEPENDENCIES = $Ctx.DepContext; SPEC = ($Ctx.SpecText ?? '(no spec file)'); FEEDBACK = $fb
                     }
                     $resume = $null
@@ -754,7 +768,7 @@ function Invoke-TaskPipeline {
                 & $log "attempt $attempt/$($limit): worker started ($($Ctx.Model))"
                 $workerRuns++
                 $w = Invoke-Agent -Provider $Ctx.Provider -AgentPath $Ctx.AgentPath -WorkDir $Ctx.Worktree -Prompt $prompt -Schema 'worker-result.schema.json' `
-                    -Model $Ctx.Model -Effort $Ctx.Effort -PermissionMode $Ctx.PermissionMode -AllowedTools $Ctx.AllowedTools `
+                    -Model $Ctx.Model -Effort $Ctx.Effort -PermissionMode $Ctx.PermissionMode -AllowedTools $Ctx.AllowedTools -AdditionalDirectories $Ctx.AdditionalDirectories `
                     -MaxBudgetUsd $Ctx.MaxBudgetUsd -ResumeSessionId $resume -Name "orch:$($Ctx.Id)" `
                     -LogPath (Join-Path $Ctx.LogDir "attempt-$attempt-worker.json") `
                     -ProgressFile $Ctx.ProgressFile -StopFile $Ctx.StopFile -ActivityLabel "[$($Ctx.Id)] worker:" -Activity 'heartbeat'

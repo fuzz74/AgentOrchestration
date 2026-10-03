@@ -10,6 +10,9 @@ Read files in the worktree as needed for context. Do not edit anything.
 Files the task was allowed to edit:
 {{OWNS}}
 
+Additional directories available for inspection (do not edit):
+{{ADDITIONAL_DIRECTORIES}}
+
 ## Give two verdicts
 
 - `spec_verdict`: `fail` only if the change misses part of the task, contradicts it,

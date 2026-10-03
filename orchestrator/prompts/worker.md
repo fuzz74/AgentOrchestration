@@ -14,6 +14,12 @@ orchestrator gave you a single task. You work in your own git worktree on branch
 Editing files outside this list makes the task fail. If the task truly cannot be done
 without touching other files, stop and report `blocked` with the reason.
 
+## Additional directories you may inspect
+
+{{ADDITIONAL_DIRECTORIES}}
+
+These directories are outside your worktree. Do not edit files in them.
+
 ## How your work is checked
 
 1. The orchestrator commits everything you leave in the worktree. Do not commit, push,

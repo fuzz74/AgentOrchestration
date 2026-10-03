@@ -49,6 +49,11 @@
           "items": { "type": "string" },
           "description": "Globs any task may edit (lock files, barrel files). Not used for scheduling."
         },
+        "additionalDirectories": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Existing directories outside the worktree that agents may access. Absolute paths or paths relative to the project root; passed to the CLI as --add-dir. This does not enforce read-only access."
+        },
         "ignore": {
           "type": "array",
           "items": { "type": "string" },

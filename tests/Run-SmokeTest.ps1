@@ -36,6 +36,9 @@ try {
     $planFile = Join-Path $repo '.orchestrator/tasks.json'
     $planDoc = Get-Content $planFile -Raw | ConvertFrom-Json -AsHashtable
     $planDoc.settings.shared = @('registry.txt')
+    $reference = Join-Path $WorkDir 'reference library'
+    New-Item -ItemType Directory -Path $reference | Out-Null
+    $planDoc.settings.additionalDirectories = @('../reference library')
     if ($Provider -eq 'Copilot') {
         if ($planDoc.settings.model -ne 'gpt-6-sol' -or $planDoc.settings.reviewModel -ne 'gpt-6-sol') { throw 'Copilot plan did not pin GPT-6 Sol.' }
         $planDoc.settings.model = 'sonnet'
@@ -57,8 +60,10 @@ try {
     }
     finally { $heldLock.Dispose() }
     if (-not $duplicateRejected) { throw 'Concurrent orchestrator invocation was not rejected.' }
+    $env:FAKE_REQUIRE_ADD_DIR = [IO.Path]::GetFullPath($reference)
     & (Join-Path $orch 'Invoke-Orchestrator.ps1') -Provider $Provider -RepoPath $repo -AgentPath $fake -MaxParallel 2 -PollSeconds 1
     $exit = $LASTEXITCODE
+    Remove-Item Env:FAKE_REQUIRE_ADD_DIR
     $releasedLock = [IO.File]::Open($lockPath, 'OpenOrCreate', 'ReadWrite', 'None')
     $releasedLock.Dispose()
     $longPromptOk = $true
@@ -70,7 +75,7 @@ try {
     }
 }
 finally {
-    Remove-Item Env:FAKE_FAIL_ONCE, Env:FAKE_SHARED, Env:FAKE_NO_STRUCTURED, Env:FAKE_REQUIRE_MODEL -ErrorAction SilentlyContinue
+    Remove-Item Env:FAKE_FAIL_ONCE, Env:FAKE_SHARED, Env:FAKE_NO_STRUCTURED, Env:FAKE_REQUIRE_MODEL, Env:FAKE_REQUIRE_ADD_DIR -ErrorAction SilentlyContinue
     $gitIdentity.Keys | ForEach-Object { Remove-Item "Env:$_" }
 }
 
@@ -86,6 +91,8 @@ $checks = [ordered]@{
     'integration check ran after merge' = @(Get-ChildItem (Join-Path $repo '.orchestrator/logs') -Filter '*-integration-check.log').Count -eq 4
     'orchestrator exit code 0'          = $exit -eq 0
     'duplicate run rejected'            = $duplicateRejected
+    'reference directory passed to agents' = $exit -eq 0
+    'reference directory in worker prompt' = (Get-Content (Get-ChildItem (Join-Path $repo '.orchestrator/logs/contracts') -Recurse -Filter 'attempt-1-worker.json.prompt.md' | Select-Object -First 1) -Raw).Contains($env:FAKE_REQUIRE_ADD_DIR ?? [IO.Path]::GetFullPath($reference))
     'long Copilot prompt uses stdin'    = $longPromptOk
     'all tasks done'                    = @($state.tasks.Values | Where-Object { $_.status -ne 'done' }).Count -eq 0
     'all four files on orch/integration' = @('contracts/contracts.txt', 'a/feature-a.txt', 'b/feature-b.txt', 'app/wire-up.txt' | Where-Object { $_ -notin $files }).Count -eq 0
@@ -119,6 +126,38 @@ $retryChecks = [ordered]@{
 }
 $retryChecks.GetEnumerator() | ForEach-Object { Write-Host ("{0,-38} {1}" -f $_.Key, ($_.Value ? 'PASS' : 'FAIL')) -ForegroundColor ($_.Value ? 'Green' : 'Red') }
 if ($retryChecks.Values -contains $false) { Write-Host "Retry test FAILED. Repo left at $repo"; exit 1 }
+$newDependency = Get-Content $planFile -Raw | ConvertFrom-Json -AsHashtable
+$newDependency.tasks += @{
+    id = 'retry-dep'; title = 'New dependency for failed task'; deps = @('contracts'); owns = @('retry-dep/**')
+    acceptance = "if (-not (Test-Path 'retry-dep/retry-dep.txt')) { exit 1 }"; prompt = 'Build retry-dep.'
+}
+$newDependency.tasks | Where-Object id -eq 'spec-only' | ForEach-Object { $_.deps += 'retry-dep' }
+$newDependency | ConvertTo-Json -Depth 10 | Set-Content $planFile
+$failedWorktree = Join-Path $WorkDir 'demo.worktrees/spec-only'
+$originalCommit = (git -C $failedWorktree rev-parse HEAD).Trim()
+$uncommitted = Join-Path $failedWorktree 'uncommitted.txt'
+Set-Content $uncommitted 'Do not discard this file.'
+$dirtyRejected = $false
+try {
+    & (Join-Path $orch 'Invoke-Orchestrator.ps1') -Provider $Provider -RepoPath $repo -AgentPath $fake -RetryFailed -MaxParallel 2 -PollSeconds 1
+}
+catch { $dirtyRejected = $_.Exception.Message -like '*has uncommitted changes*' }
+finally { Remove-Item $uncommitted }
+if (-not $dirtyRejected -or (git -C $failedWorktree rev-parse HEAD).Trim() -ne $originalCommit) {
+    throw 'Dirty failed worktree was not protected.'
+}
+& (Join-Path $orch 'Invoke-Orchestrator.ps1') -Provider $Provider -RepoPath $repo -AgentPath $fake -RetryFailed -MaxParallel 2 -PollSeconds 1
+$preservedCommit = (git -C $failedWorktree rev-parse HEAD).Trim()
+git -C $repo merge-base --is-ancestor $originalCommit $preservedCommit
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path (Join-Path $failedWorktree 'retry-dep/retry-dep.txt'))) {
+    throw 'Ordinary retry did not preserve the failed branch and sync its new dependency.'
+}
+& (Join-Path $orch 'Invoke-Orchestrator.ps1') -Provider $Provider -RepoPath $repo -AgentPath $fake -RetryFailed -FreshFailed -MaxParallel 2 -PollSeconds 1
+$archives = @(git -C $repo for-each-ref --format='%(refname:short)' refs/heads/orch/archive/spec-only)
+if ($archives.Count -ne 1 -or (git -C $repo rev-parse $archives[0]).Trim() -ne $preservedCommit) {
+    throw 'Fresh retry did not archive the previous failed branch.'
+}
+Write-Host 'Dirty, preserved and archived retry paths PASS' -ForegroundColor Green
 $pausePlan = Get-Content $planFile -Raw | ConvertFrom-Json -AsHashtable
 foreach ($id in 'pause-point', 'after-pause') {
     $pausePlan.tasks += @{
