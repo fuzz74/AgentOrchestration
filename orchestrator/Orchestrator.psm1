@@ -488,6 +488,8 @@ function Invoke-Agent {
     foreach ($directory in $AdditionalDirectories) { $cliArgs.AddRange([string[]]@('--add-dir', $directory)) }
     if ($Provider -eq 'Claude') {
         $cliArgs.AddRange([string[]]@('-p', '--output-format', 'stream-json', '--verbose', '--permission-prompts', 'none'))
+        # Auto memory lives outside the repo on one machine; agents must not read or write it.
+        $cliArgs.AddRange([string[]]@('--settings', '{"autoMemoryEnabled":false}'))
         if ($Schema) { $cliArgs.AddRange([string[]]@('--json-schema', (Get-CompactSchema $Schema))) }
         if ($Model) { $cliArgs.AddRange([string[]]@('--model', $Model)) }
         if ($Effort) { $cliArgs.AddRange([string[]]@('--effort', $Effort)) }
