@@ -571,7 +571,10 @@ implementation or acceptance check needs repair.
 | Reviewer | `Read`, `Glob`, `Grep` only | `dontAsk` |
 
 Claude calls use `--permission-prompts none`, plus `--max-budget-usd` when a cap is set. Copilot calls use
-`--allow-all-tools` with `--available-tools` mapped from the requested categories; its
+`--allow-all-tools` with `--available-tools` mapped from the requested tools (`Read` to
+`view`, `Glob` to `glob`, `Grep` to `rg`, `Edit` and `Write` to `apply_patch`, `Bash` and
+`PowerShell` to `powershell` and its `read_`, `stop_` and `list_powershell` companions), so
+that filter is what keeps Copilot's planner and reviewer read-only; its
 CLI has no equivalent to Claude's USD cap or command-scoped `Bash(...)` rules (those rules
 are rejected for Copilot). Copilot's JSON results are checked against the local schemas;
 Claude uses its native `--json-schema` output. Every Copilot run (bootstrap, planner,

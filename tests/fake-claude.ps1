@@ -15,8 +15,14 @@ if ($env:FAKE_REQUIRE_ADD_DIR) {
 }
 $prompt = @($input) -join "`n"
 $role = if ($prompt -match 'orchestrator-role: (\w+)') { $Matches[1] } else { 'unknown' }
+if ($copilot -and ($toolFilter = @($args) -like '--available-tools=*')) {
+    # With --allow-all-tools, this filter is all that keeps the planner and reviewer read-only.
+    $expected = if ($role -in 'planner', 'reviewer') { 'view,glob,rg' }
+                else { 'view,apply_patch,glob,rg,powershell,read_powershell,stop_powershell,list_powershell' }
+    if ($toolFilter -ne "--available-tools=$expected") { throw "Expected --available-tools=$expected for $role, got $toolFilter" }
+}
 $here = (Get-Location).Path
-$memo = Join-Path ([IO.Path]::GetTempPath()) 'fake-claude'
+$memo =Join-Path ([IO.Path]::GetTempPath()) 'fake-claude'
 New-Item -ItemType Directory -Force -Path $memo | Out-Null
 
 function Out-Result($structured, $session = [guid]::NewGuid().ToString()) {

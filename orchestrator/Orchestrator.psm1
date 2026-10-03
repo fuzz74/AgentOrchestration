@@ -509,9 +509,12 @@ function Invoke-Agent {
         if ($requested) {
             $available = foreach ($tool in $requested) {
                 switch -Regex ($tool) {
-                    '^(Read|Glob|Grep)$' { 'view'; break }
+                    '^Read$' { 'view'; break }
+                    '^Glob$' { 'glob'; break }
+                    '^Grep$' { 'rg'; break }
                     '^(Edit|Write)$' { 'apply_patch'; break }
-                    '^(Bash|PowerShell)$' { 'powershell'; break }
+                    # A command that outlives its wait moves to the background; the other three read and stop it.
+                    '^(Bash|PowerShell)$' { 'powershell', 'read_powershell', 'stop_powershell', 'list_powershell'; break }
                     default { throw "Copilot cannot enforce tool rule '$tool'. Use whole-tool names in allowedTools." }
                 }
             }
