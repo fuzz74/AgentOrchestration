@@ -50,9 +50,13 @@ function Get-OrchPaths {
         StateFile           = Join-Path $runDir 'state.json'
         StopFile            = Join-Path $runDir 'stop-requested'
         ProgressFile        = Join-Path $runDir 'progress.md'
+        ProjectFile         = Join-Path $runDir 'project.json'
+        LockFile            = Join-Path $runDir 'run.lock'
         LogDir              = Join-Path $runDir 'logs'
         WorktreeRoot        = $wtRoot
         IntegrationWorktree = Join-Path $wtRoot '_integration'
+        # Finished runs: <repo>.runs/<timestamp>/.orchestrator, the same shape as a live run.
+        ArchiveRoot         = Join-Path (Split-Path $repo -Parent) ((Split-Path $repo -Leaf) + '.runs')
     }
 }
 
@@ -428,6 +432,134 @@ function Invoke-ShellCommand {
     $tail = (($text -split "`r?`n") | Select-Object -Last 80) -join "`n"
     if ($timedOut) { $tail = "Timed out after $TimeoutSec s.`n$tail" }
     [pscustomobject]@{ Ok = (-not $timedOut -and $exit -eq 0); Exit = $exit; Tail = $tail.Trim() }
+}
+
+#endregion
+
+#region Finishing a run
+
+function Get-RunProblems {
+    # Returns the reasons the run in .orchestrator is not finished; empty means finished: every task
+    # in the plan is done, and the integration branch is gone or has no commit the base branch lacks.
+    param($Paths)
+    $problems = [Collections.Generic.List[string]]::new()
+    $doc = $null
+    if (Test-Path $Paths.PlanFile) { try { $doc = Get-Content $Paths.PlanFile -Raw | ConvertFrom-Json -AsHashtable } catch { } }
+    if (-not $doc) { $problems.Add("there is no readable plan at $($Paths.PlanFile) to check it against"); return , $problems }
+    $done = (Read-State $Paths).tasks ?? @{}
+    $open = @($doc.tasks | Where-Object { $done[[string]$_.id].status -ne 'done' } | ForEach-Object { $_.id })
+    if ($open.Count) {
+        $names = (($open | Select-Object -First 5) -join ', ') + $(if ($open.Count -gt 5) { ', ...' })
+        $problems.Add("$($open.Count) of $(@($doc.tasks).Count) tasks are not done ($names)")
+    }
+    $int = if ($doc.integrationBranch) { $doc.integrationBranch } else { 'orch/integration' }
+    if (Test-GitBranch $Paths.Repo $int) {
+        $base = if ($doc.baseBranch) { $doc.baseBranch } else { (Invoke-Git $Paths.Repo @('rev-parse', '--abbrev-ref', 'HEAD')).Output }
+        $ahead = Invoke-Git $Paths.Repo @('rev-list', '--count', "$base..$int")
+        if ($ahead.Exit -ne 0) { $problems.Add("$int cannot be compared with $base") }
+        elseif ([int]$ahead.Output -gt 0) { $problems.Add("$int has $($ahead.Output) commit(s) that $base lacks") }
+    }
+    , $problems
+}
+
+function Complete-Run {
+    # Finishes the run in .orchestrator: removes the worktrees under <repo>.worktrees and the orch/*
+    # branches, then moves the run record to <repo>.runs/<timestamp>/.orchestrator. project.json stays
+    # (the archive gets a copy), and so does every -Keep path (absolute, or relative to .orchestrator).
+    # Refuses an active run, and an unfinished one unless -Force. Returns the archive folder, or
+    # nothing when there was nothing to archive.
+    [CmdletBinding(SupportsShouldProcess)]
+    param($Paths, [string[]]$Keep, [switch]$Force)
+    $ErrorActionPreference = 'Stop'   # a module function does not inherit the calling script's preference
+    if (-not (Test-Path $Paths.RunDir)) { Write-Host "Nothing to archive in $($Paths.RunDir)."; return }
+    $repo = $Paths.Repo
+    $sep = [IO.Path]::DirectorySeparatorChar
+    $stay = @($Paths.ProjectFile) + @($Keep | Where-Object { $_ } | ForEach-Object {
+            $p = [IO.Path]::GetFullPath($_, $Paths.RunDir)
+            if (-not $p.StartsWith("$($Paths.RunDir)$sep", [StringComparison]::OrdinalIgnoreCase) -or -not (Test-Path -LiteralPath $p)) {
+                throw "Cannot keep '$_': there is no such file in $($Paths.RunDir)."
+            }
+            $p
+        })
+    # Everything else moves. A folder that holds a kept file is walked instead of moved whole.
+    $moves = [Collections.Generic.List[IO.FileSystemInfo]]::new()
+    $walk = $null
+    $walk = {
+        param($dir)
+        foreach ($e in Get-ChildItem -LiteralPath $dir -Force) {
+            if ($stay -contains $e.FullName) { continue }
+            if ($e.PSIsContainer -and ($stay | Where-Object { $_.StartsWith("$($e.FullName)$sep", [StringComparison]::OrdinalIgnoreCase) })) { & $walk $e.FullName }
+            else { $moves.Add($e) }
+        }
+    }
+    & $walk $Paths.RunDir
+    if ($moves.Count -eq 0) { Write-Host "Nothing to archive in $($Paths.RunDir)."; return }
+
+    # Invoke-Orchestrator.ps1 holds run.lock open without sharing for the whole run. Hold it here too.
+    $lock = $null
+    if (Test-Path $Paths.LockFile) {
+        try { $lock = [IO.File]::Open($Paths.LockFile, 'Open', 'ReadWrite', 'None') }
+        catch [IO.IOException] { throw "An orchestrator run is active for $repo. Let it end, or stop it with Request-OrchestratorStop.ps1, then try again." }
+    }
+    try {
+        $problems = Get-RunProblems $Paths
+        if ($problems.Count) {
+            $what = "The run in $($Paths.RunDir) is not finished: $($problems -join '; ')."
+            if (-not $Force) { throw "$what Finish it (Invoke-Orchestrator.ps1, then merge the integration branch into the base branch), or use -Force to archive it as it is." }
+            Write-Warning "$what Archiving it as it is (-Force)."
+        }
+
+        $worktrees = [Collections.Generic.List[string]]::new()
+        $wt = $null
+        foreach ($line in (Invoke-Git $repo @('worktree', 'list', '--porcelain')).Output -split "`n") {
+            if ($line -like 'worktree *') {
+                $wt = [IO.Path]::GetFullPath($line.Substring(9))
+                if ($wt.StartsWith("$($Paths.WorktreeRoot)$sep", [StringComparison]::OrdinalIgnoreCase)) { $worktrees.Add($wt) }
+            }
+            elseif ($line -like 'branch refs/heads/orch/*' -and $worktrees -notcontains $wt) {
+                throw "Branch $($line.Substring(18)) is checked out in $wt, so it cannot be removed. Switch that checkout to another branch, then try again."
+            }
+        }
+        foreach ($w in $worktrees) {
+            if (-not $PSCmdlet.ShouldProcess($w, 'git worktree remove')) { continue }
+            [void](Invoke-Git $repo @('worktree', 'remove', '--force', $w))
+            if (Test-Path $w) { Remove-Item -Recurse -Force $w }
+        }
+        if (-not $WhatIfPreference) { [void](Invoke-Git $repo @('worktree', 'prune')) }
+
+        $archive = Join-Path $Paths.ArchiveRoot (Get-Date -Format 'yyyyMMdd-HHmmss')
+        if (Test-Path $archive) { Start-Sleep -Seconds 1; $archive = Join-Path $Paths.ArchiveRoot (Get-Date -Format 'yyyyMMdd-HHmmss') }
+        $dest = Join-Path $archive '.orchestrator'
+        # The branch tips go into the archive first, so a removed branch can be recreated from its commit.
+        $branches = @((Invoke-Git $repo @('for-each-ref', '--format=%(objectname) %(refname:short)', 'refs/heads/orch/')).Output -split "`n" | Where-Object { $_ })
+        if (-not $WhatIfPreference) {
+            New-Item -ItemType Directory -Path $dest -Force | Out-Null
+            if ($branches) { Set-Content -Path (Join-Path $dest 'branches.txt') -Value $branches -Encoding utf8 }
+        }
+        foreach ($b in $branches) {
+            $name = $b.Substring($b.IndexOf(' ') + 1)
+            if (-not $PSCmdlet.ShouldProcess($name, 'git branch -D')) { continue }
+            $r = Invoke-Git $repo @('branch', '-D', $name)
+            if ($r.Exit -ne 0) { throw "Could not delete branch ${name}: $($r.Output)" }
+        }
+
+        # Folders first: one that is in use fails before anything else has moved. run.lock goes last, once released.
+        foreach ($e in @($moves | Sort-Object { $_.FullName -eq $Paths.LockFile }, { -not $_.PSIsContainer })) {
+            if (-not $PSCmdlet.ShouldProcess($e.FullName, "Move to $dest")) { continue }
+            if ($lock -and $e.FullName -eq $Paths.LockFile) { $lock.Dispose(); $lock = $null }
+            $target = Join-Path $dest ([IO.Path]::GetRelativePath($Paths.RunDir, $e.FullName))
+            New-Item -ItemType Directory -Path (Split-Path $target) -Force | Out-Null
+            Move-Item -LiteralPath $e.FullName -Destination $target
+        }
+        if ((Test-Path $Paths.ProjectFile) -and $PSCmdlet.ShouldProcess($Paths.ProjectFile, "Copy to $dest")) {
+            Copy-Item -LiteralPath $Paths.ProjectFile -Destination $dest
+        }
+        if ((Test-Path $Paths.WorktreeRoot) -and -not (Get-ChildItem $Paths.WorktreeRoot -Force)) { Remove-Item $Paths.WorktreeRoot }
+    }
+    finally {
+        if ($lock) { $lock.Dispose() }
+    }
+    if (-not $WhatIfPreference) { $archive }
 }
 
 #endregion

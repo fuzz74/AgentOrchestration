@@ -36,11 +36,28 @@ acceptance, prompts, ids and integration. The headless planner receives the same
    a bootstrap agent create the manifest, test runner and one smoke test, commits them, and
    checks them in a clean checkout. It writes `setup` and `integrationCheck` to
    `.orchestrator/project.json`. Use those two commands in the plan's settings.
-3. Explore the target repo (layout, language, test runner, conventions) so tasks fit it.
-4. Propose the task list as a short table first: id, title, deps, owns, acceptance.
+3. If `.orchestrator` in the target repo holds an earlier run (`state.json` exists) and
+   the user wants a plan for a new feature, finish that run before you write the new plan.
+   A new `tasks.json` must never sit next to an old `state.json`: a task that reuses an old
+   id would count as done and be skipped. Run
+   `orchestrator/Complete-Orchestrator.ps1 -Provider <Claude|Copilot> -RepoPath <repo>`,
+   with `-Keep <file>` for the new spec if it lies in `.orchestrator`. It moves the run
+   record to `<repo>.runs/<timestamp>/.orchestrator`, removes the worktrees and `orch/*`
+   branches, and leaves `project.json`. Use the `setup` and `integrationCheck` from
+   `project.json` in the new plan's settings.
+   - If it refuses because the run is not finished (a task is not done, or
+     `orch/integration` is not merged into the base branch), tell the user what it reported
+     and ask what to do. Don't add `-Force` unless the user says so: it removes branches
+     whose work is not merged.
+   - If the user wants to edit or extend the plan of the current run, skip this step and
+     change `tasks.json` in place. State is keyed by task id, so done tasks stay done.
+   - If `tasks.json` exists without `state.json`, it is a plan that never ran. Ask before
+     you replace it.
+4. Explore the target repo (layout, language, test runner, conventions) so tasks fit it.
+5. Propose the task list as a short table first: id, title, deps, owns, acceptance.
    Point out which tasks run in parallel (same wave) and any owns overlaps. Adjust with
    the user.
-5. Write `.orchestrator/tasks.json` in the target repo. Format: see
+6. Write `.orchestrator/tasks.json` in the target repo. Format: see
    `orchestrator/schemas/tasks.schema.json`. Minimal example:
 
    ```json
@@ -56,8 +73,8 @@ acceptance, prompts, ids and integration. The headless planner receives the same
      ]
    }
    ```
-6. Validate by running `orchestrator/Show-Tasks.ps1 -Provider <Claude|Copilot> -RepoPath <repo>` (it reports bad ids,
+7. Validate by running `orchestrator/Show-Tasks.ps1 -Provider <Claude|Copilot> -RepoPath <repo>` (it reports bad ids,
    unknown deps and cycles) and `orchestrator/Invoke-Orchestrator.ps1 -Provider <Claude|Copilot> -RepoPath <repo> -DryRun`
    (it prints the waves and same-wave owns overlaps). Fix anything reported.
-7. Tell the user the command to start the run; do not start it yourself unless asked.
+8. Tell the user the command to start the run; do not start it yourself unless asked.
 Apply the shared planning rules while discussing the split, not just when validating the final plan.

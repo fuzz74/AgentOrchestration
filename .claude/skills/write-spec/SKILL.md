@@ -78,8 +78,12 @@ would help, say which one and why, and wait for a yes.
    - Constraints
 7. **Write** the spec from [spec-template.md](spec-template.md). Save it to
    `<repo>/.orchestrator/spec.md` unless the user names another path. `.orchestrator/` is
-   git-excluded, so the repo stays clean for the run. Delete every template comment. Keep
-   `[NEEDS CLARIFICATION: ...]` markers for anything unresolved instead of guessing.
+   git-excluded, so the repo stays clean for the run. If `.orchestrator/` still holds an
+   earlier run (`state.json` exists), its `spec.md` belongs to that run: leave it, and save
+   the new spec next to it under a new name, such as `.orchestrator/spec-<topic>.md`.
+   Planning archives the earlier run and leaves the new spec in place. Delete every
+   template comment. Keep `[NEEDS CLARIFICATION: ...]` markers for anything unresolved
+   instead of guessing.
 8. **Self-review** and fix what you find:
    - every criterion has an N.M id and an EARS form
    - every id maps to a module in 4.2
@@ -97,7 +101,11 @@ would help, say which one and why, and wait for a yes.
 11. **Hand off.** Offer `/plan-tasks`, or give the command
     `.\orchestrator\Plan-Tasks.ps1 -Provider <Claude|Copilot> -Spec <path> -RepoPath <repo>`. Ask which provider to use. For a new project, that
     command creates the skeleton first and takes the setup and check commands from it. For
-    an existing repo, add `-Setup '<setup command>' -IntegrationCheck '<whole-project check>'`.
+    an existing repo without `.orchestrator/project.json`, add
+    `-Setup '<setup command>' -IntegrationCheck '<whole-project check>'`. If the repo holds
+    an earlier run, the command archives it to `<repo>.runs` first and keeps the spec; no
+    `-Force` is needed. It stops if that run is not finished: tell the user to finish it,
+    and leave the choice of `-Force` (archive it unfinished) to them.
     Don't plan or run unless asked.
 
 ## Rules for a spec that splits well

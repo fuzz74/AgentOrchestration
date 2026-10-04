@@ -5,7 +5,9 @@
     (no tokens spent). Plans into a folder that does not exist yet, so the project skeleton is
     created first (its first attempt fails the clean-checkout check). Then plans 4 tasks (one
     diamond: contracts -> a, b -> wire-up), makes feature-b fail its first attempt, and checks
-    everything lands on orch/integration.
+    everything lands on orch/integration. After the retry and pause checks it finishes the run:
+    an unfinished run blocks, Complete-Orchestrator.ps1 archives a finished and merged one, and
+    Plan-Tasks.ps1 archives the next finished run by itself.
 #>
 param(
     [Parameter(Mandatory)][ValidateSet('Claude', 'Copilot')][string]$Provider,
@@ -226,6 +228,83 @@ if (-not $reviewResumed) { Write-Host "Review resume test FAILED. Repo left at $
 $cancelled = -not (Test-Path (Join-Path $repo '.orchestrator/stop-requested'))
 Write-Host ("{0,-38} {1}" -f 'unused stop request can be cancelled', ($cancelled ? 'PASS' : 'FAIL')) -ForegroundColor ($cancelled ? 'Green' : 'Red')
 if (-not $cancelled) { Write-Host "Cancel test FAILED. Repo left at $repo"; exit 1 }
+
+# Finishing the run. spec-only is still failed, so the run is unfinished: nothing may archive it yet.
+$complete = Join-Path $orch 'Complete-Orchestrator.ps1'
+$planTasks = Join-Path $orch 'Plan-Tasks.ps1'
+$runDir = Join-Path $repo '.orchestrator'
+$runsRoot = "$repo.runs"
+function Test-Rejected([scriptblock]$Action, [string]$Like) {
+    try { $null = & $Action; $false } catch { $_.Exception.Message -like $Like }
+}
+$heldLock = [IO.File]::Open($lockPath, 'OpenOrCreate', 'ReadWrite', 'None')
+try { $activeBlocks = Test-Rejected { & $complete -Provider $Provider -RepoPath $repo -Force } '*run is active*' }
+finally { $heldLock.Dispose() }
+$unfinishedBlocksComplete = Test-Rejected { & $complete -Provider $Provider -RepoPath $repo } '*is not finished*spec-only*'
+$unfinishedBlocksPlan = Test-Rejected { & $planTasks -Provider $Provider -Spec $spec -RepoPath $repo -AgentPath $fake } '*is not finished*-Force*'
+# Without the failed task every task is done, but orch/integration is not merged into main yet.
+$finishedPlan = Get-Content $planFile -Raw | ConvertFrom-Json -AsHashtable
+$finishedPlan.tasks = @($finishedPlan.tasks | Where-Object { $_.id -ne 'spec-only' })
+$finishedPlan | ConvertTo-Json -Depth 10 | Set-Content $planFile
+$unmergedBlocks = Test-Rejected { & $complete -Provider $Provider -RepoPath $repo } '*that main lacks*'
+git -C $repo merge -q --no-ff --no-edit orch/integration
+if ($LASTEXITCODE -ne 0) { throw 'Could not merge orch/integration into main.' }
+& $complete -Provider $Provider -RepoPath $repo -WhatIf
+$whatIfChangedNothing = (Test-Path (Join-Path $runDir 'state.json')) -and -not (Test-Path $runsRoot) -and
+    (Test-Path $failedWorktree) -and @(git -C $repo for-each-ref refs/heads/orch/).Count -gt 0
+& $complete -Provider $Provider -RepoPath $repo
+$archives = @(Get-ChildItem $runsRoot -Directory | Sort-Object Name)
+$archived = Join-Path $archives[0].FullName '.orchestrator'
+$completeChecks = [ordered]@{
+    'active run blocks completing'     = $activeBlocks
+    'unfinished run blocks completing' = $unfinishedBlocksComplete
+    'unfinished run blocks planning'   = $unfinishedBlocksPlan
+    'unmerged integration blocks'      = $unmergedBlocks
+    '-WhatIf changes nothing'          = $whatIfChangedNothing
+    'only project.json left'           = (@(Get-ChildItem $runDir -Force).Name -join ',') -eq 'project.json'
+    'archive holds the run'            = $archives.Count -eq 1 -and @('tasks.json', 'state.json', 'progress.md', 'spec.md', 'project.json', 'run.lock', 'logs/contracts', 'branches.txt' |
+        Where-Object { -not (Test-Path (Join-Path $archived $_)) }).Count -eq 0
+    'worktrees and branches gone'      = -not (Test-Path "$repo.worktrees") -and @(git -C $repo worktree list).Count -eq 1 -and
+        @(git -C $repo for-each-ref refs/heads/orch/).Count -eq 0
+}
+$completeChecks.GetEnumerator() | ForEach-Object { Write-Host ("{0,-38} {1}" -f $_.Key, ($_.Value ? 'PASS' : 'FAIL')) -ForegroundColor ($_.Value ? 'Green' : 'Red') }
+if ($completeChecks.Values -contains $false) { Write-Host "Complete test FAILED. Repo left at $repo"; exit 1 }
+
+# The next plan reuses the task ids of the archived run. They must run again, not count as done.
+$env:FAKE_SHARED = '1'
+try {
+    & $planTasks -Provider $Provider -Spec $spec -RepoPath $repo -AgentPath $fake
+    & (Join-Path $orch 'Invoke-Orchestrator.ps1') -Provider $Provider -RepoPath $repo -AgentPath $fake -MaxParallel 2 -PollSeconds 1
+    $secondExit = $LASTEXITCODE
+}
+finally { Remove-Item Env:FAKE_SHARED }
+$secondState = Get-Content (Join-Path $runDir 'state.json') -Raw | ConvertFrom-Json -AsHashtable
+git -C $repo merge -q --no-ff --no-edit orch/integration
+if ($LASTEXITCODE -ne 0) { throw 'Could not merge the second orch/integration into main.' }
+# Planning on that finished run archives it without -Force and keeps a spec that lies in .orchestrator.
+$nextSpec = Join-Path $runDir 'spec-next.md'
+Set-Content $nextSpec 'Build the next part.'
+& $planTasks -Provider $Provider -Spec $nextSpec -RepoPath $repo -AgentPath $fake
+$archives = @(Get-ChildItem $runsRoot -Directory | Sort-Object Name)
+$nextPlan = Get-Content $planFile -Raw | ConvertFrom-Json
+$oldStateLeft = Test-Path (Join-Path $runDir 'state.json')
+$neverRunStops = Test-Rejected { & $planTasks -Provider $Provider -Spec $nextSpec -RepoPath $repo -AgentPath $fake } '*exists. Use -Force*'
+$unfinishedNeedsForce = Test-Rejected { & $complete -Provider $Provider -RepoPath $repo -Keep spec-next.md } '*is not finished*'
+& $complete -Provider $Provider -RepoPath $repo -Keep spec-next.md -Force
+$forcedArchives = @(Get-ChildItem $runsRoot -Directory | Sort-Object Name)
+$planChecks = [ordered]@{
+    'reused task ids ran again'        = $secondExit -eq 0 -and $secondState.tasks.psbase.Count -eq 4 -and
+        @($secondState.tasks.Values | Where-Object { $_.status -ne 'done' -or $_.attempts -lt 1 }).Count -eq 0
+    'planning archived the finished run' = $archives.Count -eq 2 -and (Test-Path (Join-Path $archives[1].FullName '.orchestrator/state.json')) -and
+        @(git -C $repo for-each-ref refs/heads/orch/).Count -eq 0
+    'new plan has no old state'        = $nextPlan.tasks.Count -eq 4 -and -not $oldStateLeft
+    'planning kept spec and commands'  = $nextPlan.spec -eq '.orchestrator/spec-next.md' -and $nextPlan.settings.setup -like '*skeleton.txt*'
+    'plan that never ran needs -Force' = $neverRunStops -and $unfinishedNeedsForce
+    '-Force archives, -Keep keeps'     = $forcedArchives.Count -eq 3 -and (Test-Path (Join-Path $forcedArchives[2].FullName '.orchestrator/tasks.json')) -and
+        (@(Get-ChildItem $runDir -Force | Sort-Object Name).Name -join ',') -eq 'project.json,spec-next.md'
+}
+$planChecks.GetEnumerator() | ForEach-Object { Write-Host ("{0,-38} {1}" -f $_.Key, ($_.Value ? 'PASS' : 'FAIL')) -ForegroundColor ($_.Value ? 'Green' : 'Red') }
+if ($planChecks.Values -contains $false) { Write-Host "Archive-on-plan test FAILED. Repo left at $repo"; exit 1 }
 & (Join-Path $orch 'Clear-Orchestrator.ps1') -Provider $Provider -RepoPath $repo -All
 Remove-Item $WorkDir -Recurse -Force
 Write-Host 'Smoke test passed.' -ForegroundColor Green

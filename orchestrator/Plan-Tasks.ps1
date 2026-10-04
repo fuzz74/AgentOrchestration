@@ -7,6 +7,9 @@
     A new project (the folder does not exist, is not a git repo, or has no commits) first gets
     its skeleton from Initialize-Project.ps1, which also supplies the default -Setup and
     -IntegrationCheck commands.
+    A repo that still holds an earlier run (state.json) has that run archived first, the way
+    Complete-Orchestrator.ps1 does it. If that run is not finished the script stops; -Force
+    archives it anyway. A plan that never ran is only overwritten with -Force.
     Then runs the selected headless CLI in the target repo with read-only tools, asks for a plan that matches
     schemas/plan-output.schema.json, validates the graph (ids, deps, cycles) and writes
     tasks.json with the planner's shared files and default settings. If the graph is invalid the
@@ -41,18 +44,27 @@ $WorkerModel = Resolve-AgentModel -Provider $Provider -Model $WorkerModel
     -Provider $Provider -AgentPath $AgentPath -MaxBudgetUsd $MaxBudgetUsd
 
 $paths = Get-OrchPaths -RepoPath $RepoPath -PlanFile $Out
-$projectFile = Join-Path $paths.RunDir 'project.json'
-if (Test-Path $projectFile) {
-    $project = Get-Content $projectFile -Raw | ConvertFrom-Json
+if (Test-Path $paths.ProjectFile) {
+    $project = Get-Content $paths.ProjectFile -Raw | ConvertFrom-Json
     if (-not $Setup) { $Setup = $project.setup }
     if (-not $IntegrationCheck) { $IntegrationCheck = $project.integrationCheck }
 }
+$specFull = (Resolve-Path $Spec).Path
+
+# An earlier run is archived first, so a new plan never sits next to old state: a task that reuses an
+# old id would count as done. An unfinished run stops here unless -Force. The spec stays if it lies
+# in .orchestrator.
+$archive = $null
+if (Test-Path $paths.StateFile) {
+    $keep = @($specFull | Where-Object { $_.StartsWith($paths.RunDir + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase) })
+    $archive = Complete-Run $paths -Keep $keep -Force:$Force
+}
 if ((Test-Path $paths.PlanFile) -and -not $Force) { throw "$($paths.PlanFile) exists. Use -Force to overwrite it." }
 Initialize-RunDir $paths
+if ($archive) { Write-OrchLog $paths.ProgressFile "Earlier run archived to $archive" }
 $agent = Resolve-AgentPath -Provider $Provider -AgentPath $AgentPath
 
 # Keep the spec next to the plan unless it already lives in the repo.
-$specFull = (Resolve-Path $Spec).Path
 if ($specFull.StartsWith($paths.Repo, [StringComparison]::OrdinalIgnoreCase)) {
     $specRel = [IO.Path]::GetRelativePath($paths.Repo, $specFull).Replace('\', '/')
 }

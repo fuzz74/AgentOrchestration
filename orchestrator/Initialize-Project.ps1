@@ -110,7 +110,7 @@ for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
     }
     if (-not $failed) {
         [ordered]@{ setup = $out.setup; integrationCheck = $out.integration_check } |
-            ConvertTo-Json | Set-Content -Path (Join-Path $paths.RunDir 'project.json') -Encoding utf8
+            ConvertTo-Json | Set-Content -Path $paths.ProjectFile -Encoding utf8
         & $log ("Skeleton committed and checked ({0:N2} USD). setup: {1}; integration check: {2}" -f $cost, $out.setup, $out.integration_check)
         return
     }

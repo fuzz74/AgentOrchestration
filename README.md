@@ -7,8 +7,8 @@ and the selected provider's CLI. Use `-Provider Claude` or `-Provider Copilot` o
 agent-running script; the same task plan works with either provider.
 
 ```
-/write-spec ──► spec.md ──► Plan-Tasks.ps1 ─────────────────────► .orchestrator/tasks.json ──► (you review) ──► Invoke-Orchestrator.ps1 ──► orch/integration ──► (you merge)
- interview                  skeleton (new repo) + planner agent    task graph                                    parallel workers + gates
+/write-spec ──► spec.md ──► Plan-Tasks.ps1 ─────────────────────► .orchestrator/tasks.json ──► (you review) ──► Invoke-Orchestrator.ps1 ──► orch/integration ──► (you merge) ──► Complete-Orchestrator.ps1
+ interview                  skeleton (new repo) + planner agent    task graph                                    parallel workers + gates                                         archive the run
 ```
 
 - [At a glance](#at-a-glance)
@@ -84,8 +84,10 @@ Orchestrator commands in the terminal steps assume the current folder is
    - a forced edit outside `owns`, with a retry
    - a run with no structured result
    - a merge conflict and a resolver run
+   - finishing a run: an unfinished run blocks, a finished one is archived, and planning the
+     next feature archives the earlier run by itself
 
-   It ends with 12 passing checks.
+   It ends with `Smoke test passed.`
 5. **Access to your projects.** The target repo is outside this folder. In Claude Code,
    Claude asks before reading or writing there. The first time you give
    `/write-spec` or `/plan-tasks` a repo path, Claude offers to allow that repo or its
@@ -303,7 +305,7 @@ The result is on the `orch/integration` branch, which is checked out in
    them on `orch/integration`. **Bigger gaps**: add tasks to `tasks.json` and go back to
    step 4.
 
-### Step 7: Merge and clean up
+### Step 7: Merge and finish the run
 
 Where: **terminal**.
 
@@ -314,21 +316,37 @@ Where: **terminal**.
    git -C C:\src\myapp merge --no-ff orch/integration
    ```
 2. Push if the repo has a remote: `git -C C:\src\myapp push`. The orchestrator never pushes.
-3. Remove the worktrees, the `orch/*` branches, the run state and the logs (run from
-  `C:\Data\AgentOrchestration`): `.\orchestrator\Clear-Orchestrator.ps1 -Provider Copilot -RepoPath C:\src\myapp -All`.
-   `-All` keeps `tasks.json` and `spec.md`. Add `-WhatIf` first if you want to see what it
-   removes. First close any VS Code window or terminal that is open in a worktree folder:
-   Windows can't delete a folder that is in use.
+3. Finish the run (run from `C:\Data\AgentOrchestration`):
+   `.\orchestrator\Complete-Orchestrator.ps1 -Provider Copilot -RepoPath C:\src\myapp`.
+   It moves the run record (plan, spec, state, progress log and logs) to
+   `C:\src\myapp.runs\<timestamp>\.orchestrator` and removes the worktrees and the `orch/*`
+   branches. Only `project.json` stays in `.orchestrator`.
+   - It refuses while a run is active, and it refuses a run that is not finished: a task
+     that is not done, or commits on `orch/integration` that `main` lacks. `-Force` archives
+     such a run as it is. The removed branches' commits are then no longer on any branch;
+     `branches.txt` in the archive lists them.
+   - `-Keep <file>` leaves a file in `.orchestrator`, for example the spec of the next
+     feature. Add `-WhatIf` first if you want to see what it would do.
+   - First close any VS Code window or terminal that is open in a worktree folder: Windows
+     can't delete a folder that is in use.
+
+   You can skip this step: planning the next feature does the same by itself.
 
 ### Step 8: The next feature
 
 Go back to step 1 with the next idea. `/write-spec` now sees the code that exists and
-specifies only the change. Then:
+specifies only the change. If the earlier run is still in `.orchestrator`, it saves the new
+spec next to the old one under a new name, such as `.orchestrator\spec-<topic>.md`. Then:
 
-- Plan with `-Force`, which overwrites `tasks.json`, or let `/plan-tasks` replace it. The
-  repo now has commits, so no new skeleton is made, and `project.json` still supplies the
-  commands.
-- `.orchestrator/` is never committed. To keep old specs, copy them to a folder such as
+- Plan as before, with `Plan-Tasks.ps1` or `/plan-tasks`. No `-Force` is needed. If the
+  earlier run is still in `.orchestrator`, planning first archives it the way
+  `Complete-Orchestrator.ps1` does, and leaves the spec you pass in place. If that run is
+  not finished, planning stops and says why; `-Force` archives it anyway. A plan that
+  never ran is not archived: planning stops, or overwrites it with `-Force`.
+- The repo now has commits, so no new skeleton is made, and `project.json` still supplies
+  the commands.
+- `.orchestrator/` is never committed, and the archive in `C:\src\myapp.runs` lies outside
+  the repo. To keep old specs in the repo, copy them to a folder such as
   `C:\src\myapp\docs\specs\` and commit them.
 
 ## The task file
@@ -436,6 +454,12 @@ it. Its prompt is [prompts/planner.md](orchestrator/prompts/planner.md). The out
 match [plan-output.schema.json](orchestrator/schemas/plan-output.schema.json)
 (`--json-schema`).
 
+Before the planner runs, `Plan-Tasks.ps1` looks for an earlier run (`state.json`) in
+`.orchestrator`. A finished one is archived to `<repo>.runs` (see
+[Files and state on disk](#files-and-state-on-disk)); an unfinished one stops the script
+unless `-Force`. This way a new plan never sits next to old state, where a task that reuses
+an old id would count as done.
+
 The script then:
 
 1. Copies the spec to `.orchestrator/spec.md` if the spec lives outside the repo.
@@ -528,9 +552,18 @@ upstream is shown as `blocked`.
 | `<repo>/.orchestrator/logs/<id>/<timestamp>/` | Per-run logs: each prompt sent (`*.prompt.md`), each claude JSON result, and command output. |
 | `../<repo>.worktrees/<id>` | Task worktree on `orch/task/<id>`. |
 | `../<repo>.worktrees/_integration` | Worktree holding `orch/integration`. |
+| `../<repo>.runs/<timestamp>/.orchestrator/` | A finished run, archived at that local time: everything above from `.orchestrator`, a copy of `project.json`, and `branches.txt`. |
 
 `.orchestrator/` is added to `.git/info/exclude`, so it is never committed and never
 appears in the worktrees.
+
+**Finishing**: `Complete-Orchestrator.ps1`, or `Plan-Tasks.ps1` before it plans, moves every
+entry in `.orchestrator` except `project.json` (and files it is told to keep) to the
+archive, and removes the worktrees and the `orch/*` branches. A run is finished when every
+task in `tasks.json` is `done` in `state.json` and the integration branch is gone or has no
+commit that the base branch lacks. An archived run has the same layout as a live one.
+`branches.txt` lists each removed branch with its last commit, so
+`git branch <name> <commit>` brings one back as long as git still has the commit.
 
 **Restarting**: rerun `Invoke-Orchestrator.ps1`. Done tasks stay done. Tasks left
 `running` by an interrupted run start again from scratch. Failed tasks stay failed until
@@ -551,13 +584,14 @@ implementation or acceptance check needs repair.
 | Script | Parameters |
 | --- | --- |
 | `Initialize-Project.ps1` | `-Provider Claude|Copilot`, `-Spec` and `-RepoPath` (required), `-Model` (`sonnet`), `-AgentPath`, `-MaxBudgetUsd` (`0` = no cap, Claude only), `-MaxAttempts` (`3`). Creates and checks the skeleton of a new repo; does nothing if the repo has commits. `Plan-Tasks.ps1` calls it. |
-| `Plan-Tasks.ps1` | `-Provider Claude|Copilot`, `-Spec` (required), `-RepoPath` (`.`), `-Out` (plan path), `-Model` (planner, `opus`), `-WorkerModel` (`sonnet`), `-Setup`, `-IntegrationCheck` (both default to `project.json`), `-AgentPath`, `-MaxBudgetUsd` (`0` = no cap, Claude only), `-Force` (overwrite) |
+| `Plan-Tasks.ps1` | `-Provider Claude|Copilot`, `-Spec` (required), `-RepoPath` (`.`), `-Out` (plan path), `-Model` (planner, `opus`), `-WorkerModel` (`sonnet`), `-Setup`, `-IntegrationCheck` (both default to `project.json`), `-AgentPath`, `-MaxBudgetUsd` (`0` = no cap, Claude only), `-Force` (overwrite a plan that never ran; archive an earlier run that is not finished). Archives a finished earlier run by itself. |
 | `Invoke-Orchestrator.ps1` | `-Provider Claude|Copilot` (required, even for `-DryRun`), `-RepoPath` (`.`), `-Plan`, `-MaxParallel` (`3`), `-AgentPath`, `-DryRun` (print waves and exit), `-RetryFailed` (preserve committed work), `-FreshFailed` (with `-RetryFailed`, archive and start over), `-PollSeconds` (`5`). Exit code 0 = all done, 2 = some failed or blocked, 1 = invalid plan. |
 | `Request-OrchestratorStop.ps1` | `-RepoPath` (`.`), `-Cancel` (remove a pending stop request). Graceful stop exits the runner with code 0 even if tasks are still pending. |
 | `Show-Tasks.ps1` | `-Provider Claude|Copilot` (required), `-RepoPath`, `-Plan`. Validates the plan and prints wave, status, deps, attempts, cost and detail per task. |
 | `Watch-Orchestrator.ps1` | `-Provider Claude|Copilot` (required), `-RepoPath`, `-Plan`, `-RefreshSeconds` (`2`), `-ActivityLines` (`10`), `-Once`, `-NoMouse`. Watches either provider's JSON event stream. A screen taller than the window scrolls with the keys (↑↓, PgUp/PgDn, Home/End) and, on Windows, the mouse wheel and a draggable scrollbar; `-NoMouse` keeps normal text selection. `q` quits. |
 | `Watch-Conversations.ps1` | `-RepoPath` (`.`), `-Task` (optional task ID), `-Last` (`25`), `-RefreshSeconds` (`2`), `-ShowTools`, `-FullRequests`, `-NoMouse`, `-Once`. Live view has clickable request controls and a scrollable in-terminal popup (O opens the latest request without mouse); `-Once` prints plain output. Ctrl+C or Q quits. |
-| `Clear-Orchestrator.ps1` | `-Provider Claude|Copilot` (required), `-RepoPath`, `-All`. Without `-All`: removes task worktrees and `orch/task/*` branches, resets unfinished tasks to pending. With `-All`: also the integration worktree and branch, state, logs and progress. Supports `-WhatIf`. |
+| `Clear-Orchestrator.ps1` | `-Provider Claude|Copilot` (required), `-RepoPath`, `-All`. Without `-All`: removes task worktrees and `orch/task/*` branches, resets unfinished tasks to pending. With `-All`: also the integration worktree and branch, state, logs and progress, which are deleted, not archived. Supports `-WhatIf`. |
+| `Complete-Orchestrator.ps1` | `-Provider Claude|Copilot` (required), `-RepoPath`, `-Keep` (files to leave in `.orchestrator`, by name or full path), `-Force` (archive a run that is not finished). Moves the run record to `<repo>.runs/<timestamp>/.orchestrator`, leaves `project.json`, and removes all worktrees and `orch/*` branches. Refuses while a run is active. Supports `-WhatIf`. |
 | `tests/Run-SmokeTest.ps1` | `-Provider Claude|Copilot` (required), `-WorkDir`. End-to-end fake-CLI test from an empty folder to merged work. |
 
 ## Agent permissions and safety
