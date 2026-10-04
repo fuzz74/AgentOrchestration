@@ -238,7 +238,10 @@ function Test-Rejected([scriptblock]$Action, [string]$Like) {
     try { $null = & $Action; $false } catch { $_.Exception.Message -like $Like }
 }
 $heldLock = [IO.File]::Open($lockPath, 'OpenOrCreate', 'ReadWrite', 'None')
-try { $activeBlocks = Test-Rejected { & $complete -RepoPath $repo -Force } '*run is active*' }
+try {
+    $activeBlocks = (Test-Rejected { & $complete -RepoPath $repo -Force } '*run is active*') -and
+        (Test-Rejected { & (Join-Path $orch 'Clear-Orchestrator.ps1') -RepoPath $repo } '*run is active*')
+}
 finally { $heldLock.Dispose() }
 $unfinishedBlocksComplete = Test-Rejected { & $complete -RepoPath $repo } '*is not finished*spec-only*'
 $unfinishedBlocksPlan = Test-Rejected { & $planTasks -Provider $Provider -Spec $spec -RepoPath $repo -AgentPath $fake } '*is not finished*-Force*'
@@ -249,6 +252,11 @@ $finishedPlan | ConvertTo-Json -Depth 10 | Set-Content $planFile
 $unmergedBlocks = Test-Rejected { & $complete -RepoPath $repo } '*that main lacks*'
 git -C $repo merge -q --no-ff --no-edit orch/integration
 if ($LASTEXITCODE -ne 0) { throw 'Could not merge orch/integration into main.' }
+# A new file in a worktree that is not committed would be deleted with the worktree.
+$stray = Join-Path $WorkDir 'demo.worktrees/_integration/uncommitted.txt'
+Set-Content $stray 'Do not discard this file.'
+$uncommittedBlocks = (Test-Rejected { & $complete -RepoPath $repo } '*uncommitted changes*uncommitted.txt*') -and (Test-Path $stray)
+Remove-Item $stray
 & $complete -RepoPath $repo -WhatIf
 $whatIfChangedNothing = (Test-Path (Join-Path $runDir 'state.json')) -and -not (Test-Path $runsRoot) -and
     (Test-Path $failedWorktree) -and @(git -C $repo for-each-ref refs/heads/orch/).Count -gt 0
@@ -256,10 +264,11 @@ $whatIfChangedNothing = (Test-Path (Join-Path $runDir 'state.json')) -and -not (
 $archives = @(Get-ChildItem $runsRoot -Directory | Sort-Object Name)
 $archived = Join-Path $archives[0].FullName '.orchestrator'
 $completeChecks = [ordered]@{
-    'active run blocks completing'     = $activeBlocks
+    'active run blocks complete and clear' = $activeBlocks
     'unfinished run blocks completing' = $unfinishedBlocksComplete
     'unfinished run blocks planning'   = $unfinishedBlocksPlan
     'unmerged integration blocks'      = $unmergedBlocks
+    'uncommitted worktree change blocks' = $uncommittedBlocks
     '-WhatIf changes nothing'          = $whatIfChangedNothing
     'only project.json left'           = (@(Get-ChildItem $runDir -Force).Name -join ',') -eq 'project.json'
     'archive holds the run'            = $archives.Count -eq 1 -and @('tasks.json', 'state.json', 'progress.md', 'spec.md', 'project.json', 'run.lock', 'logs/contracts', 'branches.txt' |

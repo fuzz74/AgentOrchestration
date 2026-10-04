@@ -438,9 +438,27 @@ function Invoke-ShellCommand {
 
 #region Finishing a run
 
+function Open-RunLock {
+    # Opens run.lock the way Invoke-Orchestrator.ps1 holds it for a whole run, so this fails while a
+    # run is active. Returns the open stream (dispose it when done), or nothing without a lock file.
+    param($Paths)
+    if (-not (Test-Path $Paths.LockFile)) { return }
+    try { [IO.File]::Open($Paths.LockFile, 'Open', 'ReadWrite', 'None') }
+    catch [IO.IOException] { throw "An orchestrator run is active for $($Paths.Repo). Let it end, or stop it with Request-OrchestratorStop.ps1, then try again." }
+}
+
+function Get-RunWorktrees {
+    # The registered worktrees under <repo>.worktrees.
+    param($Paths)
+    $prefix = $Paths.WorktreeRoot + [IO.Path]::DirectorySeparatorChar
+    @((Invoke-Git $Paths.Repo @('worktree', 'list', '--porcelain')).Output -split "`n" | Where-Object { $_ -like 'worktree *' } |
+        ForEach-Object { [IO.Path]::GetFullPath($_.Substring(9)) } | Where-Object { $_.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase) })
+}
+
 function Get-RunProblems {
     # Returns the reasons the run in .orchestrator is not finished; empty means finished: every task
-    # in the plan is done, and the integration branch is gone or has no commit the base branch lacks.
+    # in the plan is done, the integration branch is gone or has no commit the base branch lacks, and
+    # no worktree holds uncommitted changes.
     param($Paths)
     $problems = [Collections.Generic.List[string]]::new()
     $doc = $null
@@ -458,6 +476,18 @@ function Get-RunProblems {
         $ahead = Invoke-Git $Paths.Repo @('rev-list', '--count', "$base..$int")
         if ($ahead.Exit -ne 0) { $problems.Add("$int cannot be compared with $base") }
         elseif ([int]$ahead.Output -gt 0) { $problems.Add("$int has $($ahead.Output) commit(s) that $base lacks") }
+    }
+    # Removing a worktree deletes what is not committed. Count what a worker commit would pick up:
+    # changed and new files, minus git-ignored ones and the plan's ignore globs.
+    $ignore = if ($null -ne $doc.settings.ignore) { @($doc.settings.ignore) } else { $script:DefaultSettings.ignore }
+    $pathspec = @('--', '.') + @($ignore | Where-Object { $_ } | ForEach-Object { ":(exclude,glob)$_" })
+    foreach ($wt in Get-RunWorktrees $Paths) {
+        if (-not (Test-Path $wt)) { continue }
+        $changed = @((Invoke-Git $wt (@('status', '--porcelain') + $pathspec)).Output -split "`n" | Where-Object { $_ })
+        if ($changed.Count) {
+            $names = (($changed | Select-Object -First 3 | ForEach-Object { $_.Substring(3) }) -join ', ') + $(if ($changed.Count -gt 3) { ', ...' })
+            $problems.Add("the worktree $wt has uncommitted changes that would be deleted ($names)")
+        }
     }
     , $problems
 }
@@ -495,27 +525,19 @@ function Complete-Run {
     & $walk $Paths.RunDir
     if ($moves.Count -eq 0) { Write-Host "Nothing to archive in $($Paths.RunDir)."; return }
 
-    # Invoke-Orchestrator.ps1 holds run.lock open without sharing for the whole run. Hold it here too.
-    $lock = $null
-    if (Test-Path $Paths.LockFile) {
-        try { $lock = [IO.File]::Open($Paths.LockFile, 'Open', 'ReadWrite', 'None') }
-        catch [IO.IOException] { throw "An orchestrator run is active for $repo. Let it end, or stop it with Request-OrchestratorStop.ps1, then try again." }
-    }
+    $lock = Open-RunLock $Paths   # held until the end, so no run can start meanwhile
     try {
         $problems = Get-RunProblems $Paths
         if ($problems.Count) {
             $what = "The run in $($Paths.RunDir) is not finished: $($problems -join '; ')."
-            if (-not $Force) { throw "$what Finish it (Invoke-Orchestrator.ps1, then merge the integration branch into the base branch), or use -Force to archive it as it is." }
+            if (-not $Force) { throw "$what Finish it (rerun Invoke-Orchestrator.ps1, merge the integration branch into the base branch, commit or discard changes in the worktrees), or use -Force to archive it as it is." }
             Write-Warning "$what Archiving it as it is (-Force)."
         }
 
-        $worktrees = [Collections.Generic.List[string]]::new()
+        $worktrees = Get-RunWorktrees $Paths
         $wt = $null
         foreach ($line in (Invoke-Git $repo @('worktree', 'list', '--porcelain')).Output -split "`n") {
-            if ($line -like 'worktree *') {
-                $wt = [IO.Path]::GetFullPath($line.Substring(9))
-                if ($wt.StartsWith("$($Paths.WorktreeRoot)$sep", [StringComparison]::OrdinalIgnoreCase)) { $worktrees.Add($wt) }
-            }
+            if ($line -like 'worktree *') { $wt = [IO.Path]::GetFullPath($line.Substring(9)) }
             elseif ($line -like 'branch refs/heads/orch/*' -and $worktrees -notcontains $wt) {
                 throw "Branch $($line.Substring(18)) is checked out in $wt, so it cannot be removed. Switch that checkout to another branch, then try again."
             }

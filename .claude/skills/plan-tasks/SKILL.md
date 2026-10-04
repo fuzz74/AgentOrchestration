@@ -45,10 +45,11 @@ acceptance, prompts, ids and integration. The headless planner receives the same
    record to `<repo>.runs/<timestamp>/.orchestrator`, removes the worktrees and `orch/*`
    branches, and leaves `project.json`. Use the `setup` and `integrationCheck` from
    `project.json` in the new plan's settings.
-   - If it refuses because the run is not finished (a task is not done, or
-     `orch/integration` is not merged into the base branch), tell the user what it reported
-     and ask what to do. Don't add `-Force` unless the user says so: it removes branches
-     whose work is not merged.
+   - If it refuses because the run is not finished (a task is not done,
+     `orch/integration` is not merged into the base branch, or a worktree has uncommitted
+     changes), tell the user what it reported and ask what to do. Don't add `-Force` unless
+     the user says so: it removes branches whose work is not merged and deletes the
+     uncommitted changes.
    - If the user wants to edit or extend the plan of the current run, skip this step and
      change `tasks.json` in place. State is keyed by task id, so done tasks stay done.
    - If `tasks.json` exists without `state.json`, it is a plan that never ran. Ask before

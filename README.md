@@ -322,8 +322,9 @@ Where: **terminal**.
    `C:\src\myapp.runs\<timestamp>\.orchestrator` and removes the worktrees and the `orch/*`
    branches. Only `project.json` stays in `.orchestrator`.
    - It refuses while a run is active, and it refuses a run that is not finished: a task
-     that is not done, or commits on `orch/integration` that `main` lacks. `-Force` archives
-     such a run as it is. The removed branches' commits are then no longer on any branch;
+     that is not done, commits on `orch/integration` that `main` lacks, or uncommitted
+     changes in a worktree. `-Force` archives such a run as it is. The uncommitted changes
+     are then deleted, and the removed branches' commits are no longer on any branch;
      `branches.txt` in the archive lists them.
    - `-Keep <file>` leaves a file in `.orchestrator`, for example the spec of the next
      feature. Add `-WhatIf` first if you want to see what it would do.
@@ -560,8 +561,9 @@ appears in the worktrees.
 **Finishing**: `Complete-Orchestrator.ps1`, or `Plan-Tasks.ps1` before it plans, moves every
 entry in `.orchestrator` except `project.json` (and files it is told to keep) to the
 archive, and removes the worktrees and the `orch/*` branches. A run is finished when every
-task in `tasks.json` is `done` in `state.json` and the integration branch is gone or has no
-commit that the base branch lacks. An archived run has the same layout as a live one.
+task in `tasks.json` is `done` in `state.json`, the integration branch is gone or has no
+commit that the base branch lacks, and no worktree has uncommitted changes (changed or
+new files, apart from git-ignored ones and the plan's `ignore` globs). An archived run has the same layout as a live one.
 `branches.txt` lists each removed branch with its last commit, so
 `git branch <name> <commit>` brings one back as long as git still has the commit.
 
@@ -590,7 +592,7 @@ implementation or acceptance check needs repair.
 | `Show-Tasks.ps1` | `-RepoPath`, `-Plan`. Validates the plan and prints wave, status, deps, attempts, cost and detail per task. |
 | `Watch-Orchestrator.ps1` | `-Provider Claude|Copilot` (required), `-RepoPath`, `-Plan`, `-RefreshSeconds` (`2`), `-ActivityLines` (`10`), `-Once`, `-NoMouse`. Watches either provider's JSON event stream. A screen taller than the window scrolls with the keys (↑↓, PgUp/PgDn, Home/End) and, on Windows, the mouse wheel and a draggable scrollbar; `-NoMouse` keeps normal text selection. `q` quits. |
 | `Watch-Conversations.ps1` | `-RepoPath` (`.`), `-Task` (optional task ID), `-Last` (`25`), `-RefreshSeconds` (`2`), `-ShowTools`, `-FullRequests`, `-NoMouse`, `-Once`. Live view has clickable request controls and a scrollable in-terminal popup (O opens the latest request without mouse); `-Once` prints plain output. Ctrl+C or Q quits. |
-| `Clear-Orchestrator.ps1` | `-RepoPath`, `-All`. Without `-All`: removes task worktrees and `orch/task/*` branches, resets unfinished tasks to pending. With `-All`: also the integration worktree and branch, state, logs and progress, which are deleted, not archived. Supports `-WhatIf`. |
+| `Clear-Orchestrator.ps1` | `-RepoPath`, `-All`. Without `-All`: removes task worktrees and `orch/task/*` branches, resets unfinished tasks to pending. With `-All`: also the integration worktree and branch, state, logs and progress, which are deleted, not archived. Refuses while a run is active. Supports `-WhatIf`. |
 | `Complete-Orchestrator.ps1` | `-RepoPath`, `-Keep` (files to leave in `.orchestrator`, by name or full path), `-Force` (archive a run that is not finished). Moves the run record to `<repo>.runs/<timestamp>/.orchestrator`, leaves `project.json`, and removes all worktrees and `orch/*` branches. Refuses while a run is active. Supports `-WhatIf`. |
 | `tests/Run-SmokeTest.ps1` | `-Provider Claude|Copilot` (required), `-WorkDir`. End-to-end fake-CLI test from an empty folder to merged work. |
 

@@ -7,9 +7,10 @@
     Moves everything in .orchestrator except project.json to <repo>.runs\<timestamp>\.orchestrator
     (the archive also gets a copy of project.json), and removes the worktrees under
     <repo>.worktrees and the orch/* branches. The next plan then starts from a clean folder.
-    Refuses while a run is active. Refuses a run that is not finished (a task that is not done, or
-    commits on the integration branch that the base branch lacks) unless -Force, which archives
-    it as it is. Plan-Tasks.ps1 does the same by itself before it plans on a finished run.
+    Refuses while a run is active. Refuses a run that is not finished (a task that is not done,
+    commits on the integration branch that the base branch lacks, or uncommitted changes in a
+    worktree) unless -Force, which archives it as it is and deletes those changes.
+    Plan-Tasks.ps1 does the same by itself before it plans on a finished run.
 
 .EXAMPLE
     ./Complete-Orchestrator.ps1 -RepoPath C:\src\myapp

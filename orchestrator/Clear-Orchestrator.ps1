@@ -2,6 +2,7 @@
 <#
 .SYNOPSIS
     Removes task worktrees and orch/task/* branches. Optionally also the integration branch and run state.
+    Refuses while a run is active.
 .EXAMPLE
     ./Clear-Orchestrator.ps1 -RepoPath C:\src\myapp         # task worktrees + branches only
     ./Clear-Orchestrator.ps1 -RepoPath C:\src\myapp -All    # also integration branch, state and logs
@@ -13,6 +14,9 @@ $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'Orchestrator.psm1') -Force
 $paths = Get-OrchPaths -RepoPath $RepoPath
 
+# Never during a run: its agents work in the worktrees this removes.
+$runLock = Open-RunLock $paths
+try {
 $worktrees = (Invoke-Git $paths.Repo @('worktree', 'list', '--porcelain')).Output -split "`n" |
     Where-Object { $_ -like 'worktree *' } | ForEach-Object { [IO.Path]::GetFullPath($_.Substring(9)) } |
     Where-Object { $_.StartsWith($paths.WorktreeRoot, [StringComparison]::OrdinalIgnoreCase) }
@@ -44,5 +48,9 @@ else {
         }
         Save-State $paths $state
     }
+}
+}
+finally {
+    if ($runLock) { $runLock.Dispose() }
 }
 Write-Host 'Cleaned up.'
