@@ -298,7 +298,7 @@ if (@($rows | Where-Object Status -ne 'done').Count -eq 0) {
     Write-Host "All tasks merged into $($planObj.IntegrationBranch). Review it, then merge it into your base branch, e.g.:" -ForegroundColor Green
     Write-Host "  git -C `"$($paths.Repo)`" merge --no-ff $($planObj.IntegrationBranch)"
     Write-Host 'After the merge, archive the run and remove its worktrees and branches:' -ForegroundColor Green
-    Write-Host "  $(Join-Path $PSScriptRoot 'Complete-Orchestrator.ps1') -Provider $Provider -RepoPath `"$($paths.Repo)`""
+    Write-Host "  $(Join-Path $PSScriptRoot 'Complete-Orchestrator.ps1') -RepoPath `"$($paths.Repo)`""
     exit 0
 }
 if ($stopRequested) {

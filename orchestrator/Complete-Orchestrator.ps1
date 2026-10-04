@@ -12,12 +12,12 @@
     it as it is. Plan-Tasks.ps1 does the same by itself before it plans on a finished run.
 
 .EXAMPLE
-    ./Complete-Orchestrator.ps1 -Provider Copilot -RepoPath C:\src\myapp
-    ./Complete-Orchestrator.ps1 -Provider Copilot -RepoPath C:\src\myapp -Keep spec-next.md   # leave the next spec in .orchestrator
-    ./Complete-Orchestrator.ps1 -Provider Copilot -RepoPath C:\src\myapp -Force               # archive an unfinished run
+    ./Complete-Orchestrator.ps1 -RepoPath C:\src\myapp
+    ./Complete-Orchestrator.ps1 -RepoPath C:\src\myapp -Keep spec-next.md   # leave the next spec in .orchestrator
+    ./Complete-Orchestrator.ps1 -RepoPath C:\src\myapp -Force               # archive an unfinished run
 #>
 [CmdletBinding(SupportsShouldProcess)]
-param([Parameter(Mandatory)][ValidateSet('Claude', 'Copilot')][string]$Provider, [string]$RepoPath = '.', [string[]]$Keep, [switch]$Force)
+param([string]$RepoPath = '.', [string[]]$Keep, [switch]$Force)
 
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'Orchestrator.psm1') -Force

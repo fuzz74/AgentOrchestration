@@ -40,7 +40,7 @@ acceptance, prompts, ids and integration. The headless planner receives the same
    the user wants a plan for a new feature, finish that run before you write the new plan.
    A new `tasks.json` must never sit next to an old `state.json`: a task that reuses an old
    id would count as done and be skipped. Run
-   `orchestrator/Complete-Orchestrator.ps1 -Provider <Claude|Copilot> -RepoPath <repo>`,
+   `orchestrator/Complete-Orchestrator.ps1 -RepoPath <repo>`,
    with `-Keep <file>` for the new spec if it lies in `.orchestrator`. It moves the run
    record to `<repo>.runs/<timestamp>/.orchestrator`, removes the worktrees and `orch/*`
    branches, and leaves `project.json`. Use the `setup` and `integrationCheck` from
@@ -73,7 +73,7 @@ acceptance, prompts, ids and integration. The headless planner receives the same
      ]
    }
    ```
-7. Validate by running `orchestrator/Show-Tasks.ps1 -Provider <Claude|Copilot> -RepoPath <repo>` (it reports bad ids,
+7. Validate by running `orchestrator/Show-Tasks.ps1 -RepoPath <repo>` (it reports bad ids,
    unknown deps and cycles) and `orchestrator/Invoke-Orchestrator.ps1 -Provider <Claude|Copilot> -RepoPath <repo> -DryRun`
    (it prints the waves and same-wave owns overlaps). Fix anything reported.
 8. Tell the user the command to start the run; do not start it yourself unless asked.

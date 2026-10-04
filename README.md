@@ -69,7 +69,7 @@ Orchestrator commands in the terminal steps assume the current folder is
 ### Step 0: One-time setup
 
 1. **Install** PowerShell 7.2+, git 2.20+, and the Claude Code or Copilot CLI you intend to use.
-2. **Log in** to the selected CLI (`claude` or `copilot login`). Scripts require `-Provider`
+2. **Log in** to the selected CLI (`claude` or `copilot login`). Scripts that run agents require `-Provider`
     and resolve `-AgentPath`, then `ORCH_CLAUDE` / `ORCH_COPILOT`, then the standalone
     executable on PATH, then the VS Code extension-managed install (Claude extension binary
     or Copilot CLI under VS Code globalStorage). You may install and use both at once.
@@ -184,7 +184,7 @@ Where: **editor**, then **terminal**.
      orchestrator runs both, in that order.
 
    See [The task file](#the-task-file) for every field.
-2. Validate and preview the run with `.\orchestrator\Show-Tasks.ps1 -Provider Copilot -RepoPath C:\src\myapp` and `.\orchestrator\Invoke-Orchestrator.ps1 -Provider Copilot -RepoPath C:\src\myapp -DryRun`.
+2. Validate and preview the run with `.\orchestrator\Show-Tasks.ps1 -RepoPath C:\src\myapp` and `.\orchestrator\Invoke-Orchestrator.ps1 -Provider Copilot -RepoPath C:\src\myapp -DryRun`.
    `-DryRun` prints the waves and warns about `owns` overlaps within a wave. Fix anything it
    reports, then run it again.
 
@@ -240,7 +240,7 @@ Where: **terminal**. Leave it open until the run ends.
 
   Press Ctrl+C to close it; the run keeps going. It also works during `Plan-Tasks.ps1`, where
   it shows the skeleton or planner agent. For a one-off status table instead, run
-  `.\orchestrator\Show-Tasks.ps1 -Provider Copilot -RepoPath C:\src\myapp`.
+  `.\orchestrator\Show-Tasks.ps1 -RepoPath C:\src\myapp`.
   You can also open `C:\src\myapp\.orchestrator\progress.md` in the **editor**. While an
   agent works, a heartbeat line at most once a minute shows how many tool calls it has made
   and the latest one, for example `[s2] worker: 14 tool calls, last: Edit src/Game.cs`.
@@ -265,7 +265,7 @@ Where: **terminal**. Leave it open until the run ends.
 
 Skip this step if every task is done.
 
-1. **Find out why** (terminal): run `.\orchestrator\Show-Tasks.ps1 -Provider Copilot -RepoPath C:\src\myapp`.
+1. **Find out why** (terminal): run `.\orchestrator\Show-Tasks.ps1 -RepoPath C:\src\myapp`.
    The detail column shows the error. For the full story, open the task's latest log
   folder, `C:\src\myapp\.orchestrator\logs\<task-id>\<timestamp>\`, in the **editor**. It holds the prompts, the agent results and the command output. Each `*.events.jsonl` file
    is the agent's full event stream, one JSON event per line: every message and tool call.
@@ -317,7 +317,7 @@ Where: **terminal**.
    ```
 2. Push if the repo has a remote: `git -C C:\src\myapp push`. The orchestrator never pushes.
 3. Finish the run (run from `C:\Data\AgentOrchestration`):
-   `.\orchestrator\Complete-Orchestrator.ps1 -Provider Copilot -RepoPath C:\src\myapp`.
+   `.\orchestrator\Complete-Orchestrator.ps1 -RepoPath C:\src\myapp`.
    It moves the run record (plan, spec, state, progress log and logs) to
    `C:\src\myapp.runs\<timestamp>\.orchestrator` and removes the worktrees and the `orch/*`
    branches. Only `project.json` stays in `.orchestrator`.
@@ -587,11 +587,11 @@ implementation or acceptance check needs repair.
 | `Plan-Tasks.ps1` | `-Provider Claude|Copilot`, `-Spec` (required), `-RepoPath` (`.`), `-Out` (plan path), `-Model` (planner, `opus`), `-WorkerModel` (`sonnet`), `-Setup`, `-IntegrationCheck` (both default to `project.json`), `-AgentPath`, `-MaxBudgetUsd` (`0` = no cap, Claude only), `-Force` (overwrite a plan that never ran; archive an earlier run that is not finished). Archives a finished earlier run by itself. |
 | `Invoke-Orchestrator.ps1` | `-Provider Claude|Copilot` (required, even for `-DryRun`), `-RepoPath` (`.`), `-Plan`, `-MaxParallel` (`3`), `-AgentPath`, `-DryRun` (print waves and exit), `-RetryFailed` (preserve committed work), `-FreshFailed` (with `-RetryFailed`, archive and start over), `-PollSeconds` (`5`). Exit code 0 = all done, 2 = some failed or blocked, 1 = invalid plan. |
 | `Request-OrchestratorStop.ps1` | `-RepoPath` (`.`), `-Cancel` (remove a pending stop request). Graceful stop exits the runner with code 0 even if tasks are still pending. |
-| `Show-Tasks.ps1` | `-Provider Claude|Copilot` (required), `-RepoPath`, `-Plan`. Validates the plan and prints wave, status, deps, attempts, cost and detail per task. |
+| `Show-Tasks.ps1` | `-RepoPath`, `-Plan`. Validates the plan and prints wave, status, deps, attempts, cost and detail per task. |
 | `Watch-Orchestrator.ps1` | `-Provider Claude|Copilot` (required), `-RepoPath`, `-Plan`, `-RefreshSeconds` (`2`), `-ActivityLines` (`10`), `-Once`, `-NoMouse`. Watches either provider's JSON event stream. A screen taller than the window scrolls with the keys (↑↓, PgUp/PgDn, Home/End) and, on Windows, the mouse wheel and a draggable scrollbar; `-NoMouse` keeps normal text selection. `q` quits. |
 | `Watch-Conversations.ps1` | `-RepoPath` (`.`), `-Task` (optional task ID), `-Last` (`25`), `-RefreshSeconds` (`2`), `-ShowTools`, `-FullRequests`, `-NoMouse`, `-Once`. Live view has clickable request controls and a scrollable in-terminal popup (O opens the latest request without mouse); `-Once` prints plain output. Ctrl+C or Q quits. |
-| `Clear-Orchestrator.ps1` | `-Provider Claude|Copilot` (required), `-RepoPath`, `-All`. Without `-All`: removes task worktrees and `orch/task/*` branches, resets unfinished tasks to pending. With `-All`: also the integration worktree and branch, state, logs and progress, which are deleted, not archived. Supports `-WhatIf`. |
-| `Complete-Orchestrator.ps1` | `-Provider Claude|Copilot` (required), `-RepoPath`, `-Keep` (files to leave in `.orchestrator`, by name or full path), `-Force` (archive a run that is not finished). Moves the run record to `<repo>.runs/<timestamp>/.orchestrator`, leaves `project.json`, and removes all worktrees and `orch/*` branches. Refuses while a run is active. Supports `-WhatIf`. |
+| `Clear-Orchestrator.ps1` | `-RepoPath`, `-All`. Without `-All`: removes task worktrees and `orch/task/*` branches, resets unfinished tasks to pending. With `-All`: also the integration worktree and branch, state, logs and progress, which are deleted, not archived. Supports `-WhatIf`. |
+| `Complete-Orchestrator.ps1` | `-RepoPath`, `-Keep` (files to leave in `.orchestrator`, by name or full path), `-Force` (archive a run that is not finished). Moves the run record to `<repo>.runs/<timestamp>/.orchestrator`, leaves `project.json`, and removes all worktrees and `orch/*` branches. Refuses while a run is active. Supports `-WhatIf`. |
 | `tests/Run-SmokeTest.ps1` | `-Provider Claude|Copilot` (required), `-WorkDir`. End-to-end fake-CLI test from an empty folder to merged work. |
 
 ## Agent permissions and safety

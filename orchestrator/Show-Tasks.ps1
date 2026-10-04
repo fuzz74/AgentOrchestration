@@ -3,10 +3,10 @@
 .SYNOPSIS
     Shows the task graph with each task's wave, status, attempts and cost. Validates the plan.
 .EXAMPLE
-    ./Show-Tasks.ps1 -Provider Copilot -RepoPath C:\src\myapp
+    ./Show-Tasks.ps1 -RepoPath C:\src\myapp
 #>
 [CmdletBinding()]
-param([Parameter(Mandatory)][ValidateSet('Claude', 'Copilot')][string]$Provider, [string]$RepoPath = '.', [string]$Plan)
+param([string]$RepoPath = '.', [string]$Plan)
 
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'Orchestrator.psm1') -Force

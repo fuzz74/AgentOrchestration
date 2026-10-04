@@ -108,7 +108,7 @@ $checks = [ordered]@{
     'wire-up saw its deps'              = (Get-Content (Get-ChildItem (Join-Path $repo '.orchestrator/logs/wire-up') -Recurse -Filter 'attempt-1-worker.json.prompt.md' | Select-Object -First 1) -Raw) -match 'See a/feature-a.txt'
 }
 $checks.GetEnumerator() | ForEach-Object { Write-Host ("{0,-38} {1}" -f $_.Key, ($_.Value ? 'PASS' : 'FAIL')) -ForegroundColor ($_.Value ? 'Green' : 'Red') }
-& (Join-Path $orch 'Show-Tasks.ps1') -Provider $Provider -RepoPath $repo
+& (Join-Path $orch 'Show-Tasks.ps1') -RepoPath $repo
 if ($checks.Values -contains $false) { Write-Host "Smoke test FAILED. Repo left at $repo"; exit 1 }
 
 $retryPlan = Get-Content $planFile -Raw | ConvertFrom-Json -AsHashtable
@@ -238,21 +238,21 @@ function Test-Rejected([scriptblock]$Action, [string]$Like) {
     try { $null = & $Action; $false } catch { $_.Exception.Message -like $Like }
 }
 $heldLock = [IO.File]::Open($lockPath, 'OpenOrCreate', 'ReadWrite', 'None')
-try { $activeBlocks = Test-Rejected { & $complete -Provider $Provider -RepoPath $repo -Force } '*run is active*' }
+try { $activeBlocks = Test-Rejected { & $complete -RepoPath $repo -Force } '*run is active*' }
 finally { $heldLock.Dispose() }
-$unfinishedBlocksComplete = Test-Rejected { & $complete -Provider $Provider -RepoPath $repo } '*is not finished*spec-only*'
+$unfinishedBlocksComplete = Test-Rejected { & $complete -RepoPath $repo } '*is not finished*spec-only*'
 $unfinishedBlocksPlan = Test-Rejected { & $planTasks -Provider $Provider -Spec $spec -RepoPath $repo -AgentPath $fake } '*is not finished*-Force*'
 # Without the failed task every task is done, but orch/integration is not merged into main yet.
 $finishedPlan = Get-Content $planFile -Raw | ConvertFrom-Json -AsHashtable
 $finishedPlan.tasks = @($finishedPlan.tasks | Where-Object { $_.id -ne 'spec-only' })
 $finishedPlan | ConvertTo-Json -Depth 10 | Set-Content $planFile
-$unmergedBlocks = Test-Rejected { & $complete -Provider $Provider -RepoPath $repo } '*that main lacks*'
+$unmergedBlocks = Test-Rejected { & $complete -RepoPath $repo } '*that main lacks*'
 git -C $repo merge -q --no-ff --no-edit orch/integration
 if ($LASTEXITCODE -ne 0) { throw 'Could not merge orch/integration into main.' }
-& $complete -Provider $Provider -RepoPath $repo -WhatIf
+& $complete -RepoPath $repo -WhatIf
 $whatIfChangedNothing = (Test-Path (Join-Path $runDir 'state.json')) -and -not (Test-Path $runsRoot) -and
     (Test-Path $failedWorktree) -and @(git -C $repo for-each-ref refs/heads/orch/).Count -gt 0
-& $complete -Provider $Provider -RepoPath $repo
+& $complete -RepoPath $repo
 $archives = @(Get-ChildItem $runsRoot -Directory | Sort-Object Name)
 $archived = Join-Path $archives[0].FullName '.orchestrator'
 $completeChecks = [ordered]@{
@@ -289,8 +289,8 @@ $archives = @(Get-ChildItem $runsRoot -Directory | Sort-Object Name)
 $nextPlan = Get-Content $planFile -Raw | ConvertFrom-Json
 $oldStateLeft = Test-Path (Join-Path $runDir 'state.json')
 $neverRunStops = Test-Rejected { & $planTasks -Provider $Provider -Spec $nextSpec -RepoPath $repo -AgentPath $fake } '*exists. Use -Force*'
-$unfinishedNeedsForce = Test-Rejected { & $complete -Provider $Provider -RepoPath $repo -Keep spec-next.md } '*is not finished*'
-& $complete -Provider $Provider -RepoPath $repo -Keep spec-next.md -Force
+$unfinishedNeedsForce = Test-Rejected { & $complete -RepoPath $repo -Keep spec-next.md } '*is not finished*'
+& $complete -RepoPath $repo -Keep spec-next.md -Force
 $forcedArchives = @(Get-ChildItem $runsRoot -Directory | Sort-Object Name)
 $planChecks = [ordered]@{
     'reused task ids ran again'        = $secondExit -eq 0 -and $secondState.tasks.psbase.Count -eq 4 -and
@@ -305,6 +305,6 @@ $planChecks = [ordered]@{
 }
 $planChecks.GetEnumerator() | ForEach-Object { Write-Host ("{0,-38} {1}" -f $_.Key, ($_.Value ? 'PASS' : 'FAIL')) -ForegroundColor ($_.Value ? 'Green' : 'Red') }
 if ($planChecks.Values -contains $false) { Write-Host "Archive-on-plan test FAILED. Repo left at $repo"; exit 1 }
-& (Join-Path $orch 'Clear-Orchestrator.ps1') -Provider $Provider -RepoPath $repo -All
+& (Join-Path $orch 'Clear-Orchestrator.ps1') -RepoPath $repo -All
 Remove-Item $WorkDir -Recurse -Force
 Write-Host 'Smoke test passed.' -ForegroundColor Green
