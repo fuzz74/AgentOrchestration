@@ -53,7 +53,9 @@ would help, say which one and why, and wait for a yes.
   use `--add-dir <repo>` or the session's directory permission flow. Never change access
   settings without the user's approval.
 2. **Explore** the target repo, and only the target repo (read-only): language, layout, test
-   runner, conventions, and what already exists. Don't ask what the code can tell you. If
+   runner, conventions, and what already exists. Don't ask what the code can tell you. Check
+   each claim a brief or draft makes about the code against the repo before the interview:
+   briefs are written before the code they describe, and they drift. If
    the folder doesn't exist or has no commits, it's a **new project**. Planning then creates
    its skeleton from the spec automatically (`orchestrator/Initialize-Project.ps1`): git
    repo, manifest, test runner, and one smoke test. So the interview must settle the stack
@@ -89,6 +91,8 @@ would help, say which one and why, and wait for a yes.
    - every id maps to a module in 4.2
    - no module without paths
    - no shared paths between modules meant to run in parallel
+   - every existing test that the change breaks (an absolute screen row, an old path format,
+     a changed signature) is named under a module that may change it
    - every contract in 4.3 is written out
    - no TBD, TODO or leftover comments
    - Open questions is empty
@@ -120,7 +124,10 @@ would help, say which one and why, and wait for a yes.
 - **Boundaries are paths.** Each module gets repo-relative globs. Modules meant to run in
   parallel share no files. Find hidden shared files early (route registries, DI containers,
   barrel `index` files, config, lock files). Either give them to one module, or list them
-  under Shared files when every task must append to them.
+  under Shared files when every task must append to them. A change that existing tests
+  assert (a new screen row, a path format, a signature) breaks tests in other modules'
+  folders: grep for them and give each affected test file to the module that makes the
+  change, which then builds before the module that owns the folder.
 - **Every criterion testable.** Use one EARS sentence per behaviour, with a concrete subject
   (the module or component name). Replace "fast", "secure" and "user-friendly" with a
   measure, or drop them.
