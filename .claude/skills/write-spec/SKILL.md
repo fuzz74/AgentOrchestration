@@ -133,7 +133,9 @@ would help, say which one and why, and wait for a yes.
   measure, or drop them.
 - **Verification is runnable.** Name the setup command, the test runner, a per-module test
   command and a whole-project check. Each must work from a fresh worktree with PowerShell 7.
-  If tests don't exist yet, say which module creates them. For a new project, also give
+  If tests don't exist yet, say which module creates them. A per-module filter that matches
+  no test passes vacuously on most runners, so name the test folders and namespaces exactly
+  and make the module names in 4.2 match them. For a new project, also give
   the exact stack in Constraints: language and runtime version, framework, test runner and
   package manager. The skeleton is built from these, before any task runs.
 - **Unattended boundaries.** Workers can't ask. Split rules into three groups:
