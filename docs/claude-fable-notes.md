@@ -72,3 +72,18 @@ env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT -u CLAUDE_CODE_SESSION_ID -u CLAUDE_
 
 Planning this project with `-Effort medium` took 11 minutes and 3.64 USD for a 900-line
 spec with 22 tasks, with no output-limit loop.
+
+## Switching models in the middle of a run
+
+The runner reads `tasks.json` once at startup, so a model change needs a pause:
+
+1. `Request-OrchestratorStop.ps1 -RepoPath <repo>`. Active sessions finish and their
+   tasks pause with the worktree kept; nothing new starts.
+2. Set `"model": "opus"` on every task that is not `done` (a task's own `model` overrides
+   `settings.model`), and `settings.reviewModel` if reviews should switch too.
+3. Rerun `Invoke-Orchestrator.ps1` without `-RetryFailed`. Paused tasks resume with their
+   checks and review on the new model; unstarted tasks run on it from the start.
+
+The Last Ninja run did this after 13 of 22 tasks to save the weekly Fable quota. The nine
+Opus scene and wiring tasks all merged on their first attempt for 1.17 to 4.48 USD each.
+Whole run: 22 tasks, 225 C# files, 29.6K lines, 1 671 tests, 222.54 USD.
