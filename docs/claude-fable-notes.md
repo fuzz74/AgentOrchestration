@@ -33,3 +33,42 @@ Get-ChildItem <repo>\.orchestrator\logs -Recurse -Filter *.events.jsonl |
   system prompt (CLAUDE.md, skills, tool list) is 41K cache-creation tokens. In a target
   repo without CLAUDE.md the per-call floor is lower.
 - The `fable` alias works everywhere the orchestrator passes `--model`.
+
+## The account session limit burns every attempt in seconds
+
+Found while building The Last Ninja: The Movie (October 2026). When the account's session
+limit is reached, every `claude -p` call returns at once with
+`You've hit your session limit · resets 4:50pm`. The orchestrator treats that as a worker
+error, starts the next attempt immediately, and so marks a task failed after three attempts
+in about ten seconds. Six tasks failed that way within two minutes, and the run ended with
+their dependents blocked.
+
+**What to do after the reset:**
+
+1. Check each failed worktree: `git -C <repo>.worktrees\<task> status --porcelain`.
+   A worker that was cut off mid-task leaves its files uncommitted, and `-RetryFailed`
+   refuses such a worktree. Commit the work on the task branch
+   (`git add -A -- <owned paths>` and `git commit -m "WIP"`): the retry then runs in sync
+   mode, which re-runs the checks and sends their failures back to the same worker session.
+2. Rerun `Invoke-Orchestrator.ps1 ... -RetryFailed`. The attempt counter is per pipeline
+   run, so the three spent attempts do not count against the retry and `state.json` needs
+   no edit.
+
+A task that had finished its worker and failed only in the review (its branch is one commit
+ahead of `orch/integration`) needs nothing: the retry re-runs acceptance and review.
+
+## Launching the orchestrator from inside a Claude Code session
+
+A `claude -p` started from a Claude Code session inherits `CLAUDECODE=1` and the other
+`CLAUDE_CODE_*` variables. Clear them before the orchestrator starts, otherwise the nested
+CLI may refuse to run or attach to the parent session:
+
+```bash
+env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT -u CLAUDE_CODE_SESSION_ID -u CLAUDE_CODE_CHILD_SESSION \
+    -u CLAUDE_PID -u CLAUDE_CODE_MESSAGING_SOCKET -u CLAUDE_CODE_MESSAGING_TOKEN \
+    -u CLAUDE_CODE_SESSION_ATTENDED -u CLAUDE_EFFORT \
+    pwsh -NoProfile -File ./orchestrator/Invoke-Orchestrator.ps1 -Provider Claude -RepoPath <repo> -MaxParallel 4
+```
+
+Planning this project with `-Effort medium` took 11 minutes and 3.64 USD for a 900-line
+spec with 22 tasks, with no output-limit loop.
