@@ -35,6 +35,38 @@ match. One-off repair without the script: `node node_modules/electron/install.js
 **For specs:** when the stack is Electron, put the `postinstall` line in the Constraints
 section next to the dependency list, so the skeleton has it from the start.
 
+## PixiJS draws nothing under the renderer's Content Security Policy
+
+PixiJS v8 generates shader and uniform code with `new Function`. The electron-vite skeleton's
+`index.html` carries `script-src 'self'` without `'unsafe-eval'`, so `Application.init()`
+rejects with:
+
+```
+Error: Current environment does not allow unsafe-eval, please use pixi.js/unsafe-eval module to enable support.
+```
+
+The symptom is a blank stage with the app otherwise working; the error is only in the
+renderer console. The fix keeps the CSP and loads PixiJS's eval-free code paths once, before
+any other `pixi.js` import:
+
+```ts
+import 'pixi.js/unsafe-eval';
+import { Application } from 'pixi.js';
+```
+
+The import path contains the word "eval", so a source scan for `eval(` or `new Function`
+must not match bare words; and a comment must not spell out "new Function" either.
+
+**For specs:** when the stack is PixiJS inside Electron, name this import in the Constraints
+section next to the dependency list.
+
+## Reading the renderer console from a terminal
+
+Running the built app as `node_modules\electron\dist\electron.exe . --enable-logging=stderr`
+prints renderer `console.*` output on stderr as `CONSOLE` lines, so a headless check can catch
+renderer-side errors without DevTools. Remove `ELECTRON_RUN_AS_NODE` from the environment
+first (see below) or the binary runs as plain Node.
+
 ## `npx electron --version` prints a Node version inside VS Code
 
 VS Code sets `ELECTRON_RUN_AS_NODE=1` for its extension host, and Claude Code running in
