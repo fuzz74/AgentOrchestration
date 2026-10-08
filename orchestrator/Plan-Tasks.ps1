@@ -14,10 +14,15 @@
     schemas/plan-output.schema.json, validates the graph (ids, deps, cycles) and writes
     tasks.json with the planner's shared files and default settings. If the graph is invalid the
     planner gets one chance to fix it.
+    -Effort bounds the planner's reasoning (Claude only); -WorkerEffort is written to the plan's
+    settings.effort. A model that reasons at length can spend its whole output budget thinking,
+    hit the output-token limit and start over; a lower effort prevents that.
     Review and edit the file before running Invoke-Orchestrator.ps1.
 
 .EXAMPLE
     ./Plan-Tasks.ps1 -Provider Copilot -Spec .\spec.md -RepoPath C:\src\myapp -Setup 'npm ci'
+.EXAMPLE
+    ./Plan-Tasks.ps1 -Provider Claude -Spec .\spec.md -RepoPath C:\src\myapp -Model fable -Effort medium -WorkerModel fable
 #>
 [CmdletBinding()]
 param(
@@ -27,6 +32,8 @@ param(
     [string]$Out,
     [string]$Model = 'opus',
     [string]$WorkerModel = 'sonnet',
+    [ValidateSet('low', 'medium', 'high', 'xhigh', 'max')][string]$Effort,        # planner reasoning effort (Claude only)
+    [ValidateSet('low', 'medium', 'high', 'xhigh', 'max')][string]$WorkerEffort,  # written to settings.effort
     [string]$Setup,
     [string]$IntegrationCheck,
     [string]$AgentPath,
@@ -81,7 +88,7 @@ Write-OrchLog $paths.ProgressFile "Planning from $specRel with $Model"
 
 $call = @{
     Provider = $Provider; AgentPath = $agent; WorkDir = $paths.Repo; Schema = 'plan-output.schema.json'; Model = $Model
-    PermissionMode = 'dontAsk'; Tools = @('Read', 'Glob', 'Grep'); AllowedTools = @('Read', 'Glob', 'Grep')
+    Effort = $Effort; PermissionMode = 'dontAsk'; Tools = @('Read', 'Glob', 'Grep'); AllowedTools = @('Read', 'Glob', 'Grep')
     MaxBudgetUsd = $MaxBudgetUsd; Name = 'orch:planner'
     ProgressFile = $paths.ProgressFile; ActivityLabel = '[planner]'; Activity = 'each'
 }
@@ -99,6 +106,7 @@ function New-PlanDoc($structured) {
         settings          = [ordered]@{
             model            = $WorkerModel
             reviewModel      = $WorkerModel
+            effort           = if ($WorkerEffort) { $WorkerEffort } else { $null }
             maxAttempts      = 3
             review           = $true
             setup            = if ($Setup) { $Setup } else { $null }
