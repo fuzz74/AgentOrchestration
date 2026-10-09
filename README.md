@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/banner.svg" alt="AgentOrchestration: parallel coding agents, each in its own worktree, merged only when tests and review pass" width="100%">
+</p>
+
 # Agent Orchestrator: Design & Usage
 
 A small PowerShell harness that runs a dependency graph of coding tasks with parallel
