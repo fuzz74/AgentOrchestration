@@ -17,9 +17,11 @@ Checked on 2026-10-09 with Claude Code 2.1.289 in headless runs
 - `--permission-mode dontAsk` blocks the tool unless it is on the allow list. It also blocks,
   in the sub-agents, every tool that is not on the list, so a read-only session
   (`--tools Read,Glob,Grep,Task`, the same `--allowedTools`) has read-only sub-agents.
-- Agent types in a headless session: `general-purpose`, `Explore` and `Plan`, plus custom
-  agents from `~/.claude/agents` and the repo's `.claude/agents`. When the model names no
-  type, the sub-agent is `general-purpose`; in one test the model chose `Explore` itself.
+- Agent types in a headless session: `general-purpose`, `Explore`, `Plan`, `claude` (a
+  catch-all with all tools) and `statusline-setup` (sets up the status line; Read and Edit
+  only), plus custom agents from `~/.claude/agents` and the repo's `.claude/agents`. When the
+  model names no type, the sub-agent is `general-purpose`; in one test the model chose
+  `Explore` itself.
 
 ### Background sub-agents give several result events
 
