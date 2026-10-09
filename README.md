@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/banner.svg" alt="Agent Orchestrator: parallel coding agents, each in its own worktree, merged only when tests and review pass" width="100%">
+  <img src="docs/assets/banner.svg" alt="AgentOrchestration: parallel coding agents, each in its own worktree, merged only when tests and review pass" width="100%">
 </p>
 
 # Agent Orchestrator: Design & Usage
