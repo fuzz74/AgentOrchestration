@@ -5,7 +5,8 @@
 
 .DESCRIPTION
     Read-only. Shows requests and responses from worker, reviewer, planner and bootstrap
-    sessions, then follows new JSONL events. Click Open full request to view its prompt
+    sessions, then follows new JSONL events. An agent's requests to its sub-agents and their
+    responses are labeled agent ↳ description. Click Open full request to view its prompt
     in a scrollable in-terminal popup; O opens the latest request without a mouse.
     Press Q or Ctrl+C to stop without affecting the run. -Once prints plain output.
 
@@ -35,6 +36,7 @@ Import-Module (Join-Path $PSScriptRoot 'Orchestrator.psm1') -Force
 $paths = Get-OrchPaths -RepoPath $RepoPath
 $offsets = @{}
 $seenPrompts = @{}
+$subAgents = @{}   # events file -> its sub-agents' names
 
 function Get-EventFiles {
     if (-not (Test-Path $paths.LogDir)) { return @() }
@@ -53,7 +55,13 @@ function Get-EventLabel([string]$File) {
     "$taskName/$role$attempt"
 }
 
-function Convert-Event($Event, [string]$Label) {
+function Convert-Event($Event, [string]$Label, [Collections.IDictionary]$Names) {
+    # A call that starts a sub-agent carries the agent's request to it.
+    $requests = switch ($Event.type) {
+        'tool.execution_start' { if ($Event.data.toolName -eq 'task') { $Event.data.arguments } }
+        'assistant' { @($Event.message.content) | Where-Object { $_.type -eq 'tool_use' -and $_.name -match '^(Task|Agent)$' } | ForEach-Object { $_.input } }
+    }
+    $sub = Get-SubAgentName $Event $Names
     $text = $null
     $kind = 'response'
     switch ($Event.type) {
@@ -76,10 +84,19 @@ function Convert-Event($Event, [string]$Label) {
             $text = $messages -join "`n"
         }
     }
-    if (-not $text -or -not $text.Trim()) { return }
     $when = [datetimeoffset]::MinValue
     if ($Event.timestamp) { try { $when = [datetimeoffset]$Event.timestamp } catch { } }
-    [pscustomobject]@{ Time = $when; Label = $Label; Kind = $kind; Text = $text.Trim() }
+    if ($text -and $text.Trim()) {
+        [pscustomobject]@{ Time = $when; Label = $(if ($sub) { "$Label ↳ $sub" } else { $Label }); Kind = $kind; Text = $text.Trim(); SubAgent = [bool]$sub }
+    }
+    foreach ($request in @($requests | Where-Object { "$($_.prompt)".Trim() })) {
+        $lines = @("$($request.prompt)".Trim() -split "`r?`n")
+        $more = if (-not $FullRequests -and $lines.Count -gt 12) { "`n... $($lines.Count - 12) more lines" } else { '' }
+        [pscustomobject]@{
+            Time = $when; Label = "$Label ↳ $(Format-SubAgentName $request.description)"; Kind = 'request'
+            Text = (($lines | Select-Object -First $(if ($more) { 12 } else { $lines.Count })) -join "`n") + $more
+        }
+    }
 }
 
 function Read-NewEvents([IO.FileInfo]$File) {
@@ -87,7 +104,7 @@ function Read-NewEvents([IO.FileInfo]$File) {
     try { $stream = [IO.FileStream]::new($File.FullName, 'Open', 'Read', 'ReadWrite, Delete') }
     catch { return }
     try {
-        if ($stream.Length -lt $position) { $position = 0 }
+        if ($stream.Length -lt $position) { $position = 0; $subAgents.Remove($File.FullName) }
         $length = [int]($stream.Length - $position)
         if ($length -eq 0) { return }
         $buffer = [byte[]]::new($length)
@@ -103,10 +120,11 @@ function Read-NewEvents([IO.FileInfo]$File) {
         if ($end -lt 0) { return }
         $offsets[$File.FullName] = $position + $end + 1
         $label = Get-EventLabel $File.FullName
+        if (-not $subAgents.ContainsKey($File.FullName)) { $subAgents[$File.FullName] = @{} }
         foreach ($line in [Text.Encoding]::UTF8.GetString($buffer, 0, $end + 1).Split("`n")) {
             if (-not $line.TrimStart().StartsWith('{')) { continue }
             try {
-                $item = Convert-Event ($line | ConvertFrom-Json -AsHashtable) $label
+                $item = Convert-Event ($line | ConvertFrom-Json -AsHashtable) $label $subAgents[$File.FullName]
                 if ($item) { $item }
             }
             catch { continue }
@@ -140,7 +158,7 @@ function Read-Conversation([IO.FileInfo]$File) {
 
 function Show-Message($Message) {
     $time = if ($Message.Time -eq [datetimeoffset]::MinValue) { '--:--:--' } else { $Message.Time.ToLocalTime().ToString('HH:mm:ss') }
-    $color = if ($Message.Kind -eq 'request') { 'Green' } elseif ($Message.Kind -eq 'tool') { 'DarkGray' } elseif ($Message.Label -match 'review') { 'Yellow' } else { 'White' }
+    $color = if ($Message.Kind -eq 'request') { 'Green' } elseif ($Message.Kind -eq 'tool') { 'DarkGray' } elseif ($Message.SubAgent) { 'Gray' } elseif ($Message.Label -match 'review') { 'Yellow' } else { 'White' }
     Write-Host "[$time][$($Message.Label)][$($Message.Kind.ToUpperInvariant())]" -ForegroundColor $color
     Write-Host $Message.Text
 }
@@ -162,7 +180,7 @@ function Get-WrappedLines([string]$Text, [int]$Width) {
 function Get-TranscriptLines([int]$Width) {
     foreach ($message in $history) {
         $time = if ($message.Time -eq [datetimeoffset]::MinValue) { '--:--:--' } else { $message.Time.ToLocalTime().ToString('HH:mm:ss') }
-        $color = if ($message.Kind -eq 'request') { 'Green' } elseif ($message.Kind -eq 'tool') { 'DarkGray' } elseif ($message.Label -match 'review') { 'Yellow' } else { 'White' }
+        $color = if ($message.Kind -eq 'request') { 'Green' } elseif ($message.Kind -eq 'tool') { 'DarkGray' } elseif ($message.SubAgent) { 'Gray' } elseif ($message.Label -match 'review') { 'Yellow' } else { 'White' }
         $header = "[$time][$($message.Label)][$($message.Kind.ToUpperInvariant())]"
         $header = $header.Substring(0, [math]::Min($header.Length, $Width))
         [pscustomobject]@{ Text = $header; Color = $color; Path = $null }
@@ -395,12 +413,12 @@ function Invoke-ConversationMouse($Event) {
 $initial = @(Get-EventFiles | ForEach-Object { Read-Conversation $_ })
 if ($Once) {
     Write-Host "Conversations: $($paths.Repo)$(if ($Task) { " (task: $Task)" })" -ForegroundColor Green
-    foreach ($message in ($initial | Sort-Object Time | Select-Object -Last $Last)) { Show-Message $message }
+    foreach ($message in ($initial | Sort-Object Time -Stable | Select-Object -Last $Last)) { Show-Message $message }
     return
 }
 if ([Console]::IsInputRedirected -or [Console]::IsOutputRedirected) { throw 'Interactive terminal required; use -Once for redirected I/O.' }
 $history = [Collections.Generic.List[object]]::new()
-foreach ($message in ($initial | Sort-Object Time | Select-Object -Last $Last)) { $history.Add($message) }
+foreach ($message in ($initial | Sort-Object Time -Stable | Select-Object -Last $Last)) { $history.Add($message) }
 $latestRequest = $initial | Where-Object PromptPath | Sort-Object Time | Select-Object -Last 1
 $view = @{ Top = 0; Max = 0; Page = 1; Follow = $true; Hits = @{}; Quit = $false; CloseRow = -1; CloseCol = -1; PopupMax = 0; PopupPage = 1; BarCol = -1; BarRow = -1; BarRows = 0; ThumbTop = 0; ThumbSize = 0; BarDrag = $null }
 $popup = @{ Path = $null; Content = ''; Top = 0 }
@@ -409,7 +427,7 @@ $mouse = $false
 try {
     $mouse = -not $NoMouse -and (Enable-ConversationMouse)
     while (-not $view.Quit) {
-        foreach ($message in @(Get-EventFiles | ForEach-Object { Read-Conversation $_ }) | Sort-Object Time) {
+        foreach ($message in @(Get-EventFiles | ForEach-Object { Read-Conversation $_ }) | Sort-Object Time -Stable) {
             $history.Add($message)
             if ($message.PromptPath) { $latestRequest = $message }
         }

@@ -5,6 +5,7 @@
 .DESCRIPTION
     Combines orchestrator progress, saved agent prompts and selected JSONL events.
     Shows agent updates and tool outcomes, not private reasoning or raw tool output.
+    Entries from an agent's sub-agents start with ↳ [description].
 .EXAMPLE
     ./Watch-AgentTimeline.ps1 -RepoPath C:\src\myapp
 .EXAMPLE
@@ -26,6 +27,7 @@ $offsets = @{}
 $prompts = @{}
 $toolStarts = @{}
 $modelStarts = @{}
+$subAgents = @{}   # events file -> its sub-agents' names
 $progressCount = 0
 
 function Get-AgentFiles {
@@ -55,14 +57,16 @@ function Get-ShortText([string]$Text) {
     $singleLine
 }
 
-function Convert-AgentEvent($Event, [string]$Label, [string]$File) {
+function Convert-AgentEvent($Event, [string]$Label, [string]$File, [Collections.IDictionary]$Names) {
     $when = [datetimeoffset]::MinValue
     if ($Event.timestamp) { try { $when = [datetimeoffset]$Event.timestamp } catch { } }
+    $sub = Get-SubAgentName $Event $Names
+    $tag = if ($sub) { "↳ [$sub] " } else { '' }
     switch ($Event.type) {
         'model.call_start' {
             $key = "$File|$($Event.data.turnId)"
             if ($Event.data.turnId) { $modelStarts[$key] = $when }
-            return New-TimelineEntry $when $Label 'MODEL' 'Model call started'
+            return New-TimelineEntry $when $Label 'MODEL' "${tag}Model call started"
         }
         'model.call_finished' {
             $key = "$File|$($Event.data.turnId)"
@@ -71,11 +75,15 @@ function Convert-AgentEvent($Event, [string]$Label, [string]$File) {
                 $duration = " in $([math]::Round(($when - $modelStarts[$key]).TotalSeconds, 1))s"
                 $modelStarts.Remove($key)
             }
-            return New-TimelineEntry $when $Label 'MODEL' "Model call finished$duration"
+            return New-TimelineEntry $when $Label 'MODEL' "${tag}Model call finished$duration"
         }
         'assistant.message' {
             if ($Event.data.phase -eq 'commentary' -and $Event.data.content) {
-                return New-TimelineEntry $when $Label 'UPDATE' (Get-ShortText $Event.data.content)
+                return New-TimelineEntry $when $Label 'UPDATE' ($tag + (Get-ShortText $Event.data.content))
+            }
+            # A sub-agent's answer is news for the agent, not the agent's own result.
+            if ($Event.data.phase -eq 'final_answer' -and $Event.data.content -and $sub) {
+                return New-TimelineEntry $when $Label 'UPDATE' ($tag + (Get-ShortText $Event.data.content))
             }
             if ($Event.data.phase -eq 'final_answer' -and $Event.data.content) {
                 $result = $null
@@ -96,7 +104,7 @@ function Convert-AgentEvent($Event, [string]$Label, [string]$File) {
             $key = "$File|$($Event.data.toolCallId)"
             if ($Event.data.toolCallId) { $toolStarts[$key] = @{ Time = $when; Name = $toolName } }
             $detail = $Event.data.arguments.description ?? $Event.data.toolTitle ?? ''
-            return New-TimelineEntry $when $Label 'TOOL START' (Get-ShortText "$toolName $detail")
+            return New-TimelineEntry $when $Label 'TOOL START' ($tag + (Get-ShortText "$toolName $detail"))
         }
         'tool.execution_complete' {
             $key = "$File|$($Event.data.toolCallId)"
@@ -108,17 +116,18 @@ function Convert-AgentEvent($Event, [string]$Label, [string]$File) {
                 $toolStarts.Remove($key)
             }
             $outcome = if ($Event.data.success -eq $true) { 'succeeded' } else { 'failed' }
-            return New-TimelineEntry $when $Label 'TOOL END' "$toolName $outcome$duration (output omitted)"
+            return New-TimelineEntry $when $Label 'TOOL END' "$tag$toolName $outcome$duration (output omitted)"
         }
         'assistant' {
             foreach ($block in @($Event.message.content)) {
                 if ($block.type -eq 'tool_use') {
                     $toolName = $block.name ?? 'tool'
                     if ($block.id) { $toolStarts["$File|$($block.id)"] = @{ Time = $when; Name = $toolName } }
-                    New-TimelineEntry $when $Label 'TOOL START' $toolName
+                    $detail = if ($toolName -match '^(Task|Agent)$') { " $($block.input.description)" }
+                    New-TimelineEntry $when $Label 'TOOL START' ($tag + (Get-ShortText "$toolName$detail"))
                 }
                 elseif ($block.type -eq 'text' -and $block.text) {
-                    New-TimelineEntry $when $Label 'UPDATE' (Get-ShortText $block.text)
+                    New-TimelineEntry $when $Label 'UPDATE' ($tag + (Get-ShortText $block.text))
                 }
             }
             return
@@ -136,7 +145,7 @@ function Convert-AgentEvent($Event, [string]$Label, [string]$File) {
                     $toolStarts.Remove($key)
                 }
                 $outcome = if ($block.is_error) { 'failed' } else { 'completed' }
-                New-TimelineEntry $when $Label 'TOOL END' "$toolName $outcome$duration (output omitted)"
+                New-TimelineEntry $when $Label 'TOOL END' "$tag$toolName $outcome$duration (output omitted)"
             }
             return
         }
@@ -165,7 +174,7 @@ function Read-AgentFile([IO.FileInfo]$File) {
     try { $stream = [IO.FileStream]::new($File.FullName, 'Open', 'Read', 'ReadWrite, Delete') }
     catch { return }
     try {
-        if ($stream.Length -lt $position) { $position = 0 }
+        if ($stream.Length -lt $position) { $position = 0; $subAgents.Remove($File.FullName) }
         $length = [int]($stream.Length - $position)
         if ($length -eq 0) { return }
         $buffer = [byte[]]::new($length)
@@ -180,12 +189,13 @@ function Read-AgentFile([IO.FileInfo]$File) {
         $end = [Array]::LastIndexOf($buffer, [byte]10, $read - 1)
         if ($end -lt 0) { return }
         $offsets[$File.FullName] = $position + $end + 1
+        if (-not $subAgents.ContainsKey($File.FullName)) { $subAgents[$File.FullName] = @{} }
         foreach ($line in [Text.Encoding]::UTF8.GetString($buffer, 0, $end + 1).Split("`n")) {
             if (-not $line.TrimStart().StartsWith('{')) { continue }
             try {
                 $event = $line | ConvertFrom-Json -AsHashtable
                 if (-not $event.timestamp) { $event.timestamp = $File.LastWriteTimeUtc }
-                $item = Convert-AgentEvent $event $label $File.FullName
+                $item = Convert-AgentEvent $event $label $File.FullName $subAgents[$File.FullName]
                 if ($item) { $item }
             }
             catch { continue }
@@ -258,7 +268,7 @@ try {
         $top = [math]::Min($max, $top)
         $output = [Text.StringBuilder]::new("`e[H")
         $title = "Agent timeline: $($paths.Repo)$(if ($Task) { " / $Task" })"
-        $legend = 'ORCH decisions | PROMPT instructions | MODEL call | UPDATE commentary | TOOL action | REVIEW/RESULT outcome'
+        $legend = 'ORCH decisions | PROMPT instructions | MODEL call | UPDATE commentary | TOOL action | REVIEW/RESULT outcome | ↳ [name] sub-agent'
         [void]$output.Append($title.Substring(0, [math]::Min($width, $title.Length))).Append("`e[K`n")
         [void]$output.Append($legend.Substring(0, [math]::Min($width, $legend.Length))).Append("`e[K`n")
         foreach ($entry in ($history | Select-Object -Skip $top -First $page)) {

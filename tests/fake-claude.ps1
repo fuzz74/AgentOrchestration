@@ -1,5 +1,6 @@
 # Stand-in for `claude -p` used by Run-SmokeTest.ps1. It reads the prompt from stdin, looks at the
 # orchestrator-role marker and returns a canned JSON result in the same shape as `claude -p --output-format json`.
+# Planner and worker runs first stream a sub-agent call (Out-SubAgent) for the watch views.
 # Set FAKE_FAIL_ONCE to a task id to make that task's first worker attempt edit a file outside its owns.
 # No param block on purpose: CLI flags land in $args and the piped prompt in $input.
 
@@ -40,10 +41,37 @@ $here = (Get-Location).Path
 $memo =Join-Path ([IO.Path]::GetTempPath()) 'fake-claude'
 New-Item -ItemType Directory -Force -Path $memo | Out-Null
 
+function Out-SubAgent {
+    # The agent hands one question to a sub-agent, the way each CLI streams it. Claude's sub-agent
+    # runs in the background, so the session sends an early result before its last turn.
+    $ask = @{ description = 'Survey the fake repo'; prompt = "List the files in the repo.`nReport what each one holds." }
+    $events = if ($copilot) {
+        @{ type = 'tool.execution_start'; data = @{ toolCallId = 'call-sub'; toolName = 'task'; arguments = $ask + @{ mode = 'sync' } } }
+        @{ type = 'subagent.started'; agentId = 'sub-1'; data = @{ toolCallId = 'call-sub'; agentDescription = $ask.description } }
+        @{ type = 'tool.execution_start'; agentId = 'sub-1'; data = @{ toolCallId = 'call-glob'; toolName = 'glob'; parentToolCallId = 'call-sub'; arguments = @{ pattern = '**/*' } } }
+        @{ type = 'tool.execution_complete'; agentId = 'sub-1'; data = @{ toolCallId = 'call-glob'; parentToolCallId = 'call-sub'; success = $true } }
+        @{ type = 'subagent.completed'; agentId = 'sub-1'; data = @{ toolCallId = 'call-sub' } }
+        @{ type = 'tool.execution_complete'; data = @{ toolCallId = 'call-sub'; success = $true } }
+    }
+    else {
+        @{ type = 'assistant'; message = @{ content = @(@{ type = 'tool_use'; id = 'toolu-sub'; name = 'Agent'; input = $ask + @{ run_in_background = $true } }) } }
+        @{ type = 'user'; message = @{ content = @(@{ type = 'tool_result'; tool_use_id = 'toolu-sub'; content = 'Async agent launched.' }) } }
+        @{ type = 'assistant'; parent_tool_use_id = 'toolu-sub'; message = @{ content = @(@{ type = 'text'; text = 'Listing the files.' }, @{ type = 'tool_use'; id = 'toolu-glob'; name = 'Glob'; input = @{ pattern = '**/*' } }) } }
+        @{ type = 'user'; parent_tool_use_id = 'toolu-sub'; message = @{ content = @(@{ type = 'tool_result'; tool_use_id = 'toolu-glob'; content = 'skeleton.txt' }) } }
+        @{ type = 'result'; subtype = 'success'; is_error = $false; total_cost_usd = 0.005; result = 'Waiting for the sub-agent.' }
+        @{ type = 'assistant'; message = @{ content = @(@{ type = 'text'; text = 'The sub-agent reported back.' }) } }
+    }
+    $events | ForEach-Object { $_ | ConvertTo-Json -Depth 10 -Compress }
+}
+
 function Out-Result($structured, $session = [guid]::NewGuid().ToString()) {
     if ($copilot) {
         $content = if ($structured) { $structured | ConvertTo-Json -Depth 20 -Compress } else { 'ok' }
         @{ type = 'assistant.message'; data = @{ phase = 'final_answer'; content = $content } } | ConvertTo-Json -Depth 20 -Compress
+        # A sub-agent's answer that comes last must not become the agent's result.
+        if ($role -in 'planner', 'worker') {
+            @{ type = 'assistant.message'; agentId = 'sub-1'; data = @{ phase = 'final_answer'; content = 'The repo holds skeleton.txt.' } } | ConvertTo-Json -Compress
+        }
         @{ type = 'result'; sessionId = $session; exitCode = 0 } | ConvertTo-Json -Compress
         exit 0
     }
@@ -76,6 +104,7 @@ switch ($role) {
         } 'fake-bootstrap'
     }
     'planner' {
+        Out-SubAgent
         $check = { param($f) "if (-not (Test-Path '$f')) { Write-Output 'missing $f'; exit 1 }" }
         Out-Result @{
             notes = 'Fake plan for the smoke test.'
@@ -89,6 +118,7 @@ switch ($role) {
         }
     }
     'worker' {
+        Out-SubAgent
         if ($prompt -match '## Your task: (\S+) - ') {
             $id = $Matches[1]
             $dir = if ($prompt -match '- `([^`/]+)/\*\*`') { $Matches[1] } else { '.' }

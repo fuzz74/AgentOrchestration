@@ -7,7 +7,8 @@
 .DESCRIPTION
     Read-only. Run it in a second terminal while Invoke-Orchestrator.ps1 or Plan-Tasks.ps1 runs.
     It reads .orchestrator/tasks.json, state.json, progress.md and the agents' *.events.jsonl
-    logs, and redraws every few seconds. Press q or Ctrl+C to quit; the run is not affected.
+    logs, and redraws every few seconds. Lines from an agent's sub-agents start with
+    ↳ [description]. Press q or Ctrl+C to quit; the run is not affected.
     A screen taller than the window scrolls with the arrow keys, PgUp/PgDn and Home/End, and on
     Windows also with the mouse wheel and a clickable, draggable scrollbar. The mouse takes over
     text selection while the watcher runs (Shift+drag still selects in Windows Terminal); use
@@ -48,12 +49,12 @@ function Update-Feed([string]$File, [string]$WorkDir) {
     # Reads the lines appended since the last call; only whole lines, so a line being written waits.
     $f = $feeds[$File]
     if (-not $f) {
-        $f = @{ Pos = 0L; Calls = 0; Recent = [Collections.Generic.List[string]]::new(); Done = $false; LastAt = (Get-Item $File).LastWriteTime }
+        $f = @{ Pos = 0L; Calls = 0; Recent = [Collections.Generic.List[string]]::new(); Done = $false; SubAgents = @{}; LastAt = (Get-Item $File).LastWriteTime }
         $feeds[$File] = $f
     }
     try { $fs = [IO.FileStream]::new($File, 'Open', 'Read', 'ReadWrite, Delete') } catch { return $f }
     try {
-        if ($fs.Length -lt $f.Pos) { $f.Pos = 0L; $f.Calls = 0; $f.Recent.Clear(); $f.Done = $false }
+        if ($fs.Length -lt $f.Pos) { $f.Pos = 0L; $f.Calls = 0; $f.Recent.Clear(); $f.Done = $false; $f.SubAgents.Clear() }
         $len = [int]($fs.Length - $f.Pos)
         if ($len -le 0) { return $f }
         $buf = [byte[]]::new($len)
@@ -70,21 +71,27 @@ function Update-Feed([string]$File, [string]$WorkDir) {
     foreach ($line in [Text.Encoding]::UTF8.GetString($buf, 0, $end + 1).Split("`n")) {
         if (-not $line.TrimStart().StartsWith('{')) { continue }
         try { $ev = $line | ConvertFrom-Json -AsHashtable } catch { continue }
-        if ($ev.type -eq 'result') { $f.Done = $true; continue }
+        # A session that waits for background sub-agents sends a result after each turn, so the
+        # agent has finished only when nothing follows a result.
+        $f.Done = $ev.type -eq 'result'
+        if ($f.Done) { continue }
+        $sub = Get-SubAgentName $ev $f.SubAgents
+        $tag = if ($sub) { "  ↳ [$sub] " } else { '' }
         if ($ev.type -eq 'tool.execution_start') {
-            $f.Calls++; $f.Recent.Add("$($ev.data.toolName) $($ev.data.arguments.path ?? '')".Trim())
+            $detail = if ($ev.data.toolName -eq 'task') { $ev.data.arguments.description } else { $ev.data.arguments.path }
+            $f.Calls++; $f.Recent.Add("$tag$($ev.data.toolName) $detail".TrimEnd())
             continue
         }
         if ($ev.type -eq 'assistant.message' -and $ev.data.phase -eq 'final_answer') {
-            $f.Recent.Add('» ' + (("$($ev.data.content)".Trim() -split "`r?`n")[0]))
+            $f.Recent.Add("$tag» " + (("$($ev.data.content)".Trim() -split "`r?`n")[0]))
             continue
         }
         if ($ev.type -ne 'assistant') { continue }
         foreach ($b in @($ev.message.content)) {
             if ($b -isnot [Collections.IDictionary]) { continue }
-            if ($b.type -eq 'tool_use') { $f.Calls++; $f.Recent.Add((Format-ToolUse $b $WorkDir)) }
+            if ($b.type -eq 'tool_use') { $f.Calls++; $f.Recent.Add($tag + (Format-ToolUse $b $WorkDir)) }
             elseif ($b.type -eq 'text' -and "$($b.text)".Trim()) {
-                $f.Recent.Add('» ' + (("$($b.text)".Trim() -split "`r?`n")[0]))
+                $f.Recent.Add("$tag» " + (("$($b.text)".Trim() -split "`r?`n")[0]))
             }
         }
     }

@@ -89,6 +89,18 @@ $plannerPrompt = Get-Content (Get-ChildItem (Join-Path $repo '.orchestrator/logs
 $planningRules = (Get-Content (Join-Path $orch 'prompts/planning-rules.md') -Raw).TrimEnd()
 $workerPrompt = Get-Content (Get-ChildItem (Join-Path $repo '.orchestrator/logs/contracts') -Recurse -Filter 'attempt-1-worker.json.prompt.md' | Select-Object -First 1) -Raw
 $foreground = if ($Provider -eq 'Copilot') { 'the `task` tool, in the foreground (`mode: "sync"`)' } else { 'the Agent tool, in the foreground (`run_in_background: false`)' }
+# The fake planner and workers each ask a sub-agent; the watch views mark its activity with its description.
+$conversations = & (Join-Path $orch 'Watch-Conversations.ps1') -RepoPath $repo -Task contracts -Last 500 -Once 6>&1 | Out-String
+$timeline = & (Join-Path $orch 'Watch-AgentTimeline.ps1') -RepoPath $repo -Task contracts -Last 500 -Once 6>&1 | Out-String
+# Without a plan the dashboard shows the latest planner session. It writes to the console, so it runs in its own process.
+$dashboardArgs = @('-NoProfile', '-File', (Join-Path $orch 'Watch-Orchestrator.ps1'), '-Provider', $Provider, '-RepoPath', $repo, '-Plan', (Join-Path $repo 'no-plan.json'), '-Once')
+$dashboard = & (Join-Path $PSHOME ($IsWindows ? 'pwsh.exe' : 'pwsh')) @dashboardArgs | Out-String
+# The same session cut before its last result, as it looks while a background sub-agent still works.
+$plannerEvents = Get-ChildItem (Join-Path $repo '.orchestrator/logs') -Filter 'planner-*-1.json.events.jsonl' | Select-Object -First 1
+$unfinished = Join-Path $repo '.orchestrator/logs/planner-unfinished.json.events.jsonl'
+Get-Content $plannerEvents.FullName | Select-Object -SkipLast 1 | Set-Content $unfinished
+$dashboardUnfinished = & (Join-Path $PSHOME ($IsWindows ? 'pwsh.exe' : 'pwsh')) @dashboardArgs | Out-String
+Remove-Item $unfinished
 $checks = [ordered]@{
     'skeleton fixed and amended'        = (git -C $repo rev-list --count main) -eq '1' -and @('skeleton.txt', 'tool.txt' | Where-Object { $_ -notin (git -C $repo ls-tree -r --name-only main) }).Count -eq 0
     'plan uses skeleton commands'       = $planSettings.setup -like '*skeleton.txt*' -and $planSettings.integrationCheck -like '*tool.txt*'
@@ -96,6 +108,10 @@ $checks = [ordered]@{
     'planner received shared rules'     = $plannerPrompt.Contains($planningRules) -and -not $plannerPrompt.Contains('{{PLANNING_RULES}}')
     'prompts explain sub-agents'        = @($plannerPrompt, $workerPrompt | Where-Object { -not ($_ -replace '\s+', ' ').Contains($foreground) -or $_.Contains('{{SUBAGENTS}}') }).Count -eq 0 -and
         $workerPrompt.Contains('not to edit files') -and -not $plannerPrompt.Contains('not to edit files')
+    'watch views label sub-agents'      = $conversations.Contains('[contracts/worker#1 ↳ Survey the fake repo][REQUEST]') -and
+        $conversations.Contains('[contracts/worker#1 ↳ Survey the fake repo][RESPONSE]') -and
+        $timeline -match '\[TOOL START\] ↳ \[Survey the fake repo\] glob' -and $dashboard -match '\[Survey the fake repo\] glob'
+    'only the last result ends a session' = $dashboard -match 'planner - finished' -and $dashboardUnfinished -match 'planner - working'
     'integration check ran after merge' = @(Get-ChildItem (Join-Path $repo '.orchestrator/logs') -Filter '*-integration-check.log').Count -eq 4
     'orchestrator exit code 0'          = $exit -eq 0
     'duplicate run rejected'            = $duplicateRejected
