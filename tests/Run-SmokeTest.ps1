@@ -83,6 +83,25 @@ try {
         -AllowedTools Read, Glob, Grep -SubAgents -Prompt '<!-- orchestrator-role: planner -->' `
         -ProgressFile $heartbeatLog -ActivityLabel '[heartbeat]' -Activity 'heartbeat'
     $heartbeatOk = (Get-Content $heartbeatLog -Raw -ErrorAction SilentlyContinue) -match '\[heartbeat\] \d+ tool calls, last: '
+    # claude and copilot are native programs that write UTF-8 whatever the console code page. A .cmd that
+    # types a UTF-8 file does the same, unlike the in-process fake-claude.ps1. With the console on code
+    # page 437, as on an English Windows, the agent's events and result must still hold ↳, › and ….
+    $utf8Ok = $true
+    if ($IsWindows) {
+        $nativeFake = New-Item -ItemType Directory -Force (Join-Path $WorkDir 'native-claude')
+        $utf8Text = 'Survey ↳ path › more…'
+        $utf8Events = @(
+            @{ type = 'assistant'; session_id = 'utf8'; message = @{ content = @(@{ type = 'text'; text = $utf8Text }) } }
+            @{ type = 'result'; subtype = 'success'; is_error = $false; session_id = 'utf8'; total_cost_usd = 0; result = $utf8Text; structured_output = @{ summary = $utf8Text } }
+        ) | ForEach-Object { $_ | ConvertTo-Json -Depth 10 -Compress }
+        [IO.File]::WriteAllText((Join-Path $nativeFake 'events.jsonl'), ($utf8Events -join "`n") + "`n", [Text.UTF8Encoding]::new($false))
+        Set-Content (Join-Path $nativeFake 'claude.cmd') '@type "%~dp0events.jsonl"' -Encoding ascii
+        [Console]::OutputEncoding = [Text.Encoding]::GetEncoding(437)
+        $utf8Log = Join-Path $WorkDir 'utf8.json'
+        $utf8Run = Invoke-Agent -Provider Claude -AgentPath (Join-Path $nativeFake 'claude.cmd') -WorkDir $repo -Prompt 'utf8' -LogPath $utf8Log
+        $utf8Ok = $utf8Run.Structured.summary -eq $utf8Text -and $utf8Run.Text -eq $utf8Text -and
+            (Get-Content "$utf8Log.events.jsonl" -Raw -Encoding utf8).Contains($utf8Text)
+    }
 }
 finally {
     Remove-Item Env:FAKE_FAIL_ONCE, Env:FAKE_SHARED, Env:FAKE_NO_STRUCTURED, Env:FAKE_REQUIRE_MODEL, Env:FAKE_REQUIRE_ADD_DIR -ErrorAction SilentlyContinue
@@ -126,6 +145,7 @@ $checks = [ordered]@{
     'reference directory in worker prompt' = (Get-Content (Get-ChildItem (Join-Path $repo '.orchestrator/logs/contracts') -Recurse -Filter 'attempt-1-worker.json.prompt.md' | Select-Object -First 1) -Raw).Contains([IO.Path]::GetFullPath($reference), ($IsWindows ? 'OrdinalIgnoreCase' : 'Ordinal'))
     'long Copilot prompt uses stdin'    = $longPromptOk
     'agents write heartbeat lines'      = $heartbeatOk
+    'agent output read as UTF-8'        = $utf8Ok
     'all tasks done'                    = @($state.tasks.Values | Where-Object { $_.status -ne 'done' }).Count -eq 0
     'all four files on orch/integration' = @('contracts/contracts.txt', 'a/feature-a.txt', 'b/feature-b.txt', 'app/wire-up.txt' | Where-Object { $_ -notin $files }).Count -eq 0
     'owns violation not merged'         = 'outside-owns.txt' -notin $files
