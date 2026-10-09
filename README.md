@@ -672,9 +672,9 @@ model arguments or an existing plan specify another model. Claude retains its mo
   worker's or the planner's cost, because each starts with a fresh context. `state.json`
   records Claude's client-side USD estimate, sub-agents included; Copilot does not provide
   this value (shown as zero).
-- **Large Copilot prompts on Windows**: the CLI requires `-p` for a reliable headless run.
-  The entire task prompt is passed as a command argument, so very large specs or diffs can
-  exceed Windows command-line limits. Keep specs and reviewer diffs concise.
+- **Large diffs**: the reviewer gets the list of changed files, but at most 80,000
+  characters of the diff; for the rest it has to read the files. Prompts reach both CLIs on
+  stdin, so their size is not limited by the Windows command line.
 - **Model choice**: Haiku workers do fine on small, well-specified tasks. They are more
   likely to skip the structured result, and the nudge covers that. Use Sonnet or better for
   real work and for the reviewer.
