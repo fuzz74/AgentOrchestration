@@ -246,6 +246,7 @@ function Format-TimelineEntry($Entry) {
 
 $history = [Collections.Generic.List[object]]::new()
 foreach ($entry in @(Get-NewTimeline | Select-Object -Last $Last)) { $history.Add($entry) }
+try { [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch { }   # ↳ is not in the OEM code pages
 if ($Once) {
     Write-Host "Agent timeline: $($paths.Repo)$(if ($Task) { " / $Task" })"
     foreach ($entry in $history) { Write-Host (Format-TimelineEntry $entry) }

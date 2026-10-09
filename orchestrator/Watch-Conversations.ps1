@@ -411,6 +411,7 @@ function Invoke-ConversationMouse($Event) {
 }
 
 $initial = @(Get-EventFiles | ForEach-Object { Read-Conversation $_ })
+try { [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch { }   # ↳ is not in the OEM code pages
 if ($Once) {
     Write-Host "Conversations: $($paths.Repo)$(if ($Task) { " (task: $Task)" })" -ForegroundColor Green
     foreach ($message in ($initial | Sort-Object Time -Stable | Select-Object -Last $Last)) { Show-Message $message }
