@@ -9,7 +9,7 @@ $script:CopilotModel = 'gpt-6-sol'
 # Seconds between the summary lines of Invoke-Agent -Activity heartbeat.
 $script:HeartbeatSeconds = 60
 # claude.ai connectors hidden from every Claude agent. They stay enabled in interactive sessions.
-$script:ClaudeDeniedMcpServers = @('mcp__claude_ai_Spotify', 'mcp__claude_ai_Strava')
+$script:ClaudeDeniedMcpServers = @('mcp__claude_ai_Spotify', 'mcp__claude_ai_Strava', 'mcp__claude_ai_Claude_Docs')
 
 $script:DefaultSettings = [ordered]@{
     model             = 'sonnet'
@@ -369,8 +369,20 @@ function Test-OwnsOverlap {
 
 #region git and shell helpers
 
+function Use-Utf8Output {
+    # git, claude and copilot write UTF-8, but PowerShell decodes a native command's output with
+    # [Console]::OutputEncoding, the OEM code page unless set (437 on an English Windows): ↳, › and …
+    # came back as Γå│, ΓÇ║ and ΓÇª. The setting is process-wide and read when a native command starts,
+    # so it is set and never restored: the thread jobs of a run share it, and a restore in one could
+    # land between another's set and its start.
+    if ([Console]::OutputEncoding.CodePage -ne 65001) {
+        try { [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false) } catch { }
+    }
+}
+
 function Invoke-Git {
     param([string]$Dir, [string[]]$Arguments)
+    Use-Utf8Output
     $out = & git -c core.quotepath=false -C $Dir @Arguments 2>&1 | ForEach-Object { "$_" }
     [pscustomobject]@{ Exit = $LASTEXITCODE; Output = ($out -join "`n").Trim() }
 }
@@ -744,6 +756,7 @@ function Invoke-Agent {
     $other = [Collections.Generic.List[string]]::new()
     Push-Location $WorkDir
     try {
+        Use-Utf8Output
         $Prompt | & $AgentPath @cliArgs 2> $errPath | ForEach-Object {
             $line = "$_"
             if ($events) { $events.WriteLine($line); $events.Flush() }
