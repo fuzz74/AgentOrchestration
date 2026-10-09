@@ -84,6 +84,7 @@ Orchestrator commands in the terminal steps assume the current folder is
    - a forced edit outside `owns`, with a retry
    - a run with no structured result
    - a merge conflict and a resolver run
+   - sub-agent calls by the planner and the workers, and their labels in the watch views
    - finishing a run: an unfinished run blocks, a finished one is archived, and planning the
      next feature archives the earlier run by itself
 
@@ -165,9 +166,11 @@ Pick one:
   .\orchestrator\Plan-Tasks.ps1 -Provider Copilot -Spec C:\src\myapp\.orchestrator\spec.md -RepoPath C:\src\myapp
   ```
   While it works, it prints one line per tool call of the skeleton and planner agents (for
-  example `[planner] Read src/app.csproj`), so you can see it is making progress. Planning a
-  large spec takes several minutes. At the end it prints the planner's notes (assumptions,
-  open questions) and the waves of parallel tasks.
+  example `[planner] Read src/app.csproj`), so you can see it is making progress. Calls by
+  the planner's sub-agents carry their description, for example
+  `[planner] ↳ [Survey the render code] Glob src/render/**`. Planning a large spec takes
+  several minutes. At the end it prints the planner's notes (assumptions, open questions)
+  and the waves of parallel tasks.
   For an existing repo without `project.json`, add `-Setup 'npm ci'` and
   `-IntegrationCheck 'npm run build && npm test'` (your own commands).
 
@@ -204,7 +207,8 @@ Where: **terminal**. Leave it open until the run ends.
   It redraws every 2 seconds and shows:
   - a progress bar, task counts and cost so far
   - how many agents are working, and on which tasks
-  - each running agent's phase and its latest tool calls
+  - each running agent's phase and its latest tool calls; lines from its sub-agents start
+    with `↳ [description]`
   - live headless Claude or Copilot CLI process IDs on Windows, including on a running task
     line when the CLI's `orch:<task-id>` name matches; the process list is system-wide and
     names are not verified against this repository (resumed Copilot sessions may lack a name)
@@ -220,6 +224,8 @@ Where: **terminal**. Leave it open until the run ends.
   ```
   Requests show the first 12 lines and a clickable Open control for the full prompt;
   the latest request also has a pinned Open full request link at the top of the live view.
+  An agent's requests to its sub-agents, and the sub-agents' messages, are labeled with the
+  agent and the sub-agent's description, for example `[contracts/worker#1 ↳ Survey billing module]`.
   Request and response headings are not links. The full prompt opens in a scrollable in-terminal popup.
   Use the wheel, the popup scrollbar (click or drag), or arrow/PgUp/PgDn keys to scroll;
   Esc closes the popup; its [X] control is also clickable. `-NoMouse` preserves normal terminal selection,
@@ -233,7 +239,8 @@ Where: **terminal**. Leave it open until the run ends.
   .\orchestrator\Watch-AgentTimeline.ps1 -RepoPath C:\src\myapp
   ```
   It combines run decisions, saved prompts, model calls where logged, agent commentary,
-  tool starts/completions and review results. Use `-Task runtime-process` to focus on one task or `-Once` to
+  tool starts/completions and review results; entries from sub-agents start with
+  `↳ [description]`. Use `-Task runtime-process` to focus on one task or `-Once` to
   print a snapshot; arrows, PgUp/PgDn, Home/End and Q control the live view. Tool output
   and private reasoning are not shown. The original conversation watcher remains the
   place to read full agent responses and request text.
@@ -450,10 +457,10 @@ calls `Initialize-Project.ps1`:
    and `-IntegrationCheck`.
 
 Then `Plan-Tasks.ps1` runs one planner agent (`--model opus` by default) in the target repo.
-The planner has only `Read`, `Glob` and `Grep`, so it can explore the code but not change
-it. Its prompt is [prompts/planner.md](orchestrator/prompts/planner.md). The output must
-match [plan-output.schema.json](orchestrator/schemas/plan-output.schema.json)
-(`--json-schema`).
+The planner has only `Read`, `Glob` and `Grep`, plus sub-agents with the same tools, so it
+can explore the code but not change it. Its prompt is
+[prompts/planner.md](orchestrator/prompts/planner.md). The output must match
+[plan-output.schema.json](orchestrator/schemas/plan-output.schema.json) (`--json-schema`).
 
 Before the planner runs, `Plan-Tasks.ps1` looks for an earlier run (`state.json`) in
 `.orchestrator`. A finished one is archived to `<repo>.runs` (see
@@ -601,8 +608,8 @@ implementation or acceptance check needs repair.
 | Agent | Tools | Permission mode |
 | --- | --- | --- |
 | Bootstrap | worker defaults | `acceptEdits` |
-| Planner | `Read`, `Glob`, `Grep` only (`--tools`) | `dontAsk` |
-| Worker | `allowedTools` setting | `permissionMode` setting (default `acceptEdits`) |
+| Planner | `Read`, `Glob`, `Grep` and `Task` (sub-agents) only (`--tools`) | `dontAsk` |
+| Worker | `allowedTools` setting, plus `Task` (sub-agents) | `permissionMode` setting (default `acceptEdits`) |
 | Resolver | worker tools + `git add/status/diff` | `acceptEdits` |
 | Reviewer | `Read`, `Glob`, `Grep` only | `dontAsk` |
 
@@ -613,8 +620,9 @@ connectors, so agents never see those tools (the list is `$script:ClaudeDeniedMc
 `Orchestrator.psm1`; interactive sessions keep them). Copilot calls use
 `--allow-all-tools` with `--available-tools` mapped from the requested tools (`Read` to
 `view`, `Glob` to `glob`, `Grep` to `rg`, `Edit` and `Write` to `apply_patch`, `Bash` and
-`PowerShell` to `powershell` and its `read_`, `stop_` and `list_powershell` companions), so
-that filter is what keeps Copilot's planner and reviewer read-only; its
+`PowerShell` to `powershell` and its `read_`, `stop_` and `list_powershell` companions,
+`Task` to `task`, `read_agent` and `list_agents`), so that filter is what keeps Copilot's
+planner and reviewer read-only; its
 CLI has no equivalent to Claude's USD cap or command-scoped `Bash(...)` rules (those rules
 are rejected for Copilot). Copilot's JSON results are checked against the local schemas;
 Claude uses its native `--json-schema` output. Every Copilot run (bootstrap, planner,
@@ -624,6 +632,16 @@ model arguments or an existing plan specify another model. Claude retains its mo
 - Workers run with `Bash`/`PowerShell` allowed by default, so they can run any command as
   you. Run the orchestrator only on repos you trust, or narrow `allowedTools` (for example
   `Bash(npm *)`) or use `permissionMode: auto`.
+- Workers and the planner can hand independent questions that need a lot of reading to
+  sub-agents ([prompts/subagents.md](orchestrator/prompts/subagents.md)), started in the
+  foreground. A sub-agent has no more tools than its agent: `dontAsk` binds Claude's
+  sub-agents too, and a Copilot sub-agent gets its agent's `--available-tools` (tested; see
+  [docs/copilot-cli-notes.md](docs/copilot-cli-notes.md)). So the planner's sub-agents can
+  only read. A worker's could edit files, so its prompt says to tell them not to. The
+  reviewer (one small diff per task, where sub-agents would only add cost), the bootstrap
+  and the resolver (small, focused jobs) are not given sub-agents, though Claude sessions
+  without `--tools` (bootstrap, resolver) still see the tool
+  ([docs/claude-cli-notes.md](docs/claude-cli-notes.md)).
 - `claude -p` loads the project's `CLAUDE.md`, hooks, skills and `.mcp.json` in every
   worktree and shows no trust prompt. That is useful for conventions, and a reason to
   run only trusted repos.
@@ -644,11 +662,16 @@ model arguments or an existing plan specify another model. Claude retains its mo
   behaviour the other relies on. `integrationCheck` and good contracts tasks are the defence.
 - **One integration branch** that is never rebased onto a moving base branch. Merge or
   rebase it yourself if `main` moves during a long run.
-- **No agent-to-agent messaging**: context flows only through code, summaries and notes.
-  That is deliberate, because it keeps every worker's context small.
+- **No agent-to-agent messaging**: tasks share context only through code, summaries and
+  notes. That is deliberate, because it keeps every worker's context small. Within its own
+  session, a worker or the planner can hand independent questions to sub-agents and work
+  from their summaries. The prompts don't ask for follow-up messages to sub-agents, and
+  Copilot's `write_agent`, which sends them, is not given.
 - **Cost**: each task costs at least one worker call and one review call. Set
-  `review: false` for trivial tasks or use a cheaper `reviewModel`. `state.json` records
-  Claude's client-side USD estimate; Copilot does not provide this value (shown as zero).
+  `review: false` for trivial tasks or use a cheaper `reviewModel`. Sub-agents add to a
+  worker's or the planner's cost, because each starts with a fresh context. `state.json`
+  records Claude's client-side USD estimate, sub-agents included; Copilot does not provide
+  this value (shown as zero).
 - **Large Copilot prompts on Windows**: the CLI requires `-p` for a reliable headless run.
   The entire task prompt is passed as a command argument, so very large specs or diffs can
   exceed Windows command-line limits. Keep specs and reviewer diffs concise.

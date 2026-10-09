@@ -38,7 +38,51 @@ read-only.
 - Since 2026-10-03: Read to `view`, Glob to `glob`, Grep to `rg`, Edit and Write to
   `apply_patch`, Bash and PowerShell to `powershell` plus `read_powershell`,
   `stop_powershell` and `list_powershell`.
-- Deliberately not exposed: sub-agents, workflows, web, GitHub and `session_store_sql`.
+- Since 2026-10-09: Task (sub-agents) to `task`, `read_agent` and `list_agents`, for workers
+  and the planner only.
+- Deliberately not exposed: `write_agent` (follow-up messages to a sub-agent; add it only if
+  a test shows sub-agents need them), workflows, web, GitHub and `session_store_sql`.
+
+## Sub-agents
+
+Checked on 2026-10-09 with CLI 1.0.91, and again with 1.0.95.
+
+- **A sub-agent gets its parent's tools.** A session with
+  `--available-tools=view,glob,rg,task,read_agent,list_agents` and `--allow-all-tools` was
+  told to start a general-purpose sub-agent that writes a file. The sub-agent listed only
+  those six tools and wrote nothing. The process log showed the same six tools in every model
+  call, including those of the sub-agents it started in turn. So the planner's sub-agents
+  stay read-only, and both workers and the planner get sub-agents.
+- Nesting stops at depth 4 ("Maximum sub-agent depth of 4 reached").
+- The `task` tool takes `description`, `prompt`, `agent_type`, `name` and `mode`. Calls
+  without `mode` ran `sync`. A `general-purpose` sub-agent runs on the session's model
+  (`gpt-6-sol`); `task` and `explore` sub-agents run on `gpt-5.6-luna`, set by their agent
+  definition, although the orchestrator pins `--model gpt-6-sol`. In a real worker test the
+  model chose `explore` by itself.
+- Copilot's own instructions tell the model to delegate only work that needs a separate
+  context, not work it can finish in five or fewer tool calls, and to use background mode only
+  while it does independent work. The worker and planner prompts ask for `mode: "sync"`.
+
+To check again after an update, ask such a session for a general-purpose sub-agent that writes
+a file, with `--log-level all --log-dir <dir>`, and read `copilotToolsFingerprint.tools` in
+the process log for every model call.
+
+### Sub-agent events in the stream
+
+- The agent's call is a `tool.execution_start` with `data.toolName` `task` and the arguments
+  above in `data.arguments`.
+- `subagent.started` follows, with a top-level `agentId` (the new sub-agent),
+  `data.toolCallId` (the call), `data.agentDescription`, `data.agentDisplayName` (the
+  `name`), `data.agentType`, `data.model` and `data.executionMode`. `subagent.configured` and
+  `subagent.completed` (with totals) carry the same `agentId`.
+- Every event of a sub-agent has that top-level `agentId`: messages, deltas, model calls and
+  tool calls. Its tool events also have `data.parentToolCallId`. The agent's own events have
+  no `agentId`.
+- A sub-agent's answer is an `assistant.message` with `phase: final_answer`, like the agent's
+  own. `Invoke-Agent` ignores those that carry an `agentId`, so a sub-agent's answer cannot
+  become the agent's result.
+- `session.background_tasks_changed` events (with empty `data`) come throughout, also for
+  `sync` sub-agents. There was one `result` event, at the end.
 
 ## Where tool lists appear in logs
 
@@ -53,3 +97,6 @@ read-only.
 `%LOCALAPPDATA%\Microsoft\WinGet\Packages\GitHub.Copilot_Microsoft.Winget.Source_8wekyb3d8bbwe\copilot.exe`.
 Inside the VS Code extension host it was not on PATH. The orchestrator then resolves VS
 Code's `copilot.bat` shim, which prompts interactively when it cannot find the CLI.
+
+The CLI updates itself: a run downloads the new version for the next start. On 2026-10-09 it
+went from 1.0.91 to 1.0.95 in one afternoon, so note the version with each finding.
