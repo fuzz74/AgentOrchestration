@@ -17,9 +17,24 @@ $prompt = @($input) -join "`n"
 $role = if ($prompt -match 'orchestrator-role: (\w+)') { $Matches[1] } else { 'unknown' }
 if ($copilot -and ($toolFilter = @($args) -like '--available-tools=*')) {
     # With --allow-all-tools, this filter is all that keeps the planner and reviewer read-only.
-    $expected = if ($role -in 'planner', 'reviewer') { 'view,glob,rg' }
-                else { 'view,apply_patch,glob,rg,powershell,read_powershell,stop_powershell,list_powershell' }
+    # Workers and the planner also get sub-agents, which inherit the filter.
+    $edit = 'view,apply_patch,glob,rg,powershell,read_powershell,stop_powershell,list_powershell'
+    $expected = switch ($role) {
+        'reviewer' { 'view,glob,rg' }
+        'planner' { 'view,glob,rg,task,read_agent,list_agents' }
+        { $_ -in 'bootstrap', 'resolver' } { $edit }
+        default { "$edit,task,read_agent,list_agents" }   # a worker, or the nudge that resumes one
+    }
     if ($toolFilter -ne "--available-tools=$expected") { throw "Expected --available-tools=$expected for $role, got $toolFilter" }
+}
+if (-not $copilot -and $role -ne 'unknown') {
+    # Only workers and the planner get sub-agents (Task).
+    $allowed = @(if (($i = [array]::IndexOf($args, '--allowedTools')) -ge 0) { $args[$i + 1] -split ',' })
+    $tools = @(if (($i = [array]::IndexOf($args, '--tools')) -ge 0) { $args[$i + 1] -split ',' })
+    $want = $role -in 'planner', 'worker'
+    if (($allowed -contains 'Task') -ne $want -or ($tools.Count -and ($tools -contains 'Task') -ne $want)) {
+        throw "Expected Task $(if ($want) { 'in' } else { 'not in' }) the tools for $role, got --allowedTools $($allowed -join ',') --tools $($tools -join ',')"
+    }
 }
 $here = (Get-Location).Path
 $memo =Join-Path ([IO.Path]::GetTempPath()) 'fake-claude'

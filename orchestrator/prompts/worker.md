@@ -20,6 +20,7 @@ without touching other files, stop and report `blocked` with the reason.
 
 These directories are outside your worktree. Do not edit files in them.
 
+{{SUBAGENTS}}
 ## How your work is checked
 
 1. The orchestrator commits everything you leave in the worktree. Do not commit, push,

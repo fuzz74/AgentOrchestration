@@ -602,6 +602,18 @@ function Format-Template {
     $text
 }
 
+function Format-SubAgents {
+    # The {{SUBAGENTS}} section of the worker and planner prompts. The providers name the tool and
+    # its foreground setting differently, and only a worker's sub-agents could edit files.
+    param([ValidateSet('Claude', 'Copilot')][string]$Provider, [ValidateSet('worker', 'planner')][string]$Role)
+    $copilot = $Provider -eq 'Copilot'
+    Format-Template 'subagents.md' @{
+        TOOL       = $copilot ? 'the `task` tool' : 'the Agent tool'
+        FOREGROUND = $copilot ? '`mode: "sync"`' : '`run_in_background: false`'
+        EDITS      = $Role -eq 'worker' ? "Sub-agents investigate; make all code changes yourself. They share your worktree, so tell each one not to edit files.`n`n" : ''
+    }
+}
+
 function Format-ToolUse {
     # One short line describing a tool call from the event stream, e.g. "Read src/app.cs".
     param([Collections.IDictionary]$Block, [string]$WorkDir)
@@ -629,17 +641,51 @@ function Format-ToolUse {
     if ($detail) { "$($Block.name) $detail" } else { $Block.name }
 }
 
+function Get-SubAgentName {
+    # The short name of the sub-agent an event came from, or nothing for the agent's own events.
+    # Pass every event of one stream in order, with one $Names table per stream: it learns each
+    # sub-agent's description from the event that starts it.
+    # Claude: a sub-agent's events carry parent_tool_use_id, the id of the Task (Agent) call.
+    # Copilot: subagent.started names the agentId that the sub-agent's events carry.
+    param([Collections.IDictionary]$Event, [Collections.IDictionary]$Names)
+    if ($Event.type -eq 'subagent.started') { $Names[$Event.agentId] = $Event.data.agentDescription }
+    elseif ($Event.type -eq 'assistant') {
+        foreach ($b in @($Event.message.content)) {
+            if ($b -is [Collections.IDictionary] -and $b.type -eq 'tool_use' -and $b.name -match '^(Task|Agent)$') { $Names[$b.id] = $b.input.description }
+        }
+    }
+    $key = if ($Event.parent_tool_use_id) { $Event.parent_tool_use_id } else { $Event.agentId }
+    if ($key) { Format-SubAgentName ($Names[$key] ?? $Event.task_description) }
+}
+
+function Format-SubAgentName {
+    # A sub-agent's description, cut to 32 characters so the lines that carry it still fit the views.
+    param([string]$Description)
+    $name = ($Description -replace '\s+', ' ').Trim()
+    if (-not $name) { return 'sub-agent' }
+    if ($name.Length -le 32) { return $name }
+    $cut = $name.LastIndexOf(' ', 31)
+    if ($cut -lt 20) { $cut = 31 }   # end at a word, unless that drops too much
+    $name.Substring(0, $cut).TrimEnd() + '…'
+}
+
 function Invoke-Agent {
     # One non-interactive claude call. The prompt goes in on stdin. Output is read as a stream of JSON
     # events (kept in <LogPath>.events.jsonl); the final result event is logged and parsed.
     # Activity: 'each' logs every tool call, 'heartbeat' logs a summary at most once a minute.
+    # -SubAgents adds the sub-agent tool (Task) to the tool lists that are given.
     param(
         [ValidateSet('Claude', 'Copilot')][string]$Provider = 'Claude', [string]$AgentPath, [string]$WorkDir, [string]$Prompt, [string]$Schema,
-        [string]$Model, [string]$Effort, [string]$PermissionMode, [string[]]$AllowedTools, [string[]]$Tools,
+        [string]$Model, [string]$Effort, [string]$PermissionMode, [string[]]$AllowedTools, [string[]]$Tools, [switch]$SubAgents,
         [double]$MaxBudgetUsd, [string]$ResumeSessionId, [string]$Name, [string]$LogPath, [string[]]$AdditionalDirectories,
         [string]$ProgressFile, [string]$StopFile, [string]$ActivityLabel, [ValidateSet('none', 'each', 'heartbeat')][string]$Activity = 'none'
     )
     $Model = Resolve-AgentModel -Provider $Provider -Model $Model
+    if ($SubAgents) {
+        # Only a list that is given: an empty one sets no filter, so the tool is there already.
+        if ($AllowedTools -and $AllowedTools -notcontains 'Task') { $AllowedTools += 'Task' }
+        if ($Tools -and $Tools -notcontains 'Task') { $Tools += 'Task' }
+    }
     $cliArgs = [Collections.Generic.List[string]]::new()
     foreach ($directory in $AdditionalDirectories) { $cliArgs.AddRange([string[]]@('--add-dir', $directory)) }
     if ($Provider -eq 'Claude') {
@@ -674,6 +720,8 @@ function Invoke-Agent {
                     '^(Edit|Write)$' { 'apply_patch'; break }
                     # A command that outlives its wait moves to the background; the other three read and stop it.
                     '^(Bash|PowerShell)$' { 'powershell', 'read_powershell', 'stop_powershell', 'list_powershell'; break }
+                    # Start a sub-agent, read a background one's result, list them. No write_agent (follow-ups).
+                    '^Task$' { 'task', 'read_agent', 'list_agents'; break }
                     default { throw "Copilot cannot enforce tool rule '$tool'. Use whole-tool names in allowedTools." }
                 }
             }
@@ -688,6 +736,7 @@ function Invoke-Agent {
     $events = if ($LogPath) { [IO.StreamWriter]::new("$LogPath.events.jsonl", $false, [Text.UTF8Encoding]::new($false)) }
     $label = if ($ActivityLabel) { "$ActivityLabel " } else { '' }
     $act = @{ Calls = 0; Last = $null; Reported = 0; Next = (Get-Date).AddSeconds(60) }
+    $subAgentNames = @{}
     $parsed = $null
     $copilotText = $null
     $other = [Collections.Generic.List[string]]::new()
@@ -699,11 +748,15 @@ function Invoke-Agent {
             $ev = $null
             if ($line.TrimStart().StartsWith('{')) { try { $ev = $line | ConvertFrom-Json -AsHashtable } catch { } }
             if (-not $ev) { if ($line.Trim()) { $other.Add($line) }; return }
+            # A session that waits for background sub-agents sends a result after each turn; the last one counts.
             if ($ev.type -eq 'result') { $parsed = $ev; return }
+            $sub = if ($Activity -ne 'none') { Get-SubAgentName $ev $subAgentNames }
+            $tag = if ($sub) { "↳ [$sub] " } else { '' }
             if ($Provider -eq 'Copilot') {
-                if ($ev.type -eq 'assistant.message' -and $ev.data.phase -eq 'final_answer') { $copilotText = $ev.data.content }
+                # A sub-agent's answer carries its agentId; only the agent's own answer is the result.
+                if ($ev.type -eq 'assistant.message' -and $ev.data.phase -eq 'final_answer' -and -not $ev.agentId) { $copilotText = $ev.data.content }
                 if ($ev.type -eq 'tool.execution_start' -and $Activity -ne 'none') {
-                    $act.Calls++; $act.Last = "tool: $($ev.data.toolName)"
+                    $act.Calls++; $act.Last = "${tag}tool: $($ev.data.toolName)$(if ($ev.data.toolName -eq 'task') { " $($ev.data.arguments.description)" })"
                     if ($Activity -eq 'each') { Write-OrchLog $ProgressFile "$label$($act.Last)" }
                 }
                 return
@@ -712,7 +765,7 @@ function Invoke-Agent {
             foreach ($block in @($ev.message.content)) {
                 if ($block -isnot [Collections.IDictionary] -or $block.type -ne 'tool_use') { continue }
                 $act.Calls++
-                $act.Last = Format-ToolUse $block $WorkDir
+                $act.Last = $tag + (Format-ToolUse $block $WorkDir)
                 if ($Activity -eq 'each') { Write-OrchLog $ProgressFile "$label$($act.Last)" }
             }
             if ($Activity -eq 'heartbeat' -and $act.Calls -gt $act.Reported -and (Get-Date) -ge $act.Next) {
@@ -767,7 +820,7 @@ function Invoke-Agent {
         $script:InNudge = $true
         try {
             $nudge = Invoke-Agent -Provider $Provider -AgentPath $AgentPath -WorkDir $WorkDir -Schema $Schema -Model $Model -Effort $Effort `
-                -PermissionMode $PermissionMode -AllowedTools $AllowedTools -Tools $Tools -MaxBudgetUsd $MaxBudgetUsd -AdditionalDirectories $AdditionalDirectories `
+                -PermissionMode $PermissionMode -AllowedTools $AllowedTools -Tools $Tools -SubAgents:$SubAgents -MaxBudgetUsd $MaxBudgetUsd -AdditionalDirectories $AdditionalDirectories `
                 -ResumeSessionId $r.SessionId -Name $Name -LogPath ($LogPath ? "$LogPath.nudge.json" : $null) `
                 -ProgressFile $ProgressFile -StopFile $StopFile -ActivityLabel $ActivityLabel -Activity $Activity `
                 -Prompt $(if ($Provider -eq 'Claude') { 'Your work is finished. Do not do any more work. Report your result now by calling the StructuredOutput tool with the required fields.' } else { "Your work is finished. Do not do any more work. Your previous JSON did not match the schema: $schemaError. Return the corrected JSON object now." })
@@ -923,6 +976,7 @@ function Invoke-TaskPipeline {
                         TASK_ID = $Ctx.Id; TITLE = $Ctx.Title; PROMPT = $Ctx.Prompt; BRANCH = $Ctx.Branch
                         OWNS = (Format-Owns $Ctx.Owns $Ctx.Shared); ACCEPTANCE = ($Ctx.Acceptance ?? '(none - explain in your summary how you checked the work)')
                         ADDITIONAL_DIRECTORIES = $(if ($Ctx.AdditionalDirectories.Count) { ($Ctx.AdditionalDirectories | ForEach-Object { "- ``$_``" }) -join "`n" } else { '(none)' })
+                        SUBAGENTS = (Format-SubAgents $Ctx.Provider 'worker')
                         DEPENDENCIES = $Ctx.DepContext; SPEC = ($Ctx.SpecText ?? '(no spec file)'); FEEDBACK = $fb
                     }
                     $resume = $null
@@ -930,7 +984,7 @@ function Invoke-TaskPipeline {
                 & $log "attempt $attempt/$($limit): worker started ($($Ctx.Model))"
                 $workerRuns++
                 $w = Invoke-Agent -Provider $Ctx.Provider -AgentPath $Ctx.AgentPath -WorkDir $Ctx.Worktree -Prompt $prompt -Schema 'worker-result.schema.json' `
-                    -Model $Ctx.Model -Effort $Ctx.Effort -PermissionMode $Ctx.PermissionMode -AllowedTools $Ctx.AllowedTools -AdditionalDirectories $Ctx.AdditionalDirectories `
+                    -Model $Ctx.Model -Effort $Ctx.Effort -PermissionMode $Ctx.PermissionMode -AllowedTools $Ctx.AllowedTools -SubAgents -AdditionalDirectories $Ctx.AdditionalDirectories `
                     -MaxBudgetUsd $Ctx.MaxBudgetUsd -ResumeSessionId $resume -Name "orch:$($Ctx.Id)" `
                     -LogPath (Join-Path $Ctx.LogDir "attempt-$attempt-worker.json") `
                     -ProgressFile $Ctx.ProgressFile -StopFile $Ctx.StopFile -ActivityLabel "[$($Ctx.Id)] worker:" -Activity 'heartbeat'

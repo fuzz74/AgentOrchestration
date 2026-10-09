@@ -8,6 +8,7 @@ First explore the repository (Read, Glob, Grep) so the plan fits the code that e
 the language, the test runner, the folder layout and the conventions. Do not plan work
 that is already done.
 
+{{SUBAGENTS}}
 {{PLANNING_RULES}}
 
 Put assumptions, open questions and risks in `notes`. List the globs for `settings.shared`

@@ -87,11 +87,15 @@ $state = Get-Content (Join-Path $repo '.orchestrator/state.json') -Raw | Convert
 $planSettings = (Get-Content $planFile -Raw | ConvertFrom-Json).settings
 $plannerPrompt = Get-Content (Get-ChildItem (Join-Path $repo '.orchestrator/logs') -Filter 'planner-*-1.json.prompt.md' | Select-Object -First 1) -Raw
 $planningRules = (Get-Content (Join-Path $orch 'prompts/planning-rules.md') -Raw).TrimEnd()
+$workerPrompt = Get-Content (Get-ChildItem (Join-Path $repo '.orchestrator/logs/contracts') -Recurse -Filter 'attempt-1-worker.json.prompt.md' | Select-Object -First 1) -Raw
+$foreground = if ($Provider -eq 'Copilot') { 'the `task` tool, in the foreground (`mode: "sync"`)' } else { 'the Agent tool, in the foreground (`run_in_background: false`)' }
 $checks = [ordered]@{
     'skeleton fixed and amended'        = (git -C $repo rev-list --count main) -eq '1' -and @('skeleton.txt', 'tool.txt' | Where-Object { $_ -notin (git -C $repo ls-tree -r --name-only main) }).Count -eq 0
     'plan uses skeleton commands'       = $planSettings.setup -like '*skeleton.txt*' -and $planSettings.integrationCheck -like '*tool.txt*'
     'plan uses planner shared files'    = $plannerShared -eq 'registry.txt'
     'planner received shared rules'     = $plannerPrompt.Contains($planningRules) -and -not $plannerPrompt.Contains('{{PLANNING_RULES}}')
+    'prompts explain sub-agents'        = @($plannerPrompt, $workerPrompt | Where-Object { -not ($_ -replace '\s+', ' ').Contains($foreground) -or $_.Contains('{{SUBAGENTS}}') }).Count -eq 0 -and
+        $workerPrompt.Contains('not to edit files') -and -not $plannerPrompt.Contains('not to edit files')
     'integration check ran after merge' = @(Get-ChildItem (Join-Path $repo '.orchestrator/logs') -Filter '*-integration-check.log').Count -eq 4
     'orchestrator exit code 0'          = $exit -eq 0
     'duplicate run rejected'            = $duplicateRejected

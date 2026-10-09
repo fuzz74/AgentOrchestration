@@ -82,13 +82,13 @@ else {
 $specText = Get-Content $specFull -Raw
 
 $planningRules = Get-Content (Join-Path $PSScriptRoot 'prompts/planning-rules.md') -Raw
-$prompt = Format-Template 'planner.md' @{ SPEC = $specText; PLANNING_RULES = $planningRules.TrimEnd() }
+$prompt = Format-Template 'planner.md' @{ SPEC = $specText; PLANNING_RULES = $planningRules.TrimEnd(); SUBAGENTS = (Format-SubAgents $Provider 'planner') }
 $logBase = Join-Path $paths.LogDir ("planner-{0}" -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
 Write-OrchLog $paths.ProgressFile "Planning from $specRel with $Model"
 
 $call = @{
     Provider = $Provider; AgentPath = $agent; WorkDir = $paths.Repo; Schema = 'plan-output.schema.json'; Model = $Model
-    Effort = $Effort; PermissionMode = 'dontAsk'; Tools = @('Read', 'Glob', 'Grep'); AllowedTools = @('Read', 'Glob', 'Grep')
+    Effort = $Effort; PermissionMode = 'dontAsk'; Tools = @('Read', 'Glob', 'Grep'); AllowedTools = @('Read', 'Glob', 'Grep'); SubAgents = $true
     MaxBudgetUsd = $MaxBudgetUsd; Name = 'orch:planner'
     ProgressFile = $paths.ProgressFile; ActivityLabel = '[planner]'; Activity = 'each'
 }
