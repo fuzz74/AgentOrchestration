@@ -6,6 +6,8 @@
 $script:PromptDir = Join-Path $PSScriptRoot 'prompts'
 $script:SchemaDir = Join-Path $PSScriptRoot 'schemas'
 $script:CopilotModel = 'gpt-6-sol'
+# Seconds between the summary lines of Invoke-Agent -Activity heartbeat.
+$script:HeartbeatSeconds = 60
 # claude.ai connectors hidden from every Claude agent. They stay enabled in interactive sessions.
 $script:ClaudeDeniedMcpServers = @('mcp__claude_ai_Spotify', 'mcp__claude_ai_Strava')
 
@@ -735,7 +737,7 @@ function Invoke-Agent {
     $errPath = if ($LogPath) { "$LogPath.stderr" } else { [IO.Path]::GetTempFileName() }
     $events = if ($LogPath) { [IO.StreamWriter]::new("$LogPath.events.jsonl", $false, [Text.UTF8Encoding]::new($false)) }
     $label = if ($ActivityLabel) { "$ActivityLabel " } else { '' }
-    $act = @{ Calls = 0; Last = $null; Reported = 0; Next = (Get-Date).AddSeconds(60) }
+    $act = @{ Calls = 0; Last = $null; Reported = 0; Next = (Get-Date).AddSeconds($script:HeartbeatSeconds) }
     $subAgentNames = @{}
     $parsed = $null
     $copilotText = $null
@@ -759,19 +761,19 @@ function Invoke-Agent {
                     $act.Calls++; $act.Last = "${tag}tool: $($ev.data.toolName)$(if ($ev.data.toolName -eq 'task') { " $($ev.data.arguments.description)" })"
                     if ($Activity -eq 'each') { Write-OrchLog $ProgressFile "$label$($act.Last)" }
                 }
-                return
             }
-            if ($ev.type -ne 'assistant' -or $Activity -eq 'none') { return }
-            foreach ($block in @($ev.message.content)) {
-                if ($block -isnot [Collections.IDictionary] -or $block.type -ne 'tool_use') { continue }
-                $act.Calls++
-                $act.Last = $tag + (Format-ToolUse $block $WorkDir)
-                if ($Activity -eq 'each') { Write-OrchLog $ProgressFile "$label$($act.Last)" }
+            elseif ($ev.type -eq 'assistant' -and $Activity -ne 'none') {
+                foreach ($block in @($ev.message.content)) {
+                    if ($block -isnot [Collections.IDictionary] -or $block.type -ne 'tool_use') { continue }
+                    $act.Calls++
+                    $act.Last = $tag + (Format-ToolUse $block $WorkDir)
+                    if ($Activity -eq 'each') { Write-OrchLog $ProgressFile "$label$($act.Last)" }
+                }
             }
             if ($Activity -eq 'heartbeat' -and $act.Calls -gt $act.Reported -and (Get-Date) -ge $act.Next) {
                 Write-OrchLog $ProgressFile "$label$($act.Calls) tool calls, last: $($act.Last)"
                 $act.Reported = $act.Calls
-                $act.Next = (Get-Date).AddSeconds(60)
+                $act.Next = (Get-Date).AddSeconds($script:HeartbeatSeconds)
             }
         }
         $exit = $LASTEXITCODE

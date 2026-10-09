@@ -70,12 +70,19 @@ try {
     $releasedLock = [IO.File]::Open($lockPath, 'OpenOrCreate', 'ReadWrite', 'None')
     $releasedLock.Dispose()
     $longPromptOk = $true
+    Import-Module (Join-Path $orch 'Orchestrator.psm1') -Force
     if ($Provider -eq 'Copilot') {
-        Import-Module (Join-Path $orch 'Orchestrator.psm1') -Force
         $review = Invoke-Agent -Provider Copilot -AgentPath $fake -WorkDir $repo -Model 'gpt-6-sol' `
             -Prompt ("orchestrator-role: reviewer`n" + ('x' * 50000))
         $longPromptOk = $review.Finished -and $review.Exit -eq 0
     }
+    # With no wait between heartbeat lines, the tool calls of the fake planner's sub-agent call give one at once.
+    & (Get-Module Orchestrator) { $script:HeartbeatSeconds = 0 }
+    $heartbeatLog = Join-Path $WorkDir 'heartbeat.md'
+    $null = Invoke-Agent -Provider $Provider -AgentPath $fake -WorkDir $repo -Model 'gpt-6-sol' -Tools Read, Glob, Grep `
+        -AllowedTools Read, Glob, Grep -SubAgents -Prompt '<!-- orchestrator-role: planner -->' `
+        -ProgressFile $heartbeatLog -ActivityLabel '[heartbeat]' -Activity 'heartbeat'
+    $heartbeatOk = (Get-Content $heartbeatLog -Raw -ErrorAction SilentlyContinue) -match '\[heartbeat\] \d+ tool calls, last: '
 }
 finally {
     Remove-Item Env:FAKE_FAIL_ONCE, Env:FAKE_SHARED, Env:FAKE_NO_STRUCTURED, Env:FAKE_REQUIRE_MODEL, Env:FAKE_REQUIRE_ADD_DIR -ErrorAction SilentlyContinue
@@ -118,6 +125,7 @@ $checks = [ordered]@{
     'reference directory passed to agents' = $exit -eq 0
     'reference directory in worker prompt' = (Get-Content (Get-ChildItem (Join-Path $repo '.orchestrator/logs/contracts') -Recurse -Filter 'attempt-1-worker.json.prompt.md' | Select-Object -First 1) -Raw).Contains([IO.Path]::GetFullPath($reference), ($IsWindows ? 'OrdinalIgnoreCase' : 'Ordinal'))
     'long Copilot prompt uses stdin'    = $longPromptOk
+    'agents write heartbeat lines'      = $heartbeatOk
     'all tasks done'                    = @($state.tasks.Values | Where-Object { $_.status -ne 'done' }).Count -eq 0
     'all four files on orch/integration' = @('contracts/contracts.txt', 'a/feature-a.txt', 'b/feature-b.txt', 'app/wire-up.txt' | Where-Object { $_ -notin $files }).Count -eq 0
     'owns violation not merged'         = 'outside-owns.txt' -notin $files
