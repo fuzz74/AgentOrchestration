@@ -608,7 +608,9 @@ implementation or acceptance check needs repair.
 
 Claude calls use `--permission-prompts none`, plus `--max-budget-usd` when a cap is set. They also
 pass `--settings '{"autoMemoryEnabled":false}'`, so agents never read or write Claude Code's
-per-machine auto memory. Copilot calls use
+per-machine auto memory, and `--disallowedTools` with the claude.ai Spotify and Strava
+connectors, so agents never see those tools (the list is `$script:ClaudeDeniedMcpServers` in
+`Orchestrator.psm1`; interactive sessions keep them). Copilot calls use
 `--allow-all-tools` with `--available-tools` mapped from the requested tools (`Read` to
 `view`, `Glob` to `glob`, `Grep` to `rg`, `Edit` and `Write` to `apply_patch`, `Bash` and
 `PowerShell` to `powershell` and its `read_`, `stop_` and `list_powershell` companions), so

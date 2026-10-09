@@ -6,6 +6,8 @@
 $script:PromptDir = Join-Path $PSScriptRoot 'prompts'
 $script:SchemaDir = Join-Path $PSScriptRoot 'schemas'
 $script:CopilotModel = 'gpt-6-sol'
+# claude.ai connectors hidden from every Claude agent. They stay enabled in interactive sessions.
+$script:ClaudeDeniedMcpServers = @('mcp__claude_ai_Spotify', 'mcp__claude_ai_Strava')
 
 $script:DefaultSettings = [ordered]@{
     model             = 'sonnet'
@@ -644,6 +646,7 @@ function Invoke-Agent {
         $cliArgs.AddRange([string[]]@('-p', '--output-format', 'stream-json', '--verbose', '--permission-prompts', 'none'))
         # Auto memory lives outside the repo on one machine; agents must not read or write it.
         $cliArgs.AddRange([string[]]@('--settings', '{"autoMemoryEnabled":false}'))
+        $cliArgs.AddRange([string[]]@('--disallowedTools', ($script:ClaudeDeniedMcpServers -join ',')))
         if ($Schema) { $cliArgs.AddRange([string[]]@('--json-schema', (Get-CompactSchema $Schema))) }
         if ($Model) { $cliArgs.AddRange([string[]]@('--model', $Model)) }
         if ($Effort) { $cliArgs.AddRange([string[]]@('--effort', $Effort)) }
