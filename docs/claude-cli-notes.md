@@ -12,7 +12,7 @@ Checked on 2026-10-09 with Claude Code 2.1.289 in headless runs
   that is the name the model sees, so the worker and planner prompts say "the Agent tool".
 - A session started without `--tools` has the tool, whatever `--allowedTools` says. Workers,
   the bootstrap agent and the resolver always had it that way; none of 114 agent logs from
-  VeloSage, GhostRacer and The Last Ninja show one using it. Such a session also lists
+  Example Projects E, C and D show one using it. Such a session also lists
   `SendMessage`, which continues a sub-agent by its id; the prompts don't ask for it.
 - `--permission-mode dontAsk` blocks the tool unless it is on the allow list. It also blocks,
   in the sub-agents, every tool that is not on the list, so a read-only session

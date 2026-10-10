@@ -1,6 +1,6 @@
 # Claude Fable notes
 
-Found while building Beatfall (October 2026, Claude Code 2.1.289, model alias `fable` =
+Found while building Example Project A (October 2026, Claude Code 2.1.289, model alias `fable` =
 `claude-fable-5-1`) with Fable as planner, worker and reviewer.
 
 ## The planner can loop on its own reasoning
@@ -26,7 +26,7 @@ Get-ChildItem <repo>\.orchestrator\logs -Recurse -Filter *.events.jsonl |
 
 ## Cost and speed
 
-- Beatfall: 12 tasks, 110 C# files, 8.3K lines, 447 tests. Planning 16 USD (bootstrap 2.30,
+- Example Project A: 12 tasks, 110 C# files, 8.3K lines, 447 tests. Planning 16 USD (bootstrap 2.30,
   planner 14.12), build 56 USD, every task merged on its first attempt. Wall clock: 1 hour
   for the build with `-MaxParallel 4`, after the hour lost to the planner loop.
 - A trivial `claude -p --model fable` call from this repo costs about 0.80 USD because the
@@ -36,7 +36,7 @@ Get-ChildItem <repo>\.orchestrator\logs -Recurse -Filter *.events.jsonl |
 
 ## The account session limit burns every attempt in seconds
 
-Found while building The Last Ninja: The Movie (October 2026). When the account's session
+Found while building Example Project D (October 2026). When the account's session
 limit is reached, every `claude -p` call returns at once with
 `You've hit your session limit · resets 4:50pm`. The orchestrator treats that as a worker
 error, starts the next attempt immediately, and so marks a task failed after three attempts
@@ -84,6 +84,6 @@ The runner reads `tasks.json` once at startup, so a model change needs a pause:
 3. Rerun `Invoke-Orchestrator.ps1` without `-RetryFailed`. Paused tasks resume with their
    checks and review on the new model; unstarted tasks run on it from the start.
 
-The Last Ninja run did this after 13 of 22 tasks to save the weekly Fable quota. The nine
-Opus scene and wiring tasks all merged on their first attempt for 1.17 to 4.48 USD each.
+Example Project D did this after 13 of 22 tasks to save the weekly Fable quota. The nine
+Opus tasks all merged on their first attempt for 1.17 to 4.48 USD each.
 Whole run: 22 tasks, 225 C# files, 29.6K lines, 1 671 tests, 222.54 USD.

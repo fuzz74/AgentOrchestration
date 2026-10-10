@@ -1,7 +1,7 @@
 # Electron notes
 
 Reference notes for projects the orchestrator builds with Electron. Found while building
-GhostRacer (October 2026, Electron 44.7, npm 11, Node 24).
+Example Project C (October 2026, Electron 44.7, npm 11, Node 24).
 
 ## The binary is not downloaded by `npm ci`
 
