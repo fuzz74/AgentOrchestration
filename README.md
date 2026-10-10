@@ -546,8 +546,10 @@ When all gates pass, the scheduler merges `orch/task/<id>` into `orch/integratio
 re-queued in sync mode. A sync run repeats steps 5–7 in the same worktree without calling
 the worker. After more than 3 conflicting merges, the task fails. If `integrationCheck` is
 set, it runs after each merge, after `setup` in the integration worktree, so that
-dependencies are installed. A failing setup or check resets the integration branch to its
-previous commit and fails the task.
+dependencies are installed. The merge and the check run on a detached HEAD, and the
+integration branch moves to the merge only when the check passes. Tasks that sync while
+the check runs therefore never pick up a merge that is then undone. A failing setup or
+check leaves the branch where it was and fails the task.
 
 **Statuses**: `pending` → `running` → `done` or `failed`. A pending task with a failed task
 upstream is shown as `blocked`.

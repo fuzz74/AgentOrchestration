@@ -139,6 +139,8 @@ $checks = [ordered]@{
         $timeline -match '\[TOOL START\] ↳ \[Survey the fake repo\] glob' -and $dashboard -match '\[Survey the fake repo\] glob'
     'only the last result ends a session' = $dashboard -match 'planner - finished' -and $dashboardUnfinished -match 'planner - working'
     'integration check ran after merge' = @(Get-ChildItem (Join-Path $repo '.orchestrator/logs') -Filter '*-integration-check.log').Count -eq 4
+    # Merges are checked on a detached HEAD; the integration worktree must end back on the branch.
+    'integration worktree on its branch' = (git -C (Join-Path $WorkDir 'demo.worktrees/_integration') symbolic-ref --short HEAD) -eq 'orch/integration'
     'orchestrator exit code 0'          = $exit -eq 0
     'duplicate run rejected'            = $duplicateRejected
     'reference directory passed to agents' = $exit -eq 0
