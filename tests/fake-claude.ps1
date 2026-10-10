@@ -111,7 +111,7 @@ switch ($role) {
             shared = @(if ($env:FAKE_SHARED) { 'registry.txt' })
             tasks = @(
                 @{ id = 'contracts'; title = 'Define contracts'; deps = @(); owns = @('contracts/**'); acceptance = (& $check 'contracts/contracts.txt'); prompt = 'Write contracts.' }
-                @{ id = 'feature-a'; title = 'Feature A'; deps = @('contracts'); owns = @('a/**'); acceptance = (& $check 'a/feature-a.txt'); prompt = 'Build A.' }
+                @{ id = 'feature-a'; title = 'Feature A'; deps = @('contracts'); owns = @('a/**'); acceptance = (& $check 'a/feature-a.txt'); prompt = 'Build A.'; workerType = 'coding' }
                 @{ id = 'feature-b'; title = 'Feature B'; deps = @('contracts'); owns = @('b/**'); acceptance = (& $check 'b/feature-b.txt'); prompt = 'Build B.' }
                 @{ id = 'wire-up'; title = 'Wire A and B together'; deps = @('feature-a', 'feature-b'); owns = @('app/**'); acceptance = (& $check 'app/wire-up.txt'); prompt = 'Wire it.' }
             )

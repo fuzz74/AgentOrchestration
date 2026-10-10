@@ -32,6 +32,7 @@ param(
     [string]$Out,
     [string]$Model = 'opus',
     [string]$WorkerModel = 'sonnet',
+    [ValidateSet('Coding', 'Analysis')][string]$WorkerType = 'Coding',
     [ValidateSet('low', 'medium', 'high', 'xhigh', 'max')][string]$Effort,        # planner reasoning effort (Claude only)
     [ValidateSet('low', 'medium', 'high', 'xhigh', 'max')][string]$WorkerEffort,  # written to settings.effort
     [string]$Setup,
@@ -82,7 +83,7 @@ else {
 $specText = Get-Content $specFull -Raw
 
 $planningRules = Get-Content (Join-Path $PSScriptRoot 'prompts/planning-rules.md') -Raw
-$prompt = Format-Template 'planner.md' @{ SPEC = $specText; PLANNING_RULES = $planningRules.TrimEnd(); SUBAGENTS = (Format-SubAgents $Provider 'planner') }
+$prompt = Format-Template 'planner.md' @{ SPEC = $specText; PLANNING_RULES = $planningRules.TrimEnd(); SUBAGENTS = (Format-SubAgents $Provider 'planner'); WORKER_TYPE = $WorkerType.ToLowerInvariant() }
 $logBase = Join-Path $paths.LogDir ("planner-{0}" -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
 Write-OrchLog $paths.ProgressFile "Planning from $specRel with $Model"
 
@@ -106,6 +107,7 @@ function New-PlanDoc($structured) {
         settings          = [ordered]@{
             model            = $WorkerModel
             reviewModel      = $WorkerModel
+            workerType       = $WorkerType.ToLowerInvariant()
             effort           = if ($WorkerEffort) { $WorkerEffort } else { $null }
             maxAttempts      = 3
             review           = $true
@@ -114,11 +116,13 @@ function New-PlanDoc($structured) {
             shared           = @($structured.shared | Where-Object { $_ })
         }
         tasks             = @($structured.tasks | ForEach-Object {
-                [ordered]@{
+                $plannedTask = [ordered]@{
                     id = $_.id; title = $_.title; deps = @($_.deps); owns = @($_.owns)
                     acceptance = if ($_.acceptance) { $_.acceptance } else { $null }
                     prompt = $_.prompt
                 }
+                if ($_.workerType) { $plannedTask.workerType = $_.workerType }
+                $plannedTask
             })
     }
 }

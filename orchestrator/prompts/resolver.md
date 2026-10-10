@@ -9,7 +9,7 @@ Conflicted files:
 Resolve every conflict so that both sides' intent is kept: the task's changes and the
 already-merged work. Remove all conflict markers, then `git add` each resolved file.
 Do not commit, abort the merge, or change unrelated files. If the project has a fast
-build or type check, run it to confirm the result compiles.
+check for the affected artifacts, run it to confirm the result remains valid.
 
 The task being merged:
 {{PROMPT}}

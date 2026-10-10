@@ -23,6 +23,7 @@
       "properties": {
         "model": { "type": "string", "description": "Worker model (alias or full id). Default: sonnet." },
         "reviewModel": { "type": "string", "description": "Reviewer and conflict-resolver model. Default: sonnet." },
+        "workerType": { "type": "string", "enum": ["coding", "analysis"], "description": "Default worker and reviewer role. Default: coding." },
         "effort": { "type": ["string", "null"], "enum": ["low", "medium", "high", "xhigh", "max", null] },
         "permissionMode": {
           "type": "string",
@@ -90,6 +91,7 @@
             "type": ["string", "null"],
             "description": "Command run with pwsh in the task worktree. Exit code 0 = pass."
           },
+          "workerType": { "type": "string", "enum": ["coding", "analysis"], "description": "Overrides settings.workerType for this task." },
           "model": { "type": "string", "description": "Per-task worker model override." }
         },
         "additionalProperties": false

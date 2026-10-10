@@ -33,7 +33,7 @@ $env:FAKE_SHARED = '1'
 $env:FAKE_NO_STRUCTURED = 'contracts'
 if ($Provider -eq 'Copilot') { $env:FAKE_REQUIRE_MODEL = 'gpt-6-sol' }
 try {
-    & (Join-Path $orch 'Plan-Tasks.ps1') -Provider $Provider -Spec $spec -RepoPath $repo -AgentPath $fake
+    & (Join-Path $orch 'Plan-Tasks.ps1') -Provider $Provider -Spec $spec -RepoPath $repo -AgentPath $fake -WorkerType Analysis
     # The fake planner lists registry.txt as shared. Every task touches it, so the parallel tasks
     # conflict and the resolver path runs.
     $planFile = Join-Path $repo '.orchestrator/tasks.json'
@@ -114,6 +114,21 @@ $planSettings = (Get-Content $planFile -Raw | ConvertFrom-Json).settings
 $plannerPrompt = Get-Content (Get-ChildItem (Join-Path $repo '.orchestrator/logs') -Filter 'planner-*-1.json.prompt.md' | Select-Object -First 1) -Raw
 $planningRules = (Get-Content (Join-Path $orch 'prompts/planning-rules.md') -Raw).TrimEnd()
 $workerPrompt = Get-Content (Get-ChildItem (Join-Path $repo '.orchestrator/logs/contracts') -Recurse -Filter 'attempt-1-worker.json.prompt.md' | Select-Object -First 1) -Raw
+$analysisReview = Get-Content (Get-ChildItem (Join-Path $repo '.orchestrator/logs/contracts') -Recurse -Filter 'attempt-1-review-1.json.prompt.md' | Select-Object -First 1) -Raw
+$codingWorker = Get-Content (Get-ChildItem (Join-Path $repo '.orchestrator/logs/feature-a') -Recurse -Filter 'attempt-1-worker.json.prompt.md' | Select-Object -First 1) -Raw
+$codingReview = Get-Content (Get-ChildItem (Join-Path $repo '.orchestrator/logs/feature-a') -Recurse -Filter 'attempt-1-review-1.json.prompt.md' | Select-Object -First 1) -Raw
+$legacyFile = Join-Path $WorkDir 'legacy-plan.json'
+$legacyDoc = Get-Content $planFile -Raw | ConvertFrom-Json -AsHashtable
+$legacyDoc.settings.Remove('workerType')
+foreach ($task in $legacyDoc.tasks) { $task.Remove('workerType') }
+$legacyDoc | ConvertTo-Json -Depth 10 | Set-Content $legacyFile
+$legacyPlan = Read-Plan -PlanFile $legacyFile -Repo $repo
+$legacyCoding = -not (Test-Plan $legacyPlan).Count -and $legacyPlan.Settings.workerType -eq 'coding' -and
+    @($legacyPlan.Tasks | Where-Object { $_.workerType -ne 'coding' }).Count -eq 0
+$legacyDoc.tasks[0].workerType = 'unknown'
+$legacyDoc | ConvertTo-Json -Depth 10 | Set-Content $legacyFile
+$invalidRoleRejected = (Test-Plan (Read-Plan -PlanFile $legacyFile -Repo $repo)).Count -gt 0
+Remove-Item $legacyFile
 $foreground = if ($Provider -eq 'Copilot') { 'the `task` tool, in the foreground (`mode: "sync"`)' } else { 'the Agent tool, in the foreground (`run_in_background: false`)' }
 # The fake planner and workers each ask a sub-agent; the watch views mark its activity with its description.
 $conversations = & (Join-Path $orch 'Watch-Conversations.ps1') -RepoPath $repo -Task contracts -Last 500 -Once 6>&1 | Out-String
@@ -132,6 +147,10 @@ $checks = [ordered]@{
     'plan uses skeleton commands'       = $planSettings.setup -like '*skeleton.txt*' -and $planSettings.integrationCheck -like '*tool.txt*'
     'plan uses planner shared files'    = $plannerShared -eq 'registry.txt'
     'planner received shared rules'     = $plannerPrompt.Contains($planningRules) -and -not $plannerPrompt.Contains('{{PLANNING_RULES}}')
+    'analysis default and coding override' = $planSettings.workerType -eq 'analysis' -and $plannerPrompt.Contains('default worker type for this run is `analysis`') -and
+        $workerPrompt.Contains('analysis agents investigating') -and $analysisReview.Contains('review one analysis task') -and
+        $codingWorker.Contains('coding agents building') -and $codingReview.Contains('You review one task from an automated multi-agent build')
+    'legacy coding and unknown role rejected' = $legacyCoding -and $invalidRoleRejected
     'prompts explain sub-agents'        = @($plannerPrompt, $workerPrompt | Where-Object { -not ($_ -replace '\s+', ' ').Contains($foreground) -or $_.Contains('{{SUBAGENTS}}') }).Count -eq 0 -and
         $workerPrompt.Contains('not to edit files') -and -not $plannerPrompt.Contains('not to edit files')
     'watch views label sub-agents'      = $conversations.Contains('[contracts/worker#1 ↳ Survey the fake repo][REQUEST]') -and

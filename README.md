@@ -177,6 +177,15 @@ Pick one:
   and the waves of parallel tasks.
   For an existing repo without `project.json`, add `-Setup 'npm ci'` and
   `-IntegrationCheck 'npm run build && npm test'` (your own commands).
+  For an analysis-only run, add `-WorkerType Analysis`. This sets the default
+  worker and reviewer prompts to investigate and verify evidence-backed artifacts
+  instead of building code. The provider (`Claude` or `Copilot`) is a separate choice.
+  The planner may override individual tasks with `workerType: coding` when the
+  spec requires substantial software implementation; supporting validation scripts
+  alone do not change an analysis task's type.
+  Set the type before a task starts. Changing it in a stopped run does not replace
+  the prompt already held by a paused worker session; plan a new run for a full
+  change of role.
 
 ### Step 3: Review the plan
 
@@ -186,6 +195,8 @@ Where: **editor**, then **terminal**.
    - `owns` is tight, and tasks meant to run in parallel don't overlap.
    - `acceptance` is a real command that proves the task works.
    - `prompt` makes sense on its own.
+   - `settings.workerType` matches the run, and any task-level `workerType`
+     overrides are intentional. Plans without either field still use coding.
    - `settings.setup` installs dependencies in a fresh checkout, and
      `settings.integrationCheck` builds and runs all tests. After each merge the
      orchestrator runs both, in that order.
@@ -397,6 +408,7 @@ never loses progress. The JSON Schema is
 | `deps` | no | Ids that must be merged before this task starts. |
 | `owns` | no | Repo-relative globs the task may edit (`**`, `*`, `?`; a plain path covers a file or a folder). Tasks with overlapping `owns` never run together. Empty = whole repo, so the task runs alone. |
 | `acceptance` | no | Command run with `pwsh` in the worktree root. Exit code 0 = pass. Write it as plain PowerShell; do not wrap it in `pwsh -Command "..."` (see [Limits and known gaps](#limits-and-known-gaps)). |
+| `workerType` | no | `coding` or `analysis`; overrides `settings.workerType` for this task. Select before workers start. |
 | `model` | no | Worker model for this task only (Claude; Copilot is pinned to GPT-6 Sol). |
 
 **Settings** (all optional; the defaults are in `Orchestrator.psm1`)
@@ -405,6 +417,7 @@ never loses progress. The JSON Schema is
 | --- | --- | --- |
 | `model` | `sonnet` | Worker model (alias or full id). |
 | `reviewModel` | `sonnet` | Model for the reviewer and the conflict resolver. |
+| `workerType` | `coding` | Run-wide worker and reviewer role: `coding` or `analysis`. Use `Plan-Tasks.ps1 -WorkerType Analysis` when planning a discovery run; edit the plan before starting if necessary. |
 | `effort` | none | `--effort` for workers: `low` … `max`. |
 | `permissionMode` | `acceptEdits` | Worker permission mode: `acceptEdits`, `auto`, `dontAsk`, `bypassPermissions`. |
 | `allowedTools` | `Read, Edit, Write, Glob, Grep, Bash, PowerShell` | Tools the worker may use without a prompt, in permission-rule syntax (e.g. `Bash(npm *)`). |
