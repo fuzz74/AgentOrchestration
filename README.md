@@ -396,7 +396,7 @@ never loses progress. The JSON Schema is
 | `prompt` | yes | Self-contained instructions for the worker. |
 | `deps` | no | Ids that must be merged before this task starts. |
 | `owns` | no | Repo-relative globs the task may edit (`**`, `*`, `?`; a plain path covers a file or a folder). Tasks with overlapping `owns` never run together. Empty = whole repo, so the task runs alone. |
-| `acceptance` | no | Command run with `pwsh` in the worktree root. Exit code 0 = pass. |
+| `acceptance` | no | Command run with `pwsh` in the worktree root. Exit code 0 = pass. Write it as plain PowerShell; do not wrap it in `pwsh -Command "..."` (see [Limits and known gaps](#limits-and-known-gaps)). |
 | `model` | no | Worker model for this task only (Claude; Copilot is pinned to GPT-6 Sol). |
 
 **Settings** (all optional; the defaults are in `Orchestrator.psm1`)
@@ -659,8 +659,12 @@ model arguments or an existing plan specify another model. Claude retains its mo
   on the next run.
 - **Shared machine resources**: parallel tasks share ports, databases and caches. Tests
   that bind fixed ports can collide. Lower `-MaxParallel` or make tests use random ports.
-- **Acceptance exit codes**: the command runs as `pwsh -Command`. Chain steps with `&&` so
+- **Acceptance exit codes**: the command runs as `pwsh -EncodedCommand`. Chain steps with `&&` so
   an early failure is not hidden by a later success.
+- **Acceptance quoting**: the command is already PowerShell. A nested
+  `pwsh -Command "$t = ...; ..."` fails every time, because the outer pwsh expands `$t` to an
+  empty string inside the double quotes before the inner one starts. Write the script directly:
+  `$t = Get-Content README.md -Raw; if ($t -match 'foo') { exit 0 } else { exit 1 }`.
 - **Ownership is path-based**: `owns` prevents two agents from editing the same files at
   once. It does not stop semantic conflicts, for example two tasks that each change
   behaviour the other relies on. `integrationCheck` and good contracts tasks are the defence.
