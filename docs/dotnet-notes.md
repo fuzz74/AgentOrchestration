@@ -35,6 +35,12 @@ such an app must use the same target framework.
 
 Found while building Kinfolio (October 2026, .NET SDK 10.0.302, Avalonia 12.1.4).
 
+**Run totals:** a 543-line spec, planned by Opus at `-Effort medium` into 22 tasks (bootstrap
+0.75 USD, planner 1.32 USD), built by Opus workers and reviewers with `-MaxParallel 4`: 99.33
+USD and about 2.5 hours, including two stalls fixed by hand (below, and the planner's
+unparseable acceptance command, now caught by `Test-Plan`). Result: 305 files, 25K lines,
+912 tests, 0 warnings.
+
 **Versions that worked together:** `Avalonia`, `Avalonia.Desktop`, `Avalonia.Themes.Fluent`,
 `Avalonia.Fonts.Inter` and `Avalonia.Headless.XUnit` 12.1.4; `CommunityToolkit.Mvvm` 8.4.2;
 `xunit.v3` 3.2.2 (Avalonia.Headless.XUnit 12.1.4 depends on `xunit.v3.extensibility.core`
