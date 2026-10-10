@@ -21,6 +21,7 @@
           "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,48}$" },
           "title": { "type": "string" },
           "prompt": { "type": "string" },
+          "workerType": { "type": "string", "enum": ["coding", "analysis"], "description": "Only set when this task needs a different worker role from the run default." },
           "deps": { "type": "array", "items": { "type": "string" } },
           "owns": { "type": "array", "items": { "type": "string" } },
           "acceptance": { "type": "string" }

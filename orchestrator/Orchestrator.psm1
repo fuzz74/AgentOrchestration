@@ -14,6 +14,7 @@ $script:ClaudeDeniedMcpServers = @('mcp__claude_ai_Spotify', 'mcp__claude_ai_Str
 $script:DefaultSettings = [ordered]@{
     model             = 'sonnet'
     reviewModel       = 'sonnet'
+    workerType        = 'coding'
     effort            = $null
     permissionMode    = 'acceptEdits'
     allowedTools      = @('Read', 'Edit', 'Write', 'Glob', 'Grep', 'Bash', 'PowerShell')
@@ -168,6 +169,7 @@ function Read-Plan {
             owns       = @($t.owns | Where-Object { $_ })
             acceptance = if ($t.acceptance) { [string]$t.acceptance } else { $null }
             model      = $t.model
+            workerType = if ($t.workerType) { [string]$t.workerType } else { $settings.workerType }
         }
     }
 
@@ -948,7 +950,8 @@ function Invoke-Review {
     $diff = (Invoke-Git $wt @('diff', $range)).Output
     $limit = 80000
     if ($diff.Length -gt $limit) { $diff = $diff.Substring(0, $limit) + "`n... (diff truncated; read the files for the rest)" }
-    $prompt = Format-Template 'reviewer.md' @{
+    $reviewTemplate = if ($Ctx.WorkerType -eq 'analysis') { 'analysis-reviewer.md' } else { 'reviewer.md' }
+    $prompt = Format-Template $reviewTemplate @{
         TASK_ID = $Ctx.Id; TITLE = $Ctx.Title; PROMPT = $Ctx.Prompt; OWNS = (Format-Owns $Ctx.Owns $Ctx.Shared)
         ADDITIONAL_DIRECTORIES = $(if ($Ctx.AdditionalDirectories.Count) { ($Ctx.AdditionalDirectories | ForEach-Object { "- ``$_``" }) -join "`n" } else { '(none)' })
         SPEC = ($Ctx.SpecText ?? '(no spec file)'); BASE = $Ctx.IntegrationBranch
@@ -1007,7 +1010,8 @@ function Invoke-TaskPipeline {
                 }
                 else {
                     $fb = if ($feedback) { "`n## Feedback from the previous attempt`n`n$feedback`n" } else { '' }
-                    $prompt = Format-Template 'worker.md' @{
+                    $workerTemplate = if ($Ctx.WorkerType -eq 'analysis') { 'analysis-worker.md' } else { 'worker.md' }
+                    $prompt = Format-Template $workerTemplate @{
                         TASK_ID = $Ctx.Id; TITLE = $Ctx.Title; PROMPT = $Ctx.Prompt; BRANCH = $Ctx.Branch
                         OWNS = (Format-Owns $Ctx.Owns $Ctx.Shared); ACCEPTANCE = ($Ctx.Acceptance ?? '(none - explain in your summary how you checked the work)')
                         ADDITIONAL_DIRECTORIES = $(if ($Ctx.AdditionalDirectories.Count) { ($Ctx.AdditionalDirectories | ForEach-Object { "- ``$_``" }) -join "`n" } else { '(none)' })
