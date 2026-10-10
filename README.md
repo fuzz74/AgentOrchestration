@@ -667,6 +667,11 @@ model arguments or an existing plan specify another model. Claude retains its mo
   `pwsh -Command "$t = ...; ..."` fails every time, because the outer pwsh expands `$t` to an
   empty string inside the double quotes before the inner one starts. Write the script directly:
   `$t = Get-Content README.md -Raw; if ($t -match 'foo') { exit 0 } else { exit 1 }`.
+  After `&&` or `||`, PowerShell accepts only a command, not an assignment, so
+  `./publish.ps1 && $t = ...` does not parse at all. Write `./publish.ps1; if (-not $?) { exit 1 }; $t = ...`.
+  Plan validation (`Test-Plan`, run by `Plan-Tasks.ps1`, `Show-Tasks.ps1` and
+  `Invoke-Orchestrator.ps1`) parses every acceptance, `setup` and `integrationCheck`
+  command and rejects the plan if one does not parse.
 - **Ownership is path-based**: `owns` prevents two agents from editing the same files at
   once. It does not stop semantic conflicts, for example two tasks that each change
   behaviour the other relies on. `integrationCheck` and good contracts tasks are the defence.
