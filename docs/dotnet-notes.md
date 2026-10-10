@@ -72,6 +72,78 @@ integration check, so a hang fails in minutes and frees its locks. Kill a leftov
 - Give the App project `AssemblyName` early (e.g. `ExampleProject` for `ExampleProject.App`): it decides
   the exe name and the `avares://<assembly>/` resource URIs.
 
+## Silk.NET, SkiaSharp and NAudio desktop apps
+
+Found while building Example Project F (October 2026, .NET SDK 10.0.302): a real-time desktop
+app drawn with SkiaSharp on a Silk.NET OpenGL window, with NAudio output.
+
+**Run totals:**
+- Spec: 907 lines, planned by Opus at `-Effort medium` into 22 tasks (bootstrap 1.54 USD,
+  planner 1.17 USD).
+- Build: Opus workers and reviewers with `-MaxParallel 5`, 164.49 USD and about 4 hours 10
+  minutes. 21 tasks merged on their first attempt. One reported blocked (the namespace trap
+  below) and merged after a hand fix and `-RetryFailed`.
+- Follow-up: a 3-task round, added to the same plan after a playtest, cost 24.31 USD and took
+  35 minutes.
+- Result: 338 C# files (15K lines of source, 21K of tests), 1,690 tests, 0 warnings.
+
+**Versions that worked together:**
+
+| Package | Version |
+| --- | --- |
+| `SkiaSharp` | 3.119.4 |
+| `Silk.NET.Windowing`, `Silk.NET.Input`, `Silk.NET.OpenGL` | 2.23.0 |
+| `NAudio` | 2.4.0 |
+| `xunit` | 2.9.3 |
+| `xunit.runner.visualstudio` | 3.1.5 |
+| `Microsoft.NET.Test.Sdk` | 18.10.1 |
+
+SkiaSharp 4.x was available but skipped: models know the 2.x/3.x API.
+`GRContext.CreateGl` over the Silk.NET GL context worked first time, with a raster-surface
+fallback.
+
+**A test namespace can hide a method of the same name.**
+- What happened:
+  - The spec named a module `Run`, so its tests lived in `ExampleProject.Tests.Run`.
+  - An earlier module's tests, in `ExampleProject.Tests.ModuleA.PartB`, called a helper `Run(...)`
+    that they imported with `using static`.
+  - C# name lookup finds `ExampleProject.Tests.Run` in an enclosing namespace before it finds
+    members imported with `using static`. The other module's tests stopped compiling (CS0118).
+  - The fix lay outside the task's `owns`, so the worker correctly reported blocked. The planner
+    had spotted the same trap for a test namespace ending in `.System` and avoided it.
+- **For specs:** don't use module names that are also common member or type names (`Run`,
+  `Task`, `System`, `Action`, `Index`). Otherwise, ban `using static` helpers with those
+  names.
+- **To recover:**
+  1. In the task's worktree, fix the clash.
+  2. Commit the work on the task branch: `git add -A -- <owned paths>`, then `git commit`.
+  3. Widen the task's `owns` in `tasks.json`.
+  4. Rerun with `-RetryFailed`. The task resumes in sync mode, and its checks and review run
+     again.
+
+**Publishing:**
+- `SkiaSharp.NativeAssets.Win32` puts an 80 MB `libSkiaSharp.pdb` into a self-contained publish.
+  `-p:DebugType=none` does not remove it, so delete `*.pdb` from the output after publishing.
+  That cut the folder from 214 to 133 MB.
+- The `NAudio` meta-package pulls in WinForms. If size matters, reference only the parts you
+  use, such as `NAudio.Wasapi` and `NAudio.WinMM`.
+
+**Tests that render to PNG pay off.**
+- The renderer drew whole frames on a CPU raster surface in xUnit and wrote PNGs. Workers and
+  reviewers opened them and judged the visuals.
+- After the run, a throwaway harness drove the finished app through its own scripted smoke
+  driver and saved frames. It found integration-level problems that every module's tests
+  missed: a banner drawn under an overlay that repeated its title, and an internal path format
+  shown to the user. Those became the follow-up round.
+
+**A tuning task meets exactly the metrics it is given.**
+- The tuning task was asked for outcome targets only (how far a scripted bot gets). It met them
+  by a route that hurt the intended experience.
+- The follow-up round added the missing experience metric as a test, and the retune then kept
+  both.
+- **For specs:** when a task tunes numbers, state the experience it must keep as a measurable
+  test, not just the outcome.
+
 ## Layout that split well
 
 One console project (`src/<App>/<App>.csproj`) with one folder and namespace per module,
