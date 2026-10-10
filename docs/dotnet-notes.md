@@ -1,6 +1,6 @@
 # .NET notes
 
-Reference notes for projects the orchestrator builds on .NET. Found while building Beatfall
+Reference notes for projects the orchestrator builds on .NET. Found while building Example Project A
 (October 2026, .NET SDK 10.0.302, C# 14).
 
 ## A test filter that matches nothing passes
@@ -11,7 +11,7 @@ module name that differs from the test folder therefore passes vacuously.
 
 **For specs:** name the test folders and namespaces exactly in section 6, and make the
 module names in 4.2 match them. **For plans:** pin the test class in the filter when a
-task creates only one (`~Beatfall.Tests.Play.JudgeTests`).
+task creates only one (`~ExampleProject.Tests.Module.ComponentTests`).
 
 ## Versions that worked together
 
@@ -33,7 +33,7 @@ such an app must use the same target framework.
 
 ## Avalonia desktop apps
 
-Found while building Kinfolio (October 2026, .NET SDK 10.0.302, Avalonia 12.1.4).
+Found while building Example Project B (October 2026, .NET SDK 10.0.302, Avalonia 12.1.4).
 
 **Run totals:** a 543-line spec, planned by Opus at `-Effort medium` into 22 tasks (bootstrap
 0.75 USD, planner 1.32 USD), built by Opus workers and reviewers with `-MaxParallel 4`: 99.33
@@ -69,7 +69,7 @@ integration check, so a hang fails in minutes and frees its locks. Kill a leftov
   test project that references it (NETSDK1151). Pass them to `dotnet publish` instead.
 - PowerShell's `& app.exe` returns at once for a WinExe and leaves `$LASTEXITCODE` unchanged.
   Smoke-test a GUI exe with `Start-Process -PassThru`, `WaitForExit(ms)` and `ExitCode`.
-- Give the App project `AssemblyName` early (e.g. `Kinfolio` for `Kinfolio.App`): it decides
+- Give the App project `AssemblyName` early (e.g. `ExampleProject` for `ExampleProject.App`): it decides
   the exe name and the `avares://<assembly>/` resource URIs.
 
 ## Layout that split well

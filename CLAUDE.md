@@ -20,3 +20,11 @@
   remembering goes into this repo: rules in this file, how-to in the skills, reference notes
   in `docs/`.
 - Do not keep it in an assistant's local memory or any other per-machine store.
+
+## Documenting runs
+
+- Always anonymize runs mentioned in files committed to this repo. Use unmistakably fictional
+  project names (for example, "Example Project A"), never the actual names.
+- Include run details only to document the orchestrator and lessons from running it. Do not
+  reveal what the real project contained: omit identifying domain, features, spec content,
+  paths, or artifacts. Keep only non-identifying orchestration behavior and metrics.
