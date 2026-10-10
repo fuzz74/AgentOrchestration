@@ -191,12 +191,19 @@ function Complete-Task($id, $res) {
         & $log "[$id] FAILED: $(Get-FirstLines $res.Error)"
         return
     }
-    # Merge into the integration branch (single writer: only this loop touches it).
+    # Merge into the integration branch (single writer: only this loop touches it). The merge and the
+    # integration check run on a detached HEAD, and the branch moves only once the check passes. Running
+    # tasks sync from the branch while the check runs; they must never pick up a merge that is then
+    # undone, or they carry its commits, and a later merge can delete its files.
     $int = $paths.IntegrationWorktree
+    $branch = $planObj.IntegrationBranch
+    [void](Invoke-Git $int @('checkout', '-q', '-f', $branch))   # also leaves a detached HEAD an interrupted run left
     $before = (Invoke-Git $int @('rev-parse', 'HEAD')).Output
+    [void](Invoke-Git $int @('checkout', '-q', '--detach'))
     $m = Invoke-Git $int @('merge', '--no-ff', '--no-edit', '-m', "Merge task ${id}: $($task.title)", "orch/task/$id")
     if ($m.Exit -ne 0) {
         [void](Invoke-Git $int @('merge', '--abort'))
+        [void](Invoke-Git $int @('checkout', '-q', '-f', $branch))
         $s.syncRuns = [int]$s.syncRuns + 1
         if ($s.syncRuns -gt 3) {
             $s.status = 'failed'; $s.error = "Merge into $($planObj.IntegrationBranch) kept conflicting."
@@ -216,10 +223,17 @@ function Complete-Task($id, $res) {
             $chk = Invoke-ShellCommand $int $settings.integrationCheck (Join-Path $paths.LogDir "$id-integration-check.log") ([int]$settings.commandTimeoutSec)
         }
         if (-not $chk.Ok) {
-            [void](Invoke-Git $int @('reset', '--hard', $before))
+            [void](Invoke-Git $int @('checkout', '-q', '-f', $branch))
             $s.status = 'failed'; $s.error = "Integration check failed after merging; merge undone.`n$($chk.Tail)"
             & $log "[$id] FAILED: integration check failed after merge (merge undone)"; return
         }
+    }
+    $after = (Invoke-Git $int @('rev-parse', 'HEAD')).Output
+    $u = Invoke-Git $int @('update-ref', "refs/heads/$branch", $after, $before)
+    [void](Invoke-Git $int @('checkout', '-q', '-f', $branch))
+    if ($u.Exit -ne 0) {
+        $s.status = 'failed'; $s.error = "Could not move $branch to the checked merge: $($u.Output)"
+        & $log "[$id] FAILED: could not move $branch to the checked merge"; return
     }
     $s.status = 'done'; $s.mode = 'fresh'; $s.finishedAt = (Get-Date).ToString('o')
     $s.mergedSha = (Invoke-Git $int @('rev-parse', 'HEAD')).Output
