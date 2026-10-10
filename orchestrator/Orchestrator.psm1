@@ -202,6 +202,12 @@ function Test-Plan {
         $ids[$t.id] = $t
         if (-not $t.title) { $errors.Add("Task '$($t.id)' has no title") }
         if (-not $t.prompt) { $errors.Add("Task '$($t.id)' has no prompt") }
+        $problem = Test-PowerShellSyntax $t.acceptance
+        if ($problem) { $errors.Add("Task '$($t.id)' acceptance is not valid PowerShell: $problem") }
+    }
+    foreach ($name in 'setup', 'integrationCheck') {
+        $problem = Test-PowerShellSyntax $Plan.Settings[$name]
+        if ($problem) { $errors.Add("settings.$name is not valid PowerShell: $problem") }
     }
     foreach ($t in $Plan.Tasks) {
         foreach ($d in $t.deps) {
@@ -214,6 +220,20 @@ function Test-Plan {
         if ($cycle) { $errors.Add("Dependency cycle: $($cycle -join ' -> ')") }
     }
     , $errors
+}
+
+function Test-PowerShellSyntax {
+    # Commands run with pwsh, so one that does not parse fails every attempt without running anything.
+    # A common case: after && or ||, PowerShell accepts only a pipeline, so `cmd && $t = ...` never parses.
+    param([string]$Command)
+    if (-not $Command) { return $null }
+    $parseErrors = $null
+    [void][Management.Automation.Language.Parser]::ParseInput($Command, [ref]$null, [ref]$parseErrors)
+    if (-not $parseErrors.Count) { return $null }
+    $e = $parseErrors[0]
+    "$($e.Message) (column $($e.Extent.StartColumnNumber))." +
+        ' Note: after && or || only a command may follow, not an assignment. Instead of "cmd && $t = ...",' +
+        ' write "cmd; if (-not $?) { exit 1 }; $t = ...".'
 }
 
 function Find-Cycle {
