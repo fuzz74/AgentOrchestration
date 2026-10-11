@@ -95,6 +95,8 @@ would help, say which one and why, and wait for a yes.
    - no shared paths between modules meant to run in parallel
    - every existing test that the change breaks (an absolute screen row, an old path format,
      a changed signature) is named under a module that may change it
+   - every existing caller of a signature the change replaces, production code included, lies
+     in the paths of the module that replaces it
    - every contract in 4.3 is written out
    - no TBD, TODO or leftover comments
    - Open questions is empty
@@ -129,7 +131,9 @@ would help, say which one and why, and wait for a yes.
   under Shared files when every task must append to them. A change that existing tests
   assert (a new screen row, a path format, a signature) breaks tests in other modules'
   folders: grep for them and give each affected test file to the module that makes the
-  change, which then builds before the module that owns the folder.
+  change, which then builds before the module that owns the folder. The same holds for
+  production callers: a module that replaces a public signature must also own every file
+  that calls it, or the build fails in its own worktree.
 - **Every criterion testable.** Use one EARS sentence per behaviour, with a concrete subject
   (the module or component name). Replace "fast", "secure" and "user-friendly" with a
   measure, or drop them.
@@ -151,6 +155,9 @@ would help, say which one and why, and wait for a yes.
 - **Fit the repo.** Use the target repo's language, layout, test runner and conventions.
   Point to an existing file in it as the example to follow. A file in another project is
   never the example.
+- **Follow-up specs.** When the code already cites an earlier spec's requirement ids (in
+  comments, or test names such as `Req11_2_...`), number the new areas after the highest
+  old one and say so in the Summary, so workers and reviewers keep the two apart.
 
 ## EARS quick reference
 

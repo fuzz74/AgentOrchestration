@@ -350,8 +350,12 @@ Where: **terminal**.
      `branches.txt` in the archive lists them.
    - `-Keep <file>` leaves a file in `.orchestrator`, for example the spec of the next
      feature. Add `-WhatIf` first if you want to see what it would do.
-   - First close any VS Code window or terminal that is open in a worktree folder: Windows
-     can't delete a folder that is in use.
+   - First close any VS Code window or terminal that is open in a worktree folder or in
+     `.orchestrator`, and stop anything that tails its files: Windows can't move or delete a
+     folder that is in use. If the move still stops part way, the worktrees and branches are
+     usually gone already. Finish by hand: move what is left in `.orchestrator`, apart from
+     `project.json`, into the same `<timestamp>\.orchestrator` archive folder (delete
+     folders left empty), and copy `project.json` there.
 
    You can skip this step: planning the next feature does the same by itself.
 

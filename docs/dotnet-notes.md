@@ -205,6 +205,55 @@ reviews the full sheet.
   `-ReferencedAssemblies System.Drawing`. Run the capturing script under Windows PowerShell 5.1
   (`powershell.exe`), or reference `System.Drawing.Common`.
 
+### Example Project G, follow-up round: a feature added with no human involvement
+
+A second run on the finished Example Project G repo added a front-end layer drawn over the
+existing display and a small JSON file store. The user again asked for no involvement.
+
+**Run totals:**
+- **Spec:** 411 lines and 7 modules, written without an interview. Two reviewer passes: the
+  first found 1 blocking issue (below), the second none.
+- **Planning:** Opus at `-Effort medium`, 7 tasks in 1.5 minutes, 0.44 USD. No skeleton was
+  needed: `project.json` supplied the setup and check commands.
+- **Build:** Opus workers and reviewers with `-MaxParallel 4`, 24.27 USD and 38 minutes. Six
+  tasks merged on their first attempt, one on its second.
+- **Result:** 44 files changed, 330 new tests (2,315 in all), 0 warnings, and two hand commits
+  after the run (below).
+
+**A replaced signature needs its callers in the same module.** The spec gave a public entry
+method new arguments in one module. Its only caller sat in a file owned by a later module, so
+the first module could not have built. The reviewer caught it. The fix was to add the caller's
+file to the first module's paths; the later module depends on it, so it may still edit the file
+afterwards. The write-spec self-review now checks for this.
+
+**Follow-up spec ids.** The code and test names cited the first spec's ids (`2.3`,
+`Req11_2_...`). The new spec numbered its areas from 13 and said so in its summary. Workers
+named their tests after the new ids, and none confused the two.
+
+**System.Text.Json: catching `JsonException` is not enough.** A string escape holding a lone
+UTF-16 surrogate (`"\udc00"`) passes UTF-8 validation and `JsonDocument.Parse`.
+`JsonElement.GetString()` then throws `InvalidOperationException`, and so can property lookups
+that unescape names. A loader that must never throw on a bad file has to catch both. The reviewer
+found this, rejected the first attempt, and the retry fixed and tested it.
+
+**What the run missed and the checks after it found:**
+- A panel rectangle that the spec fixed in its contracts covered an existing on-screen element.
+  The module's test renders showed it before the merge. A hand commit on `orch/integration`
+  moved the rectangle and regenerated the README image.
+- No module owned the headline behaviour end to end: a value saved by the real store surviving
+  a restart through the real UI layer and engine. Each module tested its part with fakes, and
+  the wiring module used an in-memory store. A hand-added test with a temp folder closed the gap.
+  **For specs:** give the last wiring module one end-to-end test of the headline behaviour
+  across the real modules.
+- A live check drove the built window with `SendInput`. The first scripted run lost two key
+  presses. A rerun with a 400 ms pause after each key, and a `GetForegroundWindow` check before
+  each one, delivered every key; the window had focus each time, so the cause stayed unclear.
+
+**`Complete-Orchestrator.ps1` stopped half way.** The assistant's shell had used a task's log
+folder as its working directory, and a monitor still tailed `progress.md`. The script removed
+the worktrees and branches, then failed to move the locked folder. The rest was moved by hand;
+README step 7 now says how.
+
 ### Example Project H: same stack, designed from scratch, no human involvement
 
 Found while building Example Project H (October 2026, .NET SDK 10.0.302): a new real-time desktop
