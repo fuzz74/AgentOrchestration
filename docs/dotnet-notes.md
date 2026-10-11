@@ -254,6 +254,61 @@ folder as its working directory, and a monitor still tailed `progress.md`. The s
 the worktrees and branches, then failed to move the locked folder. The rest was moved by hand;
 README step 7 now says how.
 
+### Example Project G, second follow-up round: a large feature with no human involvement
+
+A third run on the same repo added a second presentation layer that can be switched at runtime:
+new rendering and audio modules that read only the core's public output, plus a small settings
+file. The user again asked for no involvement, and this time also for the result to be pushed.
+
+**Run totals:**
+- **Spec:** about 1,000 lines and 12 modules, well over the write-spec guide of 8 modules and
+  400 lines, written without an interview. Two cold reviewer passes of about 16 minutes each found
+  3 and 2 blocking issues (below).
+- **Planning:** Opus at `-Effort medium`, 20 tasks in 4 minutes, 0.94 USD. No skeleton was needed.
+- **Build:** Opus workers and reviewers with `-MaxParallel 5`, 148.05 USD and 2 hours 45 minutes.
+  Every task merged on its first attempt.
+- **Result:** 89 source files (12.8K lines) and 99 test files (16.2K lines), 1,256 new tests
+  (3,571 in all), 0 warnings. A live check of the built app found nothing to fix.
+
+**Check the spec against the code before review.**
+- The contract code was copied from the spec into a scratch clone of the repo and built
+  (0 warnings), with a few contract tests. Later spec edits were checked the same way, by copying
+  each code block back out of the spec.
+- The new layer infers the core's state from its public output, so the spec's inference rules
+  were checked against the real core with a throwaway test before planning: every rule matched over
+  12 minutes of play.
+- The same probe showed that the scripted test player never lost. The test kit therefore got a
+  switch to stop the player, which the failure-state renders needed.
+
+**What the reviewer passes caught:**
+- A latched state that a one-frame transition skipped. The fix was to also clear it on a second
+  signal that the old state never shows.
+- A cache key that two parallel modules could read two ways. The fix was to name the exact value
+  in the contract.
+- A text size that its panel's margins could not hold.
+- The number of existing tests a changed signature breaks was undercounted. The spec listed two to
+  replace; the real number was three.
+- A module split in the build order without requirement ids for each part.
+
+**Large modules became task chains.** The planner split six modules into tasks that run one after
+another and own the same paths: three tasks for one module, two each for five others. That gave
+20 tasks for 12 modules, and none needed a retry.
+
+**Timing guards.** Each timing test got its own `DisableParallelization` collection with a
+distinct name, and loose limits meant only to catch runaway cost. None failed across the 20
+integration checks, which ran while up to five agents built in parallel.
+
+**Watching a run from the assistant.** A `Monitor` on `progress.md`, grepping
+`DONE and merged|FAILED|review rejected|Run finished`, gave one event per merge. Each monitor
+expires after 30 minutes and has to be re-armed. Looking at each module's render sheets as it
+merged was a cheap early check of the art.
+
+**Live check notes.**
+- The `SendInput` scancode script from Example Project G worked first time. Under Windows
+  PowerShell 5.1, write `[UInt16]`; `[ushort]` is not a type accelerator there.
+- The check toggled a per-user setting, which created the app's settings file. It was deleted
+  afterwards so that the next real launch behaves like a first launch.
+
 ### Example Project H: same stack, designed from scratch, no human involvement
 
 Found while building Example Project H (October 2026, .NET SDK 10.0.302): a new real-time desktop
