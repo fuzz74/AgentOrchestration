@@ -201,6 +201,64 @@ reviews the full sheet.
   scaled.
 - Piping a script's output into `Select-Object -First N` stops the script early. The app it had
   started kept running and locked the build output: MSB3021 on the next build.
+- PowerShell 7's `Add-Type` does not resolve `System.Drawing` or `System.Threading.Thread` from
+  `-ReferencedAssemblies System.Drawing`. Run the capturing script under Windows PowerShell 5.1
+  (`powershell.exe`), or reference `System.Drawing.Common`.
+
+### Example Project H: same stack, designed from scratch, no human involvement
+
+Found while building Example Project H (October 2026, .NET SDK 10.0.302): a new real-time desktop
+app on the stack above. The user named Example Project G as its inspiration and asked for no
+involvement. The spec therefore reused G's stack and module layout, but every rule, layout and
+figure was designed new rather than replicated.
+
+**Run totals:**
+- **Spec:**
+  - 823 lines and 10 modules, including a 93-row layout table, written without an interview.
+  - Two cold reviewer passes, 15 and 18 minutes. They found 5 and 2 blocking issues.
+- **Planning:** Opus at `-Effort medium`, 13 tasks in 5 minutes (bootstrap 0.71 USD, planner
+  0.75 USD).
+- **Build:** Opus workers and reviewers with `-MaxParallel 5`, 71.03 USD and 1 hour 53 minutes.
+  Every task merged on its first attempt.
+- **Result:** 100 source files (5.9K lines) and 83 test files (9.5K lines), 1,394 tests that run
+  in about a second, 0 warnings.
+
+**Auto mode cannot grant itself access to the target folder.**
+- Adding the new repo folder to `permissions.additionalDirectories` was refused as
+  self-modification. Writing the spec into that folder was refused too.
+- Everything after the spec writes there, so the run waited until the user ran `/add-dir`.
+- The spec was drafted and reviewed in the scratchpad in the meantime. `Plan-Tasks.ps1` accepts a
+  spec outside the repo and copies it in.
+
+**Figures drawn on both screens need a module of their own.**
+- The same figures appeared in two art modules that run in parallel. The first review pass saw
+  that two workers would draw them two different ways.
+- The fix was a small shared module, built before both art modules, with a written-out API
+  (pose, facing, box) and a table in the contracts mapping each segment to its call. Both art
+  tasks then matched on their first attempt.
+- The second review pass found attachment points in the layout table that contradicted the
+  figure guide: a held object's box sat away from the hand that holds it. Fixing the boxes before
+  planning avoided a likely blocked art task.
+
+**Some platform calls need `unsafe`.** GLFW's content-scale, work-area and frame-size calls take
+pointers. The app project needs `AllowUnsafeBlocks`, set by the skeleton, because tasks may not
+edit project files. Files that import `Silk.NET.GLFW` also need `using Monitor =
+Silk.NET.GLFW.Monitor;`, since ImplicitUsings brings in `System.Threading.Monitor`.
+
+**A test bot with instant reactions proves fairness, not difficulty.**
+- The scripted player pressed at most every 200 ms but read the display every 10 ms. It never
+  missed, and it met every playability target without retuning.
+- A throwaway harness then showed the bot the display 150-450 ms late:
+  - at 150 ms, it lost only at top speed;
+  - from 250 ms, it lost within seconds.
+- A trace showed those losses came from the bot acting on stale state, not from unfair rules.
+- **For specs:** when difficulty matters, add a reaction-delay variant of the bot with its own
+  target.
+
+**The window lessons of Example Project G held.** The spec gave window sizes in
+device-independent pixels, fitted and centred on the work area. A live check on a high-DPI
+display with a 3840 × 2280 work area found the window sized, fitted and centred correctly on the
+first build.
 
 ## Layout that split well
 

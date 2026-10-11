@@ -51,7 +51,9 @@ would help, say which one and why, and wait for a yes.
   it using the active assistant's directory permissions. In Claude Code, use
   `.claude/settings.local.json` and `permissions.additionalDirectories`; in Copilot CLI,
   use `--add-dir <repo>` or the session's directory permission flow. Never change access
-  settings without the user's approval.
+  settings without the user's approval. Settle access first even when the user asks for no
+  involvement: in auto mode the assistant cannot grant it to itself, and every step after the
+  spec writes to the repo. Until access is granted, draft the spec in the scratchpad.
 2. **Explore** the target repo, and only the target repo (read-only): language, layout, test
    runner, conventions, and what already exists. Don't ask what the code can tell you. Check
    each claim a brief or draft makes about the code against the repo before the interview:
