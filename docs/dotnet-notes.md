@@ -144,6 +144,64 @@ fallback.
 - **For specs:** when a task tunes numbers, state the experience it must keep as a measurable
   test, not just the outcome.
 
+### Example Project G: same stack, no human involvement
+
+Found while building Example Project G (October 2026, .NET SDK 10.0.302): a real-time desktop app
+with hand-drawn vector art on the stack above. The user asked for no involvement, so `/write-spec`
+ran without an interview.
+
+**Run totals:**
+- **Spec:**
+  - Research subagents gathered the facts; the decisions went into the spec as requirements.
+  - Two reviewer passes, then planning.
+  - 821 lines, including a 122-row layout table in the contracts.
+- **Planning:** Opus at `-Effort medium`, 17 tasks in 4 minutes (bootstrap 0.86 USD, planner
+  0.78 USD).
+- **Build:** Opus workers and reviewers with `-MaxParallel 5`, 106.21 USD and 2 hours 30 minutes.
+  Every task merged on its first attempt.
+- **Follow-up:** 2 tasks added after running the app (below), 4.53 USD and 20 minutes.
+- **Result:** 116 source files (8.4K lines) and 68 test files (8.7K lines), 1,985 tests, 0 warnings.
+
+**Reference images for art tasks.**
+- Images the workers must look at, but which may not be copied into the repo, can live in a
+  folder outside it. Add the folder to `settings.additionalDirectories` in `tasks.json` before
+  the run; `Plan-Tasks.ps1` does not set it. Workers and reviewers both opened the images.
+- Two things made the art tasks match on their first attempt:
+  - a **labelled** reference sheet, with every element boxed and named as in the spec's layout
+    table;
+  - a test in each art module that renders its own sheet at the same scale, so the worker can
+    compare the two side by side.
+- Workers built their own crop and overlay scripts in `%TEMP%` to compare. They still wrote
+  every path by hand, as the spec required.
+
+**A layout table as a contract.** One row per visual element (name and bounding box) in the
+contracts let the logic, art, backdrop and rendering tasks run in parallel. The planner split
+each art module into two figure tasks plus an assembly task that owns the whole folder and
+reviews the full sheet.
+
+**A scripted test player keeps the rules honest.**
+- The last engine task wrote a bot that sees only the public display and presses buttons.
+- It had to reach a playability target over 10 seeds. Its prompt said to report blocked rather
+  than change a rule to make the bot pass.
+- It met the target with no engine change, which also showed the rules were consistent.
+
+**GLFW windows are DPI aware.**
+- Silk.NET's GLFW backend is per-monitor DPI aware, so window sizes are physical pixels.
+- On a 250 % display, a 720 × 965 window filled a sixth of the screen. Silk.NET's default
+  placement had already put the title bar above the screen on that display.
+- **For specs:** give window sizes in device-independent pixels, scaled by
+  `glfwGetWindowContentScale`. Fit and centre the window on `glfwGetMonitorWorkarea`.
+- No test caught either problem; running the built app did. Two small follow-up tasks fixed
+  them.
+
+**Driving a GLFW window from a script.**
+- `SendKeys` arrow keys arrive without the extended-key flag, and GLFW reads them as keypad keys.
+  Send `SendInput` key events with `KEYEVENTF_SCANCODE | KEYEVENTF_EXTENDEDKEY` instead.
+- Call `SetProcessDPIAware` in the capturing script, otherwise window rectangles come back
+  scaled.
+- Piping a script's output into `Select-Object -First N` stops the script early. The app it had
+  started kept running and locked the build output: MSB3021 on the next build.
+
 ## Layout that split well
 
 One console project (`src/<App>/<App>.csproj`) with one folder and namespace per module,
