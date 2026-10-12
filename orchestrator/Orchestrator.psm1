@@ -683,15 +683,15 @@ function Get-SubAgentName {
     # sub-agent's description from the event that starts it.
     # Claude: a sub-agent's events carry parent_tool_use_id, the id of the Task (Agent) call.
     # Copilot: subagent.started names the agentId that the sub-agent's events carry.
-    param([Collections.IDictionary]$Event, [Collections.IDictionary]$Names)
-    if ($Event.type -eq 'subagent.started') { $Names[$Event.agentId] = $Event.data.agentDescription }
-    elseif ($Event.type -eq 'assistant') {
-        foreach ($b in @($Event.message.content)) {
+    param([Collections.IDictionary]$StreamEvent, [Collections.IDictionary]$Names)
+    if ($StreamEvent.type -eq 'subagent.started') { $Names[$StreamEvent.agentId] = $StreamEvent.data.agentDescription }
+    elseif ($StreamEvent.type -eq 'assistant') {
+        foreach ($b in @($StreamEvent.message.content)) {
             if ($b -is [Collections.IDictionary] -and $b.type -eq 'tool_use' -and $b.name -match '^(Task|Agent)$') { $Names[$b.id] = $b.input.description }
         }
     }
-    $key = if ($Event.parent_tool_use_id) { $Event.parent_tool_use_id } else { $Event.agentId }
-    if ($key) { Format-SubAgentName ($Names[$key] ?? $Event.task_description) }
+    $key = if ($StreamEvent.parent_tool_use_id) { $StreamEvent.parent_tool_use_id } else { $StreamEvent.agentId }
+    if ($key) { Format-SubAgentName ($Names[$key] ?? $StreamEvent.task_description) }
 }
 
 function Format-SubAgentName {
@@ -773,8 +773,7 @@ function Invoke-Agent {
     $label = if ($ActivityLabel) { "$ActivityLabel " } else { '' }
     $act = @{ Calls = 0; Last = $null; Reported = 0; Next = (Get-Date).AddSeconds($script:HeartbeatSeconds) }
     $subAgentNames = @{}
-    $parsed = $null
-    $copilotText = $null
+    $resultState = @{ Parsed = $null; CopilotText = $null }
     $other = [Collections.Generic.List[string]]::new()
     Push-Location $WorkDir
     try {
@@ -786,12 +785,12 @@ function Invoke-Agent {
             if ($line.TrimStart().StartsWith('{')) { try { $ev = $line | ConvertFrom-Json -AsHashtable } catch { } }
             if (-not $ev) { if ($line.Trim()) { $other.Add($line) }; return }
             # A session that waits for background sub-agents sends a result after each turn; the last one counts.
-            if ($ev.type -eq 'result') { $parsed = $ev; return }
+            if ($ev.type -eq 'result') { $resultState.Parsed = $ev; return }
             $sub = if ($Activity -ne 'none') { Get-SubAgentName $ev $subAgentNames }
             $tag = if ($sub) { "↳ [$sub] " } else { '' }
             if ($Provider -eq 'Copilot') {
                 # A sub-agent's answer carries its agentId; only the agent's own answer is the result.
-                if ($ev.type -eq 'assistant.message' -and $ev.data.phase -eq 'final_answer' -and -not $ev.agentId) { $copilotText = $ev.data.content }
+                if ($ev.type -eq 'assistant.message' -and $ev.data.phase -eq 'final_answer' -and -not $ev.agentId) { $resultState.CopilotText = $ev.data.content }
                 if ($ev.type -eq 'tool.execution_start' -and $Activity -ne 'none') {
                     $act.Calls++; $act.Last = "${tag}tool: $($ev.data.toolName)$(if ($ev.data.toolName -eq 'task') { " $($ev.data.arguments.description)" })"
                     if ($Activity -eq 'each') { Write-OrchLog $ProgressFile "$label$($act.Last)" }
@@ -817,6 +816,8 @@ function Invoke-Agent {
         Pop-Location
         if ($events) { $events.Dispose() }
     }
+    $parsed = $resultState.Parsed
+    $copilotText = $resultState.CopilotText
     $text = if ($parsed) { $parsed | ConvertTo-Json -Depth 50 } else { ($other -join "`n").Trim() }
     if ($LogPath) { Set-Content -Path $LogPath -Value $text -Encoding utf8 }
     $stderrTail = ((Get-Content $errPath -ErrorAction SilentlyContinue) | Select-Object -Last 20) -join "`n"
