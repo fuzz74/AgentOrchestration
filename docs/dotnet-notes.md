@@ -364,6 +364,81 @@ device-independent pixels, fitted and centred on the work area. A live check on 
 display with a 3840 × 2280 work area found the window sized, fitted and centred correctly on the
 first build.
 
+## WinForms notification-area apps
+
+Found while building Example Project I (October 2026, .NET SDK 10.0.302, C# 14): a small
+WinForms app with a `NotifyIcon` and no main window. It polls a public HTTP API and shows
+balloon notifications. The user asked for no involvement beyond granting folder access.
+
+**Run totals:**
+- **Spec:**
+  - 806 lines and 9 modules, written without an interview.
+  - Facts about the external API were checked with live requests while writing.
+  - The contract code was compiled in a scratch copy of the skeleton before review.
+  - Two cold reviewer passes, 9 and 11 minutes, found 4 and 3 blocking issues.
+- **Planning:** Opus at `-Effort medium`, 9 tasks in 2 minutes, 0.52 USD. There was no bootstrap
+  (see the next point).
+- **Build:** Opus workers and reviewers with `-MaxParallel 6`, 37.88 USD and 66 minutes. Every
+  task merged on its first attempt.
+- **Result:** 49 source files (2.5K lines) and 42 test files (4.3K lines), 395 tests in about
+  1 s plus 3 opt-in live tests, 0 warnings. The framework-dependent single-file exe is 518 KB.
+
+**A repo with commits but no project gets no skeleton.**
+- `Initialize-Project.ps1` skips any repo that has commits. This one held only a reference doc;
+  earlier code had been removed in a commit.
+- The skeleton was built by hand instead, in a scratch folder: solution, `Directory.Build.props`,
+  both project files, a smoke test, `.gitignore` and a README.
+- The 4.3 contract blocks were compiled into that copy, the files were committed, and the setup
+  command and whole-project check passed in a clean worktree. Then `.orchestrator/project.json`
+  was written by hand.
+
+**Live API checks found what fakes cannot.** Every module test used a fake HTTP handler. So:
+- The first cold reviewer sent the spec's query document to the real API. The API rejected it
+  whenever an optional part went unused: GraphQL fails validation on an unused fragment. That
+  is the default configuration, so every poll would have failed while every test passed.
+- The same reviewer found that matching on a realtime identifier dropped an item whenever that
+  identifier changed. Matching on the scheduled identifier fixed it.
+- **For specs:** give a module that talks to an external API a few `[LiveFact]` tests (skipped
+  unless an environment variable is set). Ask its task to run them once, and run them again
+  after the build.
+
+**`FakeTimeProvider` keeps the offset it is given.**
+- `new FakeTimeProvider(DateTimeOffset.Parse("...+02:00")).GetUtcNow()` returns the `+02:00`
+  offset. The real clock returns offset zero.
+- A key built with `:O` from such a time differed from one built from the same instant in UTC.
+  The scratch compile of the contracts caught it.
+- **For specs:** call `.ToUniversalTime()` in the test clock helper, and build keys from UTC.
+
+**`NotifyIcon` balloons need a visible icon.** `ShowBalloonTip` does nothing while `Visible` is
+false. As first written, the spec loaded settings and showed the first-run notification before
+showing the icon. The second reviewer pass caught it. Also give the tray class a `Visible`
+property in the contracts, so tests can build it without putting an icon on the user's taskbar.
+
+**Requirements that tests cannot check.**
+- Docs and visual requirements met "every id needs a named test" and would have reported
+  blocked.
+- **For specs:**
+  - Mark those parts "(checked by review)".
+  - Give the docs module a test folder for the mechanical checks: paths that exist, exact file
+    contents, required phrases.
+  - Number non-functional criteria like the rest (10.1, not N.1), and say which of them only
+    the build or the whole-project check verifies.
+
+**Keep the spec in the target repo.** Code comments and test names cite requirement ids. The
+docs task wrote "the spec is not in the repo", so the spec was copied to `docs/specs/` and the AI
+guide was pointed at it.
+
+**Watching and checking.**
+- **Monitor filter:** `progress.md` heartbeat lines quote the agent's latest command, so a grep
+  for `error` fired on a heartbeat. Drop lines with ` tool calls, last:` first.
+- **Screenshots:** crop live-check screenshots to the notification area. A full-screen capture
+  also picks up the user's other windows.
+- **A missing notification that was not a bug:** the external data had moved the event's time
+  by two minutes, so it arrived one poll later. Check the data before suspecting the code.
+- **Folder access:** after the user approved it through a question, adding the target folder to
+  `settings.local.json` worked in auto mode and took effect at once. Compare Example Project H,
+  where the same edit was refused.
+
 ## Layout that split well
 
 One console project (`src/<App>/<App>.csproj`) with one folder and namespace per module,
