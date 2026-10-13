@@ -439,6 +439,79 @@ guide was pointed at it.
   `settings.local.json` worked in auto mode and took effect at once. Compare Example Project H,
   where the same edit was refused.
 
+### Example Project I, follow-up round: a window added to a tray app with no human involvement
+
+A second run on the finished Example Project I repo added three things through `/auto-develop`:
+- a notification that repeats on a timer;
+- per-item states (enabled in the settings file, muted in memory);
+- a WinForms main window with three tab pages, opened from the tray.
+
+The target folder was already in the session's directories, so no access step was needed.
+
+**Run totals:**
+- **Spec:**
+  - About 630 lines and 9 modules (contracts included), written without an interview.
+  - The contract code was copied out of the spec into a scratch clone and built. All existing
+    tests still passed.
+  - Two cold reviewer passes of about 8 minutes each found 2 and 5 blocking issues (below).
+- **Planning:** Opus at `-Effort medium`, 12 tasks in 3.5 minutes, 0.83 USD. The repo had no
+  `project.json`, so `-Setup` and `-IntegrationCheck` were passed by hand.
+- **Build:** Opus workers and reviewers with `-MaxParallel 6`, 25.46 USD and 56 minutes. Every
+  task merged on its first attempt.
+- **Result:** 65 files changed (+5.8K lines), 234 new tests (629 in all), 0 warnings. One hand
+  fix followed a live check of the built window (below).
+
+**A follow-up's contracts task carries the compile fixes.**
+- A renamed interface event and a new interface member broke every implementer and fake.
+- The spec listed each file and the minimal edit it needed (rename the event, add a throwing
+  stub, add a recording fake method) in the contracts module's paths.
+- The contracts task left the whole-project check green. The owning modules then replaced the
+  stubs.
+
+**New module folders against the docs tests.**
+- The repo's docs tests require the AI guide to name every module folder, and every path the guide
+  names to exist. So the first merge of a new folder, or of a guide row for a folder not created
+  yet, fails the integration check, and the merge is undone.
+- The contracts task created each new folder with a real first file: the module's texts class and
+  its test.
+- It also added the guide rows. The docs task completed them last.
+- The spec copy in `docs/specs/` was committed to the base branch before planning, because the
+  docs task had to name it and no task may edit it.
+
+**What the reviewer passes caught:**
+- The user defined a state word that an existing method already used with a wider meaning. A
+  worker reusing that method would have notified outside the intended time range and broken
+  existing end-to-end tests. The fix was to define the word against the code and require tests at
+  both edges.
+- The spec did not say whether a muted item is still polled.
+- Pages marshalled background events through their own window handle. Tab pages that were never
+  shown have no handle, so their updates would be dropped. The fix was to capture the WinForms
+  `SynchronizationContext` in each page's constructor and `Post` to it.
+- `NumericUpDown.Maximum` defaults to 100, and setting a larger `Value` throws, so each field's
+  range has to be in the spec.
+- The first pass found that the window module could not be split along the surface the spec
+  offered. The fix was to fix the internal page constructors and action methods, make the form task
+  depend on the page tasks, and put a shared `Sta.PumpUntil` helper in TestSupport. The planner
+  then ran three page tasks in parallel.
+
+**A layout bug that every test missed.**
+- All the window tests built forms that were never shown. A throwaway harness then referenced the
+  built dll and opened the real window against the live API.
+- On the Settings tab, the time pickers and number fields were 0-1 px wide. A `TableLayoutPanel`
+  lays out a hidden tab page while its cells are tiny. It shrinks controls that are anchored only
+  `Left`, and they never grow back. Text boxes anchored `Left | Right` recover.
+- The fix was `MinimumSize` on those fields. A regression test calls `CreateControl()` and
+  `PerformLayout()` on the never-shown form, selects the tab and checks the widths. It fails
+  without the fix.
+- **For specs:** ask the window module for one such layout test per tab.
+
+**Tooling notes:**
+- `Graphics.CopyFromScreen` returned black images from the assistant's shell. `Form.DrawToBitmap`
+  worked, and so did dumping control bounds to a file.
+- The Bash tool, and with it the `Monitor` tool, could not start (`EPERM` spawning `bash.exe`).
+  A background PowerShell loop that exits on the next `DONE and merged`, `FAILED` or
+  `Run finished` line of `progress.md` replaced it. The loop was re-armed after each event.
+
 ## Layout that split well
 
 One console project (`src/<App>/<App>.csproj`) with one folder and namespace per module,
