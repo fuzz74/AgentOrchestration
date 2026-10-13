@@ -462,6 +462,10 @@ The method adapts [Superpowers' brainstorming skill](https://github.com/obra/sup
 and [cc-sdd](https://github.com/gotalab/cc-sdd)'s requirements and design rules. Copies of
 the originals and their MIT licenses are in [references](.claude/skills/write-spec/references/README.md).
 
+The `/auto-develop` skill ([.claude/skills/auto-develop](.claude/skills/auto-develop/SKILL.md))
+runs `/write-spec` with your request plus a fixed prime directive: work fully autonomously
+from spec to finished result, and report only when done.
+
 ## Planning
 
 If the target repo is new (no folder, no git repo, or no commits), `Plan-Tasks.ps1` first
