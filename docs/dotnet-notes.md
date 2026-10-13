@@ -13,6 +13,12 @@ module name that differs from the test folder therefore passes vacuously.
 module names in 4.2 match them. **For plans:** pin the test class in the filter when a
 task creates only one (`~ExampleProject.Tests.Module.ComponentTests`).
 
+**The fix:** append `-- RunConfiguration.TreatNoTestsAsError=true` to every per-module
+`dotnet test`. A filter that matches nothing then exits 1. Two filters join with `|`, as in
+`"FullyQualifiedName~A|FullyQualifiedName~B"`. This was verified with xunit 2.9.3, VSTest 18.10.1
+and SDK 10.0.302, and used for every task of Example Project J (below). The planner quoted the
+separator as `'--'`, so every PowerShell version passes it through.
+
 ## Versions that worked together
 
 | Package | Version | Note |
@@ -511,6 +517,108 @@ The target folder was already in the session's directories, so no access step wa
 - The Bash tool, and with it the `Monitor` tool, could not start (`EPERM` spawning `bash.exe`).
   A background PowerShell loop that exits on the next `DONE and merged`, `FAILED` or
   `Run finished` line of `progress.md` replaced it. The loop was re-armed after each event.
+
+## WPF and WebView2 desktop apps
+
+Found while building Example Project J (October 2026, .NET SDK 10.0.302, C# 14): a new WPF desktop
+app that hosts several WebView2 controls in one window. The user asked for no involvement through
+`/auto-develop`, then added one feature by message while the spec was being written.
+
+**Run totals:**
+- **Spec:**
+  - 1,417 lines and 11 modules, well over the write-spec guide, written without an interview. Most
+    of the length is written-out contract code (types, view-model surfaces, a command table).
+  - API facts were checked against the XML docs in the unpacked NuGet package before writing them
+    into the spec.
+  - The contract blocks were compiled in a scratch project, and again in a clone of the skeleton.
+  - Two cold reviewer passes, 11 and 14 minutes, found 6 and 5 blocking issues (below).
+- **Skeleton:** bootstrap by Opus, 1.27 USD. Its instructions were written out in spec section 6:
+  four projects, a placeholder `App.xaml` for the shell module to replace, and a conditional
+  `ApplicationIcon`.
+- **Planning:** Opus at `-Effort medium`, 21 tasks in 6 minutes, 1.31 USD.
+- **Build:** Opus workers and reviewers with `-MaxParallel 5`, 118.20 USD and 3 hours. Every task
+  merged on its first attempt, with no review rejections and no merge conflicts.
+- **Result:**
+  - 90 source files (8.4K lines) and 103 test files (17K lines);
+  - 1,078 Core and 403 App tests, plus 21 opt-in live tests against the real runtime;
+  - a two-phase smoke run of the real exe, about 5 s;
+  - 0 warnings.
+
+**Versions:** `Microsoft.Web.WebView2` 1.0.4258.31 (runtime 155) and `CommunityToolkit.Mvvm` 8.4.2
+(explicit `SetProperty`, no source generators), with the xunit 2.9.3 set above.
+
+**WebView2 shows its own modal dialog when its user data folder is unusable.**
+- A live test that started WebView2 on a file path (`<temp>\not-a-folder`) raised a native
+  "couldn't create the data directory" message box on the user's desktop. So did a throwaway probe
+  with invalid path characters. Two of the three boxes outlived their test host and stayed up.
+- `--noerrdialogs`, which WebView2 already passes, does not suppress it. In an unattended run nobody
+  clicks OK.
+- The worker's final test fails the start another way: a second environment with different browser
+  arguments on the same folder. That raises no dialog.
+- **For specs:** say how tests simulate an engine start failure: conflicting environment options,
+  or an injected environment factory. Forbid unusable data folders.
+- **During the run:** a watchdog killed only `msedgewebview2.exe` processes that a test host
+  started (`--webview-exe-name=testhost.exe`, no `--type=`) and whose data folder was invalid or
+  whose test host was gone. It exited on `Run finished`. The first version checked only for a
+  file in the path. It missed a dialog whose test had already deleted its temp folder.
+
+**The WPF control closes its host window on `window.close()`.** Its private handler answers a
+page's `window.close()` by closing the WPF `Window` that contains the control. With several
+controls in one window, every one of them goes. The engine worker found this with a live test and
+removed the handler by reflection on its private name. A unit test fails if a package update
+renames it. **For specs:** say what `window.close()` should do.
+
+**Other WebView2 and WPF facts that held:**
+- Accelerator keys pressed inside a WebView2 arrive as WPF `PreviewKeyDown`/`KeyDown`, and
+  `Handled = true` suppresses the browser's own action. One window-level handler therefore routes
+  shortcuts from pages and from WPF controls alike.
+- A page handed to `NewWindowRequested.NewWindow` must not have navigated. A deferral covers the
+  wait while its control loads. A script `click()` on a `target=_blank` link raised the event with
+  no popup blocking.
+- A collapsed WebView2 in a loaded window still initializes. The live test asked for in the spec
+  confirmed it.
+- Placing every control on a `Canvas` at rectangles from a pure arranger meant no control was ever
+  re-parented when the layout changed. The arranger got property tests over random layouts.
+
+**WPF projects drop `System.IO` and `System.Net.Http` from implicit usings**
+(`Microsoft.NET.Sdk.WindowsDesktop.WPF.props`). Core test-support files were also compiled into
+the WPF test project as linked `Compile` items, so the spec required `using System.IO;` in them.
+None failed.
+
+**What the reviewer passes caught:**
+- No module owned the view side of two states that hide part of the window.
+- A restart after an engine crash would have handed off to the dying single instance. The old
+  process still held the mutex, so the new one would have sent its arguments there and exited.
+- A user-folder default named in the requirements, where the services record held an injectable
+  folder. Tests would have written to the real Documents folder.
+- A contracts check that matched no test in one of the two test projects.
+- A view module that used an asset without depending on the module that makes it.
+- A status message that no view showed.
+- An icon reproducibility check (`git diff`) that could not fail on new files.
+- A suggested partial-class split that left the command dispatch half-wired.
+- Change notifications for computed view-model properties that were not part of the contract.
+
+**Re-planning the critical path.** The planner made all three view tasks wait for the last of
+four chained view-model tasks: 11 waves. The views needed only the view-model surface from the
+contract, plus behaviour from the second chain task. The plan was edited before the run: views
+start after the second task, the shell depends on the last one explicitly, and each view prompt got
+a note not to test command side effects that later tasks finish. That made 9 waves. Both view tasks
+merged first time.
+
+**Live check notes.**
+- PowerShell resolves the alias `Type` (`Get-Content`) before a script function of that name, so a
+  `Type` helper for `SendKeys` silently did nothing. Name such helpers `SendText`.
+- A fixed 1 s pause before answering a confirmation box raced the box: the Enter went to the
+  window instead, and a later file dialog never got its keys. Check `GetForegroundWindow` before
+  typing into a dialog.
+- `Graphics.CopyFromScreen` worked from Windows PowerShell 5.1 with `SetProcessDPIAware`, unlike
+  in Example Project I.
+- `--data-dir` covered every app file except the default folder for user documents, which sits in
+  Documents. The live check's first save created that folder in the user's OneDrive Documents, and
+  deleting it from the assistant's shell was denied. **For specs:** give every default folder the
+  app writes a test override.
+- Before an overnight unattended run, check that the machine will not sleep:
+  `powercfg /query SCHEME_CURRENT SUB_SLEEP STANDBYIDLE`. Here, mains power was set to never sleep.
 
 ## Layout that split well
 
