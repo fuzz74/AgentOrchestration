@@ -518,6 +518,54 @@ The target folder was already in the session's directories, so no access step wa
   A background PowerShell loop that exits on the next `DONE and merged`, `FAILED` or
   `Run finished` line of `progress.md` replaced it. The loop was re-armed after each event.
 
+### Example Project I, second follow-up round: four small window features with no human involvement
+
+A third run on the same repo added four small features through `/auto-develop`: a button state
+that follows unsaved edits, hover hints on every setting, a read-only help tab, and a second kind
+of snooze. The target folder was already in the session's directories.
+
+**Run totals:**
+- **Spec:** 456 lines and 6 modules, written without an interview, about 120 lines of it
+  user-facing text. The contract code was built in a scratch clone first: 0 warnings, and every
+  existing test still passed. Two cold reviewer passes of 8 and 10 minutes found 3 and 2 blocking
+  issues (below).
+- **Planning:** Opus at `-Effort medium`, 6 tasks in 1.5 minutes, 0.50 USD. The repo had no
+  `project.json`, so `-Setup` and `-IntegrationCheck` were passed by hand.
+- **Build:** Opus workers and reviewers with `-MaxParallel 4`, 11.05 USD and 18 minutes. Every
+  task merged on its first attempt.
+- **Result:** 19 files changed (+1.5K lines), 64 new tests (693 in all), 0 warnings. A live check
+  of the built window found nothing to fix.
+
+**User-facing text written out in the spec.** The hints and the help text went into the contracts
+as verbatim constants of the texts class. The contracts task wrote them, so the three page tasks
+never touched that file and ran in parallel. The reviewers checked the text against the code like
+any other contract and found three wrong statements: a status said to repeat until the window ends
+(it stops once no train is left), a start time true only on some days, and a benefit of a setting
+that another setting already gave.
+
+**What the reviewer passes caught:**
+- Per-module test filters with `|` inside a markdown table were written as `\|`. Copied literally,
+  `dotnet test --filter` gets an escaped pipe, not an OR. Put filters in a fenced block.
+- "Enable Save when the user types in a number field" also fires on the page's own updates:
+  setting `NumericUpDown.Value` raises `TextChanged` too. The rule had to exclude the page's own
+  updates and add re-check points.
+- Setting `NumericUpDown.Text` commits the value at once, so a test that sets it never simulates
+  typing. Setting the inner edit box (`field.Controls.OfType<TextBox>().Single().Text`) does: it
+  raises `TextChanged` with no `ValueChanged` until `Value` is read.
+- A layout test for a new tab could not pass on a never-shown form. Until the `TabControl` has a
+  handle, every `TabPage` stays 200 x 100 px. An older layout test had passed only because of a
+  `MinimumSize`. **For specs:** have tab layout tests create the tab control's handle first
+  (`_ = form.Tabs.Handle`).
+
+**Live check notes.**
+- A throwaway WinForms project with a `ProjectReference` to the built app created the internal
+  form by reflection. It showed the form at `Opacity` 0.01 and drove the internal action methods.
+  That gave real layout without a visible window.
+- After switching tabs, `Form.DrawToBitmap` returned the previously drawn tab. Calling
+  `DrawToBitmap` on the page control itself worked.
+- In the assistant's PowerShell, `Set-Content -NoNewline` was rejected as an unknown parameter.
+  `[IO.File]::WriteAllText` worked.
+
 ## WPF and WebView2 desktop apps
 
 Found while building Example Project J (October 2026, .NET SDK 10.0.302, C# 14): a new WPF desktop
