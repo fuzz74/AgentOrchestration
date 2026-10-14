@@ -668,6 +668,106 @@ merged first time.
 - Before an overnight unattended run, check that the machine will not sleep:
   `powercfg /query SCHEME_CURRENT SUB_SLEEP STANDBYIDLE`. Here, mains power was set to never sleep.
 
+## WPF and AvalonDock docking apps
+
+Found while building Example Project K (October 2026, .NET SDK 10.0.4xx, C# 14): a new WPF desktop app
+with a Visual Studio-style docking workspace and an external REST API behind a sync layer. The user
+asked for no involvement through `/auto-develop`.
+
+**Run totals:**
+- **Spec:**
+  - About 2,160 lines (half of it compiled contract code and the project files) and 16 modules,
+    with 167 criteria. It was written without an interview.
+  - Research subagents checked the API facts. Small probe programs checked the docking library's
+    behaviour before the spec relied on it.
+  - Two cold reviewer passes, of 7 and 8 minutes, found 10 and 4 blocking issues.
+- **Skeleton and planning:** bootstrap by Opus, 1.27 USD. The contract code was then compiled in a
+  clone of the skeleton. The planner (Opus at `-Effort medium`) made 29 tasks in 6.5 minutes, for
+  1.63 USD.
+- **Build:** Opus workers and reviewers with `-MaxParallel 5`, 186.57 USD and about 4 hours,
+  including two hand fixes (below). 28 tasks merged on their first attempt; one needed a second after a
+  quality rejection.
+- **Result:** 202 source files (20.8K lines) and 225 test files (23.8K lines), 1,659 tests plus 4
+  opt-in ones, 0 warnings. A `--smoke-test` mode of the real exe passes in 9 s.
+
+**Versions:** `Dirkster.AvalonDock` and `Dirkster.AvalonDock.Themes.VS2013` 4.74.1 (5.0 existed but
+was skipped: models know the 4.x API), `CommunityToolkit.Mvvm` 8.4.2 (explicit `SetProperty`),
+`Microsoft.Identity.Client` 4.90.1, `HtmlAgilityPack` 1.12.4, plus the xunit 2.9.3 set above.
+
+**AvalonDock facts that a probe confirmed before the spec relied on them:**
+- To let every pane dock anywhere, make every pane a `LayoutAnchorable` with
+  `CanDockAsTabbedDocument = true`. An anchorable may sit in a `LayoutDocumentPane`. A
+  `LayoutDocument` can never dock in a side pane.
+- With `AnchorablesSource` bound, restoring a layout in `XmlLayoutSerializer.LayoutSerializationCallback`
+  neither duplicates nor leaks panes. The callback adds the view model to the bound collection and sets
+  `e.Content`, or sets `e.Cancel` to drop the entry. The spec gave this pattern as code, and the shell
+  task built it first time.
+- New panes go through an `ILayoutUpdateStrategy` whose `BeforeInsertAnchorable` picks the container
+  and returns true.
+- AvalonDock 4.74.1 ships no XML docs. A ten-line probe program answered the API questions faster than
+  reading.
+
+**Off-screen test windows break when the display scale changes.**
+- The test host showed windows at `Left = -20000` DIP. Windows clamps window positions to -32768
+  physical pixels, so at 250 % scaling the window landed at -13107.2, and two tests that compared
+  `Left` failed.
+- Those tests had passed in every earlier integration check. The display scale changed during the
+  run, and the next merge's integration check failed. The merge was undone and the task marked failed.
+- The fix, by hand on `orch/integration` followed by `-RetryFailed`, was a shared
+  `OffscreenLeft = -8000` constant, which is safe up to 400 % scaling.
+- **For specs:** put off-screen windows at no more than about -8000 DIP, and compare against the same
+  constant.
+
+**Focus-triggered side effects make timing tests flaky.**
+- An editor view saved its content on a 300 ms `TimeProvider` timer, and also at once on
+  `LostKeyboardFocus`. A test that checked "not yet written at 299 ms" passed in its task, then failed
+  once in a later integration check.
+- The test's window is off screen and never activated, so it can lose keyboard focus to anything on
+  the desktop, including other test processes.
+- The fix was an internal "flush on focus loss" switch that the timing test turns off.
+- **For specs:** give every focus- or activation-triggered behaviour a test switch, and state that
+  timing tests turn it off.
+
+**What the reviewer passes caught:**
+- A round-trip property (`Parse(ToHtml(doc)) == doc`) that could not hold as the two mapping tables
+  stood: some elements serialize to plain text or lose attributes. The fix was to write out what
+  structural equality normalizes.
+- A dialog view model whose implicit template had no dictionary to live in. Dialog windows look up
+  templates in `Application.Resources`, not in the main window.
+- A maximized-pane overlay that re-templates the same view model, which creates a second view
+  instance. Unsaved editor content had to live in the view model, or it would be lost on restore.
+- A project enum named `ThemeMode`, which clashes with WPF's `System.Windows.ThemeMode` (.NET 9+) in
+  every file with `using System.Windows;`. It was renamed before any code existed.
+- Test fixtures under a test folder that no task could copy to the output, because the project files
+  were locked. The fix was a `<None Include="…\Fixtures\**" CopyToOutputDirectory="PreserveNewest" />`
+  line in the skeleton.
+- A view that is closable and reopenable through a factory, with no DI registration for the
+  factory. The fix was to write out the exact `AddTransient` and `AddSingleton(sp => …)` lines.
+- `HttpListener` with a `localhost` prefix rejects requests whose Host header is a tunnel's public
+  name ("400 Invalid Hostname"). A webhook receiver behind a tunnel needs a small `TcpListener`
+  server that ignores Host.
+
+**The planner split modules by file-name prefix.** Inside one folder it gave tasks `owns` such as
+`Sync/ChatStore*.cs` and `Sync/SyncEngine*.cs`, and those ran in parallel. A glob that starts with a
+wildcard (`Organizer/*ItemViewModel.cs`) has the folder as its literal prefix, so it overlaps every
+other task in that folder. Those tasks then run one after the other.
+
+**Tooling notes:**
+- Piping `Invoke-Orchestrator.ps1` into `Select-Object -Last N` made the background command exit 1
+  with an `out-lineoutput` formatting error after a run that had finished cleanly. Read the run's
+  result from `progress.md` (`Run finished: …`), not from that exit code.
+- An unattended run on a laptop whose mains sleep timeout is 30 minutes was kept awake by a
+  background PowerShell loop calling `SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)`.
+  It changes no settings, and the request ends with the process. The loop exits on the run's
+  `Run finished` line.
+- `Complete-Orchestrator.ps1` failed once because a worktree folder was in use. The task's
+  processes were gone, and the only other dotnet processes belonged to the user's IDE. A rerun 20 s
+  later archived the run but left one empty, still-locked folder in `<repo>.worktrees`.
+- `PrintWindow(hwnd, hdc, 2)` from Windows PowerShell 5.1, with `SetProcessDPIAware`, captured the
+  live WPF window with no other windows in the picture.
+- WPF draws emoji in monochrome, because it has no colour-font support. Say so in the spec when
+  emoji matter.
+
 ## Layout that split well
 
 One console project (`src/<App>/<App>.csproj`) with one folder and namespace per module,
