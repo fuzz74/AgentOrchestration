@@ -232,6 +232,63 @@ each).**
   literally would have passed `\|` to VSTest. The commands moved out of the table, and the planner
   wrote bare `|` filters that all matched.
 
+### Example Project L, second follow-up round: changing what a runtime LLM call writes
+
+A third run on the same repo changed the style of the text the app gets back from its runtime
+`claude -p` calls. It had three parts:
+- new default prompt texts;
+- a deterministic check of earlier output that adds hints to the next call;
+- an upgrade of saved settings files that still held the old defaults.
+
+The user asked for a thorough look at free tools first, and for no involvement (`/auto-develop`).
+
+**Run totals:**
+- **Spec:**
+  - 430 lines and 5 modules, written without an interview.
+  - The new prompts were probed against the real CLI first: old against new, on fixed inputs and
+    seeds, scored with simple counts. The probes cost about 3 USD of CLI usage.
+  - The contract code was compiled in a scratch clone and the whole suite run against it. That
+    found a test break the spec had missed (below).
+  - Two reviewer passes: the first found 1 blocking issue, the second none.
+- **Planning:** Opus at `-Effort medium` made 5 tasks in 1 minute, for 0.35 USD.
+- **Build:** Opus workers and reviewers with `-MaxParallel 3`, 12.62 USD and 30 minutes. Every task
+  merged on its first attempt, with no review rejections.
+- **Result:**
+  - 21 files changed (+1.5K lines);
+  - 106 new tests, 1,367 in all;
+  - 0 warnings.
+  - The new opt-in live test passed against the real CLI on its first run.
+
+**A default text change can break no test outside its module.** Some existing tests asserted
+phrases of the old default texts: a first sentence, and a lowercase "never more than N words". The
+spec kept those phrases word for word in the new texts. The tests that asserted the replaced
+sentences were named one by one and given to the module that changed them.
+
+**A new settings property needs its control in the same task.** The settings page tests require
+two things of every settings property: a control, and a value in the "edited" sample that differs
+from the default. Adding only the property failed two App tests. The scratch build showed this; the
+spec had not. The property, its checkbox and the App test updates were merged into one module.
+
+**Upgrading saved copies of old defaults.** The app saves every prompt template into its settings
+file, so new defaults never reached existing users. The upgrade:
+- replaces a stored template that equals an old default, after normalizing `\r\n` to `\n` and
+  trimming;
+- keeps any template the user edited.
+
+The spec did not paste the old texts. It named the commit to copy them from
+(`git show <commit>:<path>`), and the worker read them from history in its worktree.
+
+**Prompt probes run in parallel need their own temp files.** Two probe runs wrote the system prompt
+to the same temp file, and calls read each other's prompts. Output for one input set showed up in
+the other. Use a unique file per call, or run the probes one after another.
+
+**What the reviewer passes caught:**
+- The live test would have hung on any CLI error. The engine pauses on a failed turn and waits for
+  Resume, so it never raises the "finished" event the test waited for. The spec now says to listen
+  for the pause event, stop and fail with its message, with a 10-minute limit.
+- The test plan helper turns transcripts off. A live test built on it would have written no
+  transcript, with no test failing.
+
 ## Silk.NET, SkiaSharp and NAudio desktop apps
 
 Found while building Example Project F (October 2026, .NET SDK 10.0.302): a real-time desktop

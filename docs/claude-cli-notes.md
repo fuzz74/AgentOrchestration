@@ -120,3 +120,17 @@ about 670 cache-creation tokens, against roughly 41K with the default system pro
   before it is shown or spoken.
 - Generating the next answer while the current one is still in use hides the 3-5 s latency
   completely. In the live check, nothing waited on the CLI after the first answer.
+
+**Repeated phrasing across calls.** Checked on 2026-10-15, in the second follow-up round of Example
+Project L. The app feeds earlier answers back as context, and the model copied its own earlier
+habits from them: the same opener, the same short phrase, the same closing shape.
+- **Prompt rules alone helped, not enough.** One rule was "use a pet phrase at most once every few
+  turns". Descriptive fields in the system prompt, such as a style description, still pull a phrase into nearly every answer.
+- **Hints in the next prompt helped more.** A deterministic check of the earlier answers names the
+  habit in the next prompt, for that call only ("You keep saying …; leave that out this time"). It
+  costs no extra call. The habit then turned up in about a quarter as many answers.
+- **Research agreed with what we saw:**
+  - No free anti-repetition tool works without logit access, which `claude -p` does not give.
+  - A second "rewrite" call per answer works but doubles cost and latency.
+  - Short varied examples in the prompt help style, but examples get copied, so keep them unlike
+    the real content.
