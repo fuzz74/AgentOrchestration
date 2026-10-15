@@ -163,6 +163,75 @@ split merged without conflicts.
 - The check lowered the speech volume in its own `--data-dir` settings first, because the app
   speaks out loud.
 
+### Example Project L, follow-up round: a local neural voice engine with no human involvement
+
+A second run on the finished Example Project L repo did two things:
+- it replaced the SAPI speech with a local neural text-to-speech model, which the app downloads on
+  first use;
+- it added a progress indicator to every wait.
+
+The user asked for a spec that starts with an investigation of the free options, and for no
+involvement (`/auto-develop`).
+
+**Run totals:**
+- **Spec:**
+  - 613 lines and 9 modules, written without an interview.
+  - It opens with the investigation. Twelve free options were compared from published benchmarks,
+    and the top candidates were measured on the target PC before the spec relied on them.
+  - The contract code was compiled in a scratch clone, and the whole existing suite was run against
+    it. Exactly the 2 tests that the spec named as broken failed.
+  - Two reviewer passes: the first found 1 blocking issue (below), the second none.
+- **Planning:** Opus at `-Effort medium` made 9 tasks in 2 minutes, for 0.60 USD.
+- **Build:** Opus workers and reviewers with `-MaxParallel 4`, 34.16 USD and 46 minutes. Every
+  task merged on its first attempt, with no review rejections.
+- **Result:**
+  - 66 files changed (+6.1K lines);
+  - 329 new tests, 1,262 in all, plus opt-in live tests;
+  - 0 warnings.
+  - A live check through UI Automation with a fresh `--data-dir` found nothing to fix. It covered
+    the real 350 MB download and a short session that spoke through the new engine.
+
+**Local neural TTS from .NET: Kokoro-82M through sherpa-onnx.**
+- `org.k2fsa.sherpa.onnx` 1.13.8 (Apache-2.0) runs Kokoro, Piper, Kitten, Pocket TTS and
+  Supertonic models from C# through one API: `new OfflineTts(config)`, then
+  `Generate(text, speed, speakerId).Samples` (24 kHz floats for Kokoro).
+- Measure both model variants before you pick the small one:
+  - on an AMD Ryzen AI 9 365, fp32 Kokoro ran at a real-time factor of 0.20 with 4 threads;
+  - the int8 model was 3 times slower (0.59).
+- The model is a 350 MB `.tar.bz2` release asset. SharpZipLib's `BZip2InputStream`, read by
+  `System.Formats.Tar.TarFile.ExtractToDirectory`, unpacked it in 15 s.
+
+**The sherpa-onnx package copies native libraries for 9 platforms into every bin folder (251 MB
+each).**
+- `ExcludeAssets="all"` on the runtime packages, set in the library project, does not carry over
+  to the projects that reference it. The app and test projects still got all 9.
+- What worked for every project: one `PackageReference` per unwanted RID in
+  `Directory.Build.props`, such as
+  `<PackageReference Include="org.k2fsa.sherpa.onnx.runtime.linux-x64" Version="1.13.8" ExcludeAssets="all" PrivateAssets="all" />`.
+  The output dropped to 22 MB, with win-x64 only.
+- `RuntimeIdentifier` was not an option, because it breaks test projects (see the traps above).
+
+**A bad model configuration crashes the process instead of throwing.**
+- With a missing or garbage model file, `new OfflineTts(config)` logs "Errors in config" and keeps
+  a null native handle.
+- The first call on that handle is an access violation (`0xC0000005`) that kills the process. No
+  `catch` stops it.
+- A truncated model file instead throws a catchable `SEHException` from the constructor.
+- What the spec told the worker to do:
+  - check the files first;
+  - read the private `_handle` field (`HandleRef`) by reflection right after construction;
+  - refuse a null handle, with `GC.SuppressFinalize` on the instance.
+- Default tests reach these paths only through a seam, because building the real wrapper over fake
+  files can crash the test host.
+
+**What the reviewer passes caught:**
+- A list of required model files was defined in the installer module, but the engine module,
+  built in parallel, needed it too. The list moved into the contracts. This is the same pattern as
+  the class named across parallel modules in the first run.
+- The spec's verification table escaped the filter separator as `\|`. A planner copying it
+  literally would have passed `\|` to VSTest. The commands moved out of the table, and the planner
+  wrote bare `|` filters that all matched.
+
 ## Silk.NET, SkiaSharp and NAudio desktop apps
 
 Found while building Example Project F (October 2026, .NET SDK 10.0.302): a real-time desktop
