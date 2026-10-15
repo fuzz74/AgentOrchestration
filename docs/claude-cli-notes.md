@@ -90,3 +90,33 @@ A quick look at a session's tools and events:
 ```
 
 The tool list is in the `system`/`init` event; follow `parent_tool_use_id` in the others.
+
+## Calling the CLI from an app at runtime
+
+Checked on 2026-10-15 with Claude Code 2.1.296, for Example Project L, an app that calls
+`claude -p` itself.
+
+**A minimal call.** These flags gave about 3-5 s per call (haiku, sonnet and opus alike) and only
+about 670 cache-creation tokens, against roughly 41K with the default system prompt:
+
+```
+-p --model <m> --output-format json --system-prompt-file <file> --tools "" --strict-mcp-config
+   --no-session-persistence --disable-slash-commands --setting-sources "" [--json-schema <json>] [--effort low]
+```
+
+- Send the user prompt on stdin. Put the system prompt in a file: `--system-prompt-file` works and
+  avoids quoting and command-line length problems.
+- `--json-schema` takes inline JSON only. A file path fails with `Error: --json-schema is not a
+  valid JSON Schema`.
+- Structured output still works with `--tools ""`. The answer is in `structured_output`, and
+  `result` holds the same JSON as text. `enum`, `minimum`/`maximum`, `pattern`, integers and
+  nested arrays were all accepted. A 33-property schema took 6.6 s on sonnet.
+- `--effort low` roughly halved the cost on sonnet and opus at the same latency.
+- An unknown model exits 1 with `[claude-code:unrecognized_model] {...}` on stderr. Stdout still
+  holds a JSON result with `is_error: true`, `api_error_status: 404` and a readable `result`.
+- Run it in an empty working folder, and remove the session variables listed above from the child
+  environment. Otherwise a CLI started from a terminal inside Claude Code inherits them.
+- Answers sometimes contain emoji and `*emphasis*`, even when the prompt forbids them. Clean the text
+  before it is shown or spoken.
+- Generating the next answer while the current one is still in use hides the 3-5 s latency
+  completely. In the live check, nothing waited on the CLI after the first answer.

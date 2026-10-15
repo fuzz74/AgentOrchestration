@@ -78,6 +78,91 @@ integration check, so a hang fails in minutes and frees its locks. Kill a leftov
 - Give the App project `AssemblyName` early (e.g. `ExampleProject` for `ExampleProject.App`): it decides
   the exe name and the `avares://<assembly>/` resource URIs.
 
+### Example Project L: Avalonia with SkiaSharp drawing, speech output and runtime CLI calls
+
+Found while building Example Project L (October 2026, .NET SDK 10.0.302, C# 14): a new Avalonia 12
+desktop app. A custom control draws with SkiaSharp, NAudio plays System.Speech audio, and the app
+calls the Claude Code CLI headless at runtime. The user named SkiaSharp, Silk.NET and NAudio as
+candidates and left the choice open, and asked for no involvement through `/auto-develop`.
+
+**Run totals:**
+- **Spec:**
+  - About 1,500 lines and 13 modules, two thirds of it written-out contract code. It was written
+    without an interview.
+  - CLI behaviour, speech timing and the Avalonia rendering path were checked with probes before
+    the spec relied on them.
+  - The contract blocks were copied out of the spec and compiled in a scratch skeleton.
+  - Two cold reviewer passes, of 10 and 15 minutes, found 4 and 3 blocking issues.
+- **Skeleton and planning:** bootstrap by Opus, 1.16 USD. The planner (Opus at `-Effort medium`)
+  made 17 tasks in 5 minutes, for 1.24 USD.
+- **Build:** Opus workers and reviewers with `-MaxParallel 6`, 94.03 USD and 2 hours. Every task
+  merged on its first attempt, with no review rejections, merge conflicts or failed integration
+  checks.
+- **Result:**
+  - 94 source files (8.8K lines) and 114 test files (12.6K lines);
+  - 935 tests plus 2 opt-in live tests, which passed against the real CLI;
+  - 0 warnings.
+  - A live check of the built exe through UI Automation found nothing to fix.
+
+**Avalonia instead of Silk.NET when the app is mostly forms.** Text editing, lists, tabs and
+numeric fields come with Avalonia, and it renders with SkiaSharp anyway. Avalonia 12.1.4 pins
+`SkiaSharp` 3.119.4, so the drawing library must reference that same version.
+
+**Custom Skia drawing in Avalonia 12, checked by a probe:**
+- `context.Custom(ICustomDrawOperation)` gives a direct `SKCanvas` through
+  `ImmediateDrawingContext.TryGetFeature<ISkiaSharpApiLeaseFeature>()`.
+- It works in headless tests with `.UseSkia().UseHeadless(new AvaloniaHeadlessPlatformOptions {
+  UseHeadlessDrawing = false })`.
+- `Window.CaptureRenderedFrame()` returns a `WriteableBitmap` in **Rgba8888**, not BGRA. Read
+  `Format` from the lock before you index the bytes.
+- Compute the per-frame state on the UI thread in `Render(DrawingContext)` and hand immutable values
+  to the draw operation, which runs on the render thread.
+
+**xunit.v3 3.2.2 facts:**
+- `-- RunConfiguration.TreatNoTestsAsError=true` makes a `--filter` that matches nothing exit 1,
+  as with xunit 2.
+- The package adds no global `using Xunit;`. The skeleton needs `<Using Include="Xunit" />` in each
+  test project.
+
+**System.Speech word timings are scaled wrong when the output is a stream.**
+- With `SetOutputToAudioStream`, `SpeakProgressEventArgs.AudioPosition` is off by a factor that
+  depends on the sample rate: about 1.15 at 22,050 Hz, 0.84 at 16 kHz and 2.31 at 44.1 kHz. The last
+  word started "after" the end of the audio.
+- All events have arrived by the time a synchronous `Speak` returns.
+- The spec had a calibration step: map the reported times linearly onto the span from the first
+  to the last non-silent frame of the audio envelope. Word timings then matched the audio in the
+  live check.
+- NAudio 2.4.0's `SmbPitchShiftingSampleProvider` (in `NAudio.Core`) gives one SAPI voice several
+  distinct pitches. Only two SAPI voices were installed, against three in the OneCore registry.
+
+**What the reviewer passes caught:**
+- Pixel-difference thresholds stated as a share of the whole image cannot be met by small features.
+  A shape about 13 px across cannot change 0.5 % of a 256 px image. The fix was to measure small
+  features inside their own box.
+- No line said that one audio player instance is shared. If the composition root had built two,
+  the reader of the position would have watched an idle player, and every test (all with fakes)
+  would still have passed.
+- A timing requirement for one module that named a class from a module built in parallel.
+- Settings loaded twice: the second load would have cleared the "bad file" warning set by the first.
+- No module was told to create the log, work and output folders. A missing working directory makes
+  `Process.Start` throw `Win32Exception`, which the client would have reported as "CLI not found".
+- Shared test fakes described in prose only. Later page tasks needed exact members (the engine
+  instance the factory created, a settable `Position`). Only the contracts task could edit the
+  fakes, so the spec wrote out a table of fakes and their members, and contracts tested them.
+
+**The planner split modules by file-name prefix again.** Three modules each became two tasks with
+`owns` such as `ModuleA/Generator*.cs` and `ModuleA/Tools*.cs`. It also split a module into a
+"support" task and an "engine" task that owns the whole folder and depends on the first. Every
+split merged without conflicts.
+
+**Live check through UI Automation.**
+- Avalonia exposes `x:Name` plus `AutomationProperties.AutomationId` to UIA.
+- From Windows PowerShell 5.1, these drove the whole flow: `InvokePattern` on buttons,
+  `SelectionItemPattern` on tab items, and `ValuePattern` to read and set text.
+- `PrintWindow(hwnd, hdc, 2)` captured the Avalonia window cleanly at 250 % scaling.
+- The check lowered the speech volume in its own `--data-dir` settings first, because the app
+  speaks out loud.
+
 ## Silk.NET, SkiaSharp and NAudio desktop apps
 
 Found while building Example Project F (October 2026, .NET SDK 10.0.302): a real-time desktop
