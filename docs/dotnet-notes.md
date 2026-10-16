@@ -979,6 +979,104 @@ other task in that folder. Those tasks then run one after the other.
 - WPF draws emoji in monochrome, because it has no colour-font support. Say so in the spec when
   emoji matter.
 
+## MonoGame DesktopGL apps
+
+Found while building Example Project M (October 2026, .NET SDK 10.0.302, C# 14). It is a new
+desktop app built in two runs: a reusable engine first, then content on top of it. The user asked
+for no involvement through `/auto-develop`, and named only the language.
+
+### Example Project M, first run: the engine
+
+**Run totals:**
+- **Spec:**
+  - About 1,940 lines and 13 modules. Two thirds of it is written-out contract code and module APIs,
+    compiled in a scratch project and again in a clone of the skeleton. It was written without an
+    interview.
+  - The windowing library was probed before the spec relied on it: a window, texture upload,
+    streamed audio and keyboard input through synthesized `SendInput`.
+  - Two cold reviewer passes, of 16 and 15 minutes, found 11 and 7 blocking issues.
+- **Skeleton and planning:** bootstrap by Opus, 1.10 USD. The planner (Opus at `-Effort medium`)
+  made 26 tasks.
+- **Build:** Opus workers and reviewers with `-MaxParallel 5`, 176.99 USD and 5 hours, including
+  two stalls (below). 22 tasks merged on their first attempt, and 4 needed a second.
+- **Result:**
+  - 2,640 tests, 0 warnings.
+  - A smoke-test mode of the real exe passes.
+  - A live check drove the built window with `SendInput` and the app's own screenshot key, and
+    found nothing to fix.
+
+**MonoGame.Framework.DesktopGL 3.8.5.1 facts, checked by probes:**
+- It runs on `net10.0`, although the package targets `net8.0`.
+- `DynamicSoundEffectInstance.BufferNeeded` fires on the game thread, like `Update`.
+- `Window.TextInput` also delivers Enter, Backspace, Tab and Escape as control characters, and
+  Alt+Enter as `'\r'`. The host must drop control characters and take those keys from the keyboard
+  state.
+- A numpad digit with NumLock on arrives as a text event whose `Key` is `D8`, not `NumPad8`. To use
+  the numpad for movement, drop the first text event of that digit in the same frame.
+- A key held with synthetic `SendInput` produces no repeats, so the host repeats Backspace itself.
+- A self-contained win-x64 publish, not single-file, is 196 files and 81 MB, and runs. The native
+  files are `SDL2.dll` and `openal.dll`.
+- A per-monitor-v2 DPI manifest keeps the window sharp on scaled displays.
+
+**SDK 10.0.302 makes `.slnx` by default.** `dotnet new sln` now writes `<name>.slnx`, so every
+command in a spec that names `<name>.sln` fails. The second reviewer found this. Write
+`dotnet new sln --format sln` into the skeleton instructions.
+
+**Spec changes after the run starts do not reach it.** The runner reads the spec and `tasks.json`
+once, at start. While a story document was being written in parallel, it showed engine needs that
+were folded into the spec between planning and the run:
+- Each change was merged into an existing requirement id, so the planner's id ranges still covered
+  it.
+- A short "spec amendment" paragraph was appended to the prompt of every affected task.
+Later needs were saved for the second run instead of restarting the first.
+
+**Two tasks reported blocked because earlier tasks' tests pinned what later tasks change.**
+- In the first case, a core task's tests asserted the behaviour of a stub that a later task
+  replaced.
+- In the second, a test asserted the exact list of discovered rooms, and a later task added one.
+- Both workers stopped with the exact edit to make. Recovery for each:
+  1. apply the edit in the task's worktree;
+  2. run the task's acceptance check;
+  3. commit the work on the task branch;
+  4. add the test file to the task's `owns`;
+  5. rerun with `-RetryFailed`. Each task then merged in sync mode on the first try.
+- **For specs:** tell early modules not to pin stub behaviour, or exact sets that later modules
+  extend. Or list the test files that later modules may edit.
+
+**The review gate caught a copied font.** The spec asked for an original 8x8 font. The reviewer
+compared the glyphs from memory with the IBM PC ROM font and found about 30 bit-identical ones. The
+worker redrew them in its own squared style and passed on the second attempt.
+
+**An art probe before the content spec.**
+- One subagent drew one reference scene and one sprite with the engine's merged picture API, in
+  five draw, look and improve rounds (20 minutes).
+- Its rules went into the second spec as art rules, and its code and PNG were committed as the
+  quality bar:
+  - geometry constants first;
+  - a black outline on everything;
+  - one dithered plane at most;
+  - no flood fill on dithers;
+  - one shared box helper for all furniture.
+- The probe's helpers became a small shared drawing kit that the core module builds first.
+
+**Writing the story with a second model.**
+- The user asked for the story to be written by a named model and to read as human-written.
+- A writer agent produced the story document, and a second pass by the same model looked only for
+  machine-sounding prose.
+- The banned-word list was almost clean already. The real tells were structural:
+  - sentences ending in ", which is [joke]";
+  - the same joke in two rooms;
+  - overworked punchline words.
+- About 13 % of the lines changed.
+
+**Tooling notes:**
+- The keep-awake loop must exit on a *new* `Run finished` line. A resumed run appends to the same
+  `progress.md`, and a loop that exits on any such line stops at once.
+- In the Bash tool, a long heredoc that contained quotes sometimes failed with "unexpected EOF". Write such files with the
+  Write tool and run them.
+- Synthesized `SendInput` with `MapVirtualKey` scan codes drove the SDL window reliably, arrow keys
+  included with the extended flag.
+
 ## Layout that split well
 
 One console project (`src/<App>/<App>.csproj`) with one folder and namespace per module,
