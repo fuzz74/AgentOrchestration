@@ -526,6 +526,89 @@ merged was a cheap early check of the art.
 - The check toggled a per-user setting, which created the app's settings file. It was deleted
   afterwards so that the next real launch behaves like a first launch.
 
+### Example Project G, third follow-up round: two features in three specs, no human involvement
+
+A fourth round on the same repo, through `/auto-develop`. The request held one small feature
+(lift a limit of the core's public output) and one large one (new playable units in both
+presentation layers, plus a front-end page to choose them). It was split without an interview
+into three specs run one after the other:
+1. the small feature;
+2. a framework for the units, the chooser page and the first new unit;
+3. the second unit, built the way the first was.
+
+Each spec was written while the run before it built.
+
+**Run totals:**
+
+| Spec | Lines, modules | Plan | Build | Tasks |
+| --- | --- | --- | --- | --- |
+| 1 | about 200, 6 | 7 tasks, 0.30 USD | 16.72 USD, 29 min | 7/7 on the first attempt |
+| 2 | about 490, 9 | 10 tasks, 0.68 USD | 69.15 USD, 2 h | 10/10 on the first attempt |
+| 3 | about 250, 5 | 6 tasks, 0.43 USD | 32.10 USD, 1 h | 6/6 on the first attempt |
+
+- The planner was Opus at `-Effort medium`. Workers and reviewers were Opus, with `-MaxParallel 5`.
+- There were no review rejections and no failed integration checks. Total about 120 USD.
+- Result: 220 files changed (+20K lines). Tests went from 3,571 to 6,014, with 0 warnings. Every
+  screenshot scene of the real exe rendered in both styles.
+
+**Probe every spec against the code, and keep a module's own changes in view.**
+- For each spec, the contract code and compiling stubs were applied to a scratch clone of the
+  merged base, and the whole suite was run. That listed exactly the tests to hand to the contract
+  module: 7, 12 and 11 failures.
+- In spec 1 the probe found a renderer test, outside every planned path, that counts display
+  elements.
+- The cold reviewers then simulated *merged states of module pairs*. That found what the
+  contract probe cannot:
+  - tests broken by a module's own requirements;
+  - a new default (every unit on) that made other modules' end-to-end games run into a stub
+    unit. The fix was to keep the old behaviour as the default and let the host pass the
+    player's saved choice.
+  - byte-exact file tests broken by a new settings key. The fix was to write the key only when
+    it differs from the default.
+  - an enum-wide theory test broken by appending enum members;
+  - a state tracker in the second presentation layer that only knew the first unit's figures.
+- Review passes per spec: 1, 2 and 1. They found 2, 8 + 3 and 2 blocking issues. One was a
+  scoring loophole: a two-press move that could be repeated at once scored without limit.
+
+**Stubs keep a seam-first split green.**
+- The seam modules (engine, art dispatch, presentation layer) wrote compiling stubs into the
+  folders the unit's own modules own. The `owns` overlap is allowed because those modules depend
+  on the seam modules. The spec told the seam modules not to test stub behaviour.
+- Appending an enum value broke tests in three other modules' folders (menu wrap-around order).
+  Those test files went to the contract module rather than serialising the front-end modules.
+- In spec 3, every `switch` over the enum had a default arm, so nothing failed to compile. But
+  the engine and the renderer build one object per enum value at start-up, so the new value
+  needed registered stubs in the same task. Two flow tests had used "all units" and expected
+  the order to wrap round after the second unit. Narrowing them to an explicit set was a contract
+  task. This is the "don't pin exact sets that later modules extend" rule again.
+- Adopted from review advisories:
+  - pixel hashes of fixed frames recorded *before* a refactor that must keep pixels identical;
+  - internal constructors that take factories, so seam modules test with recording fakes instead
+    of stubs.
+
+**A bot with instant reactions proves only fairness; a lag probe needs care.**
+- Each unit's scripted player cleared it on 10 of 10 seeds within 10-17 s and was never hit,
+  because moves are instant.
+- A throwaway wrapper showed the player a lagged display and limited its press rate. With the
+  lag alone it failed every time. It pressed again before it saw its own move, so the probe
+  measured the bot, not the unit.
+- With the press gap at least the lag, and the bot's timing shifted by the lag, the probe gave
+  usable numbers. At 200 ms of lag:
+  - one unit lost about 0.9 lives per clear in the easier mode and 6 in the harder one;
+  - the other lost 0.26 and 0.38.
+
+  That was enough to judge the units' difficulty without a retuning run.
+
+**`Plan-Tasks.ps1`'s archive step stopped half way.**
+- The assistant had once `cd`-ed into a task's log folder. A `Monitor` (`tail -F progress.md`)
+  started from that shell inherited the folder as its working directory and kept it locked.
+- The worktrees and branches were already gone. `TaskStop` on the monitor released the folder,
+  and the rest was moved by hand as README step 7 says.
+- Never `cd` into `.orchestrator`. Start monitors from a neutral folder.
+
+**Not pushed.** The user asked for the result, not a push, so each run was merged into the local
+`main` only.
+
 ### Example Project H: same stack, designed from scratch, no human involvement
 
 Found while building Example Project H (October 2026, .NET SDK 10.0.302): a new real-time desktop
