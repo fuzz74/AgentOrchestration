@@ -1075,7 +1075,76 @@ worker redrew them in its own squared style and passed on the second attempt.
 - In the Bash tool, a long heredoc that contained quotes sometimes failed with "unexpected EOF". Write such files with the
   Write tool and run them.
 - Synthesized `SendInput` with `MapVirtualKey` scan codes drove the SDL window reliably, arrow keys
-  included with the extended flag.
+  included with the extended flag. This held only while nobody else was using the PC: see the
+  second run.
+
+### Example Project M, second run: the content
+
+**Run totals:**
+- **Spec:** about 1,140 lines, built on the first run's engine, with the art probe's rules and a
+  story document as inputs.
+- **Planning:** 52 tasks.
+- **Build:**
+  - Opus workers and reviewers with `-MaxParallel 6`, 724.17 USD.
+  - Three sittings of 5 h 22 min, 1 h 58 min and 37 min: the account limit split the first two,
+    and a pause the user asked for split the last two.
+  - Median task 12.89 USD, range 2.40 to 40.20. The five most expensive tasks were the ones the
+    limit cut off.
+  - One review rejection and one failed acceptance check in the whole run.
+- **Result:**
+  - 8,894 tests, 0 warnings, whole suite in 1 min 21 s.
+  - Both runs together: about 40,500 lines of source, 71,800 lines of tests, 901 USD.
+
+**A weekly account limit used up 19 tasks' attempts in two minutes.**
+- Once the account hit its weekly limit, every worker call failed at once with "You've hit your
+  weekly limit". The runner counted each as a failed attempt and started the next.
+- 19 tasks used all three attempts between 10:18 and 10:20, with 73 limit errors in total. One
+  task that depended on them was blocked.
+- Recovery after the limit reset:
+  1. Commit the work in progress in each dirty worktree, on its task branch, owned paths only.
+  2. Check the account with a one-line `claude -p` call.
+  3. Rerun with `-RetryFailed`. Tasks with commits resume in sync mode.
+- All four tasks with work in progress passed review on the first try. One of them first needed
+  one more worker attempt, because its unfinished code failed acceptance.
+- No work was lost, but the cost of the failed attempts stays in each task's total.
+- **For the orchestrator:** a usage-limit error should pause the run, like a stop request, not
+  count as a failed attempt.
+
+**Passing acceptance does not show that a resumed task is complete.**
+- Each acceptance filter covered a whole area's test namespace, which already-merged tasks shared.
+- A task cut off mid-way passes as long as it broke nothing, even when its own tests are missing.
+- The review's spec verdict is what checks completeness. It sends missing parts back to the worker
+  as a to-do list.
+
+**A pause overnight with `Request-OrchestratorStop.ps1`.**
+- The user asked for a pause with 46 of 52 tasks done.
+- Active sessions finished, the last one 32 minutes after the request. Their tasks paused with the
+  worktree kept, and nothing new started.
+- The next morning, a rerun without `-RetryFailed` resumed the paused tasks in sync mode. All of
+  them merged on the first try.
+
+**An engine fix on the base branch during the run.**
+- Reviewing the renders showed a status text overlapping another.
+- The fix lay in an engine file that no task owned. So it was committed to the base branch, with
+  its tests, while the run went on, and the final merge was clean.
+- The doc paragraph about it lay in a running task's `owns`, so it was fixed after the merge
+  instead, to avoid a conflict.
+
+**A live check without input.**
+- Driving the window with `SendInput` failed when the user was at the PC. Windows' foreground lock
+  kept the game window behind, so the keystrokes may have gone to the user's window.
+- The driver now checks the foreground window before each key, and stops if the game is not in
+  front. Don't send synthetic input while the user may be using the PC.
+- What worked, with no input at all:
+  1. Start the exe with its developer options that open a given screen.
+  2. Restore the window without activating it: `ShowWindow` with `SW_SHOWNOACTIVATE`.
+  3. Capture it with `PrintWindow(hwnd, hdc, PW_CLIENTONLY | PW_RENDERFULLCONTENT)`. This works
+     for the DesktopGL window while it is behind other windows.
+- Call `SetProcessDPIAware` first. Otherwise the capture is a zoomed crop on a scaled display.
+- Through `powershell -File`, pass the app's arguments as one string. An array parameter arrives as
+  a single string.
+- All 44 screens were captured this way in about 4 minutes. The exe from the published zip was also
+  checked, from a clean folder.
 
 ## Layout that split well
 
