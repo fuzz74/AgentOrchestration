@@ -9,7 +9,7 @@ passed. The file lives in the repo, so it works from any PC and with Claude or C
 | Step | What you get | Status |
 |---|---|---|
 | [0](#step-0-starting-point-and-practice-repo) | A known-good starting point and a practice repo | Done |
-| [1a](#step-1a-orch-status) | `orch status` from anywhere inside a repo | Done (VS Code terminal and other PC still to check) |
+| [1a](#step-1a-orch-status) | `orch status` from anywhere inside a repo | Done (other PC still to check) |
 | [1b](#step-1b-watch-views-without-a-provider-flag) | `orch watch`, `timeline`, `talk` and `stop` with no `-Provider` | Done |
 | [1c](#step-1c-orch-plan-and-orch-run) | `orch plan` and `orch run` | Done |
 | [1d](#step-1d-orch-try-and-orch-finish) | `orch try` and `orch finish` | Done |
@@ -174,10 +174,9 @@ the two things every later command needs: `orch` is installed, and it finds the 
 - [x] **(you)** Open a **new** terminal in VS Code, then run
   `cd $env:TEMP\orch-practice\demo; orch status`. You should see the table from step 0. This
   shows that your own terminals load `orch`. *(you, in Windows Terminal)*
-- [ ] **(you)** The same in a **new VS Code terminal**: `orch` alone lists its commands. VS Code
+- [x] **(you)** The same in a **new VS Code terminal**: `orch` alone lists its commands. VS Code
   is where the design notes expect you to work, and its terminal may be set to Windows
-  PowerShell 5.1, which reads another profile file and would not load `orch`. This check stays
-  open and doesn't block the next steps.
+  PowerShell 5.1, which reads another profile file and would not load `orch`. *(you)*
 - [x] Running the install a second time changes nothing. It says `orch` is already installed.
   *(assistant)*
 - [x] `orch` with nothing after it lists its commands. Only `status` exists so far.
