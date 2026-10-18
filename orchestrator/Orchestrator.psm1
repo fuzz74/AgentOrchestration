@@ -144,7 +144,11 @@ function Read-Plan {
     $schemaErrors = @()
     try {
         $schema = Get-Content (Join-Path $script:SchemaDir 'tasks.schema.json') -Raw
-        $null = Test-Json -Json $raw -Schema $schema -ErrorAction Stop
+        # PowerShell 7.6's Test-Json returns $false without an error when the problem lies inside a task
+        # or the settings, so the result counts as well as the error.
+        if (-not (Test-Json -Json $raw -Schema $schema -ErrorAction Stop)) {
+            $schemaErrors += 'Schema: the plan does not match tasks.schema.json, probably inside a task or the settings (a wrong field name, type or value).'
+        }
     }
     catch { $schemaErrors += "Schema: $($_.Exception.Message)" }
     $doc = $raw | ConvertFrom-Json -AsHashtable
@@ -830,6 +834,7 @@ function Invoke-Agent {
             if (Test-Json -Json $jsonText -Schema (Get-CompactSchema $Schema) -ErrorAction Stop) {
                 $structured = $jsonText | ConvertFrom-Json -AsHashtable
             }
+            else { $schemaError = 'It does not match the result schema (a wrong field name, type or value).' }
         } catch { $schemaError = $_.Exception.Message }
     }
     $ok = $finished -and (-not $Schema -or $structured)

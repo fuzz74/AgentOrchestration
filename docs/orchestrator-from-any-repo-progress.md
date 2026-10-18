@@ -95,7 +95,10 @@ at our change. It also gives every later check a safe repo to run in.
   .\tests\Run-SmokeTest.ps1 -Provider Claude
   .\tests\Run-SmokeTest.ps1 -Provider Copilot
   ```
-  You should see green `PASS` lines, and each run ends with `Smoke test passed.`
+  You should see green `PASS` lines, and each run ends with `Smoke test passed.` It takes about
+  a minute per provider. Lines such as `[spec-only] FAILED: Gave up after 5 attempts` are
+  expected, because the test makes them on purpose. Only a red `FAIL` at the end of a check line
+  is a problem.
 - [ ] A practice repo with a finished run:
   ```powershell
   .\tests\New-PracticeRepo.ps1
@@ -119,6 +122,13 @@ at our change. It also gives every later check a safe repo to run in.
 **Done:** (date, PC)
 
 **Notes:**
+- 2026-10-18: the first smoke test failed for both providers, on `legacy coding and unknown role
+  rejected`. PowerShell 7.6.7, installed by an automatic update on 2026-10-14, returns `$false`
+  from `Test-Json` without an error when the problem is inside a task or the settings.
+  `Read-Plan` only looked for the error, so plans with a wrong `workerType`, an unknown task
+  field or a bad settings value passed validation. Fixed in `Orchestrator.psm1`: a `$false`
+  result now counts as a schema error too. The Copilot structured-result check now gives a
+  reason in that case. After the fix, both smoke tests passed when the assistant ran them.
 
 ---
 
