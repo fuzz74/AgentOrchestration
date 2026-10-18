@@ -104,21 +104,9 @@ repos are committed to only when asked. A real extension could add a task tree f
 2. Make the skills usable from any repo; pick plugin or `ORCH_HOME` after a quick test.
 3. The `/orch` guiding skill.
 4. Per-repo conventions in `project.json`.
-5. VS Code tasks, only if still missed.
-
-## Where each part can be done
-
-A cloud session (for example, from the phone) has this repo and git, but no PowerShell,
-Windows or VS Code. It can do the rule changes, write the `orch` command, the skill changes,
-the `project.json` conventions, the plugin manifests and the README sections. Without `pwsh`
-the smoke test can't run there, unless installing PowerShell works in that container.
-
-These need a Windows PC: the plugin-vs-`ORCH_HOME` test, checking where Copilot looks for
-personal skills, `orch try` opening VS Code, and a real run from inside a target repo.
 
 ## Open choices
 
-- Is this driven mostly from Claude Code in VS Code, Copilot chat, or the terminal?
 - Should runs stay hands-off on `main`, or should the orchestrator expect work to continue
   there during a run?
 - Plugin or `ORCH_HOME`?
