@@ -8,7 +8,7 @@ passed. The file lives in the repo, so it works from any PC and with Claude or C
 
 | Step | What you get | Status |
 |---|---|---|
-| [0](#step-0-starting-point-and-practice-repo) | A known-good starting point and a practice repo | Not started |
+| [0](#step-0-starting-point-and-practice-repo) | A known-good starting point and a practice repo | Ready to check |
 | [1a](#step-1a-orch-status) | `orch status` from anywhere inside a repo | Not started |
 | [1b](#step-1b-watch-views-without-a-provider-flag) | `orch watch`, `timeline`, `talk` and `stop` with no `-Provider` | Not started |
 | [1c](#step-1c-orch-plan-and-orch-run) | `orch plan` and `orch run` | Not started |
@@ -50,6 +50,10 @@ spends no tokens. It always uses `$env:TEMP\orch-practice` and replaces whatever
 
 The four tasks are `contracts`, then `feature-a` and `feature-b` side by side, then `wire-up`.
 
+Each call takes a few seconds and ends with a green `Practice repo ready: ...` line. With the
+default stage, you also see the run's progress lines. Everything else goes to
+`$env:TEMP\orch-practice\setup.log`.
+
 Close any VS Code window or terminal that is open in the practice folder before you make a new
 one, because Windows can't delete a folder that is in use.
 
@@ -90,7 +94,7 @@ at our change. It also gives every later check a safe repo to run in.
 - New `tests\New-PracticeRepo.ps1` (see [The practice repo](#the-practice-repo)).
 
 **Checks**
-- [ ] The smoke test passes for both providers:
+- [x] The smoke test passes for both providers:
   ```powershell
   .\tests\Run-SmokeTest.ps1 -Provider Claude
   .\tests\Run-SmokeTest.ps1 -Provider Copilot

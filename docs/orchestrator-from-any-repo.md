@@ -1,9 +1,10 @@
 # Using the orchestrator from inside a target repo
 
-Design notes from a discussion in October 2026. Nothing here is built yet. These notes are about
-how to make the orchestrator easier to use, starting from this case: an existing project repo
-(called Example Project N here) is open in VS Code, and you want to build a new feature in it
-with the orchestrator.
+Design notes from a discussion in October 2026. These notes are about how to make the
+orchestrator easier to use, starting from this case: an existing project repo (called Example
+Project N here) is open in VS Code, and you want to build a new feature in it with the
+orchestrator. Progress on building it is tracked in
+[orchestrator-from-any-repo-progress.md](orchestrator-from-any-repo-progress.md).
 
 ## What gets in the way now
 

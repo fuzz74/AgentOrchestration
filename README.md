@@ -93,6 +93,11 @@ Orchestrator commands in the terminal steps assume the current folder is
      next feature archives the earlier run by itself
 
    It ends with `Smoke test passed.`
+
+   To try the commands by hand, `.\tests\New-PracticeRepo.ps1` makes a throwaway repo with
+   the same fake provider in `%TEMP%\orch-practice\demo`, replacing the previous one.
+   `-Stage Run` (the default) leaves a finished run that is not merged yet, `-Stage Planned` a
+   plan that hasn't started, and `-Stage Empty` a project with one commit and no plan.
 5. **Access to your projects.** The target repo is outside this folder. In Claude Code,
    Claude asks before reading or writing there. The first time you give
    `/write-spec` or `/plan-tasks` a repo path, Claude offers to allow that repo or its
