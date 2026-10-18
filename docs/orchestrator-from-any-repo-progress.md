@@ -25,13 +25,14 @@ written yet).
 1. **Agree on the checks.** Before building a step, we read its checks together and adjust them.
 2. **Build.** Claude or Copilot builds the step, runs the smoke test, updates the README, sets
    the step to *Ready to check*, and commits and pushes.
-3. **Check.** You run the checks in a PowerShell 7 terminal and tick each box. Every check says
-   what you should see.
-4. **Done or fix.** If every check passes, set the step to *Done* and fill in its *Done* line.
-   If something looks wrong, write it under the step's *Notes*. It gets fixed before the next
-   step starts.
+3. **Check.** You run the checks in a PowerShell 7 terminal. Every check says what you should
+   see. Tell the assistant what you saw, and it ticks the boxes.
+4. **Done or fix.** When every check has passed, the step is set to *Done* and its *Done* line
+   is filled in. If something looks wrong, it goes under the step's *Notes* and gets fixed
+   before the next step starts.
 
-For assistants: never tick a check or set a step to *Done*. Only the user does that.
+For assistants: tick a check or set a step to *Done* only after the user says it passed. Never
+tick one because your own run of it passed.
 
 Commands that start with `.\` run in your AgentOrchestration folder.
 
