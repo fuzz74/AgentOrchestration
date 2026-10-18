@@ -9,7 +9,7 @@ passed. The file lives in the repo, so it works from any PC and with Claude or C
 | Step | What you get | Status |
 |---|---|---|
 | [0](#step-0-starting-point-and-practice-repo) | A known-good starting point and a practice repo | Done |
-| [1a](#step-1a-orch-status) | `orch status` from anywhere inside a repo | Ready to check |
+| [1a](#step-1a-orch-status) | `orch status` from anywhere inside a repo | Done (other PC still to check) |
 | [1b](#step-1b-watch-views-without-a-provider-flag) | `orch watch`, `timeline`, `talk` and `stop` with no `-Provider` | Not started |
 | [1c](#step-1c-orch-plan-and-orch-run) | `orch plan` and `orch run` | Not started |
 | [1d](#step-1d-orch-try-and-orch-finish) | `orch try` and `orch finish` | Not started |
@@ -170,9 +170,9 @@ the two things every later command needs: `orch` is installed, and it finds the 
   .\Install-Orch.ps1
   ```
   You should see a message saying which folder `orch` was installed from.
-- [ ] **(you)** Open a **new** terminal in VS Code, then run
+- [x] **(you)** Open a **new** terminal in VS Code, then run
   `cd $env:TEMP\orch-practice\demo; orch status`. You should see the table from step 0. This
-  shows that your own terminals load `orch`.
+  shows that your own terminals load `orch`. *(you)*
 - [x] Running the install a second time changes nothing. It says `orch` is already installed.
   *(assistant)*
 - [x] `orch` with nothing after it lists its commands. Only `status` exists so far.
@@ -195,9 +195,10 @@ the two things every later command needs: `orch` is installed, and it finds the 
   trace.
 - [x] The smoke test still passes. *(assistant, both providers)*
 - [ ] **(you)** *The next time you're on another PC:* pull, run the install, open a new
-  terminal, make a practice repo, and run `orch status` there.
+  terminal, make a practice repo, and run `orch status` there. This check stays open and
+  doesn't block the next steps.
 
-**Done:** (date, PC)
+**Done:** 2026-10-18, MSI (the other-PC check is still open)
 
 **Notes:**
 - 2026-10-18: a single flag after the command, as in `orch status -Once`, reached the script as
