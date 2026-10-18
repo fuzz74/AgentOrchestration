@@ -22,6 +22,16 @@ Who reads the spec decides what goes in it:
 The method draws on Superpowers' brainstorming skill and cc-sdd's requirements and design
 rules. The originals are in [references/](references/README.md).
 
+## Where things are
+
+- **The orchestrator** is the AgentOrchestration checkout. Its path is in the `ORCH_HOME`
+  environment variable. Your shell may lack it when the editor started before it was set;
+  then read it with `[Environment]::GetEnvironmentVariable('ORCH_HOME', 'User')`. If neither
+  has it, tell the user to run `Install-Orch.ps1` in their AgentOrchestration checkout. Below,
+  `<orch>` stands for that folder.
+- **The target repo** is the repo this chat is open in, unless that is the orchestrator
+  checkout itself or the user names another repo. Then ask for its path.
+
 <HARD-GATE>
 While writing a spec, do not write product code, scaffold, install dependencies, or write
 tasks.json. Read-only exploration of the target repo is allowed. The only file you write is
@@ -43,12 +53,12 @@ would help, say which one and why, and wait for a yes.
 
 ## Steps
 
-1. **Target.** Ask for the target repo path and the topic, unless already given. If the user
-   has a draft spec, start from it: review it against the rules below and interview only
-   for the gaps.
+1. **Target.** Settle the target repo (see above) and ask for the topic, unless already
+   given. If the user has a draft spec, start from it: review it against the rules below and
+   interview only for the gaps.
 
-  **Access.** The target repo is usually outside this workspace. Ask for approval to access
-  it using the active assistant's directory permissions. In Claude Code, use
+  **Access.** If the target repo lies outside the folder this chat is open in, ask for
+  approval to access it using the active assistant's directory permissions. In Claude Code, use
   `.claude/settings.local.json` and `permissions.additionalDirectories`; in Copilot CLI,
   use `--add-dir <repo>` or the session's directory permission flow. Never change access
   settings without the user's approval. Settle access first even when the user asks for no
@@ -107,7 +117,8 @@ would help, say which one and why, and wait for a yes.
 10. **User review.** Give the path and ask the user to read the spec. Revise until they
     approve.
 11. **Hand off.** Offer `/plan-tasks`, or give the command
-    `.\orchestrator\Plan-Tasks.ps1 -Provider <Claude|Copilot> -Spec <path> -RepoPath <repo>`. Ask which provider to use. For a new project, that
+    `& '<orch>\orchestrator\Plan-Tasks.ps1' -Provider <Claude|Copilot> -Spec <path> -RepoPath <repo>`,
+    or `orch plan <path>` in a terminal inside the repo. Ask which provider to use. For a new project, that
     command creates the skeleton first and takes the setup and check commands from it. For
     an existing repo without `.orchestrator/project.json`, add
     `-Setup '<setup command>' -IntegrationCheck '<whole-project check>'`. If the repo holds

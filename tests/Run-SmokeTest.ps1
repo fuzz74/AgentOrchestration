@@ -32,6 +32,7 @@ $env:FAKE_FAIL_ONCE = 'feature-b'
 $env:FAKE_SHARED = '1'
 $env:FAKE_NO_STRUCTURED = 'contracts'
 if ($Provider -eq 'Copilot') { $env:FAKE_REQUIRE_MODEL = 'gpt-6-sol' }
+$env:FAKE_CHECK_SKILL_BLOCK = '1'
 try {
     & (Join-Path $orch 'Plan-Tasks.ps1') -Provider $Provider -Spec $spec -RepoPath $repo -AgentPath $fake -WorkerType Analysis
     # The fake planner lists registry.txt as shared. Every task touches it, so the parallel tasks
@@ -104,7 +105,7 @@ try {
     }
 }
 finally {
-    Remove-Item Env:FAKE_FAIL_ONCE, Env:FAKE_SHARED, Env:FAKE_NO_STRUCTURED, Env:FAKE_REQUIRE_MODEL, Env:FAKE_REQUIRE_ADD_DIR -ErrorAction SilentlyContinue
+    Remove-Item Env:FAKE_FAIL_ONCE, Env:FAKE_SHARED, Env:FAKE_NO_STRUCTURED, Env:FAKE_REQUIRE_MODEL, Env:FAKE_REQUIRE_ADD_DIR, Env:FAKE_CHECK_SKILL_BLOCK -ErrorAction SilentlyContinue
     $gitIdentity.Keys | ForEach-Object { Remove-Item "Env:$_" }
 }
 
@@ -165,6 +166,8 @@ $checks = [ordered]@{
     'integration check ran after merge' = @(Get-ChildItem (Join-Path $repo '.orchestrator/logs') -Filter '*-integration-check.log').Count -eq 4
     # Merges are checked on a detached HEAD; the integration worktree must end back on the branch.
     'integration worktree on its branch' = (git -C (Join-Path $WorkDir 'demo.worktrees/_integration') symbolic-ref --short HEAD) -eq 'orch/integration'
+    # Bootstrap, planner, workers, reviewers, resolver and nudge all ran in this first part.
+    'headless agents cannot start skills' = -not (Test-Path (Join-Path ([IO.Path]::GetTempPath()) 'fake-claude/skill-block-missing.txt'))
     'orch status from a worktree'       = $orchOutput -match 'orch: repo .*[\\/]demo\r?\n' -and $orchOutput -match 'wire-up\s+done'
     'orch watch uses the plan provider' = $planDoc.provider -ceq $Provider -and $orchOutput -match "provider $Provider \(from the plan\)" -and
         $orchOutput -match "Live $Provider CLI processes"

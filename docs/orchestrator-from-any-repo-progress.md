@@ -13,7 +13,7 @@ passed. The file lives in the repo, so it works from any PC and with Claude or C
 | [1b](#step-1b-watch-views-without-a-provider-flag) | `orch watch`, `timeline`, `talk` and `stop` with no `-Provider` | Done |
 | [1c](#step-1c-orch-plan-and-orch-run) | `orch plan` and `orch run` | Done |
 | [1d](#step-1d-orch-try-and-orch-finish) | `orch try` and `orch finish` | Done |
-| [2](#step-2-skills-from-any-repo) | `/write-spec` and `/plan-tasks` from any repo | Later |
+| [2](#step-2-skills-from-any-repo) | `/write-spec` and `/plan-tasks` from any repo | Ready to check |
 | [3](#step-3-the-orch-guiding-skill) | The `/orch` guiding skill | Later |
 | [4](#step-4-per-repo-conventions) | Per-repo conventions in `project.json` | Later |
 
@@ -408,18 +408,10 @@ archive the run in one go.
 
 ---
 
-## Later steps
+## Step 2: Skills from any repo
 
-These get detailed checks when we reach them, in the same way as step 1.
-
-### Step 2: Skills from any repo
-
-- It starts with a quick test on this PC, to choose between a Claude Code plugin and
-  `ORCH_HOME` skill folders. The test answers whether a plugin installed from a local path
-  picks up a `git pull`, and where Copilot chat and Copilot CLI look for personal skills.
-- The check, in outline: in a VS Code window opened on a practice repo, `/write-spec` and
-  `/plan-tasks` are offered, and they find the orchestrator's scripts without asking for folder
-  access.
+**Why:** so `/write-spec`, `/plan-tasks` and `/auto-develop` work in the chat of any repo, with
+that repo as the target, and a `git pull` keeps them current.
 
 **Investigation** (2026-10-18; Claude Code 2.1.302, Copilot CLI 1.0.97, from the docs and this
 PC)
@@ -443,8 +435,10 @@ PC)
   PowerShell profile. So in a chat, `orch` isn't available, and `ORCH_HOME` may exist only in
   the registry. A skill can name its own folder with `${CLAUDE_SKILL_DIR}`, but through a link
   that path points into `~\.claude\skills`, not into the checkout.
-- **Workers:** planners, workers and reviewers get a fixed tool list without the skill tool,
-  so they can't start a skill. The bootstrap and the resolver have no list and could.
+- **Workers:** Claude planners, workers and reviewers get a fixed tool list without the
+  skill tool, so they can't start a skill. The Claude bootstrap and resolver have no list and
+  could. Every Copilot session gets a tool list built from `allowedTools`, which never names
+  the skill tool.
 
 **Link test** (2026-10-18, MSI). A throwaway skill in the scratchpad was linked with Windows
 junctions (no admin rights or Developer Mode needed) into `~\.claude\skills` and
@@ -458,6 +452,60 @@ junctions (no admin rights or Developer Mode needed) into `~\.claude\skills` and
 - [ ] **(you)** VS Code Copilot chat: not set up on this PC. Try it on a PC where it is.
 
 The test links, the skill and the `~\.copilot\skills` folder it needed were removed again.
+
+**Decided** (2026-10-18)
+- Link the skills with junctions into the personal skill folders, and make no plugin. A plugin
+  would rename the skills (`/orch:write-spec`), Copilot plugins are off by default in VS Code,
+  and the scripts would have to move into a plugin folder.
+- The skills find the orchestrator through `ORCH_HOME`, with the registry as a fallback, and
+  run its scripts by full path.
+- `Install-Orch.ps1` allows this checkout and `~\.claude\skills` once in
+  `~\.claude\settings.json`, so Claude reads the orchestrator's files from another repo without
+  asking.
+
+**What changes**
+- `Install-Orch.ps1` links the three skills into `~\.claude\skills` and `~\.copilot\skills`,
+  and allows the two folders for Claude after a backup of `settings.json`.
+- `write-spec` and `plan-tasks` get a "Where things are" section. The repo the chat is open
+  in is the default target, and scripts run by full path. `plan-tasks` writes `provider` into
+  `tasks.json` and `project.json`, and the hand-offs mention `orch plan` and `orch run`.
+- No headless agent can start these skills. Claude sessions deny `Skill(write-spec)`,
+  `Skill(plan-tasks)` and `Skill(auto-develop)`. A Copilot session without a tool list loses
+  the skill tool (`--excluded-tools=skill`).
+- The README (the "Agent chat" row, setup item 6, the command reference, a safety note) and
+  the smoke test, which checks that every headless call blocks the skills.
+
+**Checks**
+- [x] The install. A dry run lists six links and the settings change, the install makes them,
+  and a second run changes nothing. *(assistant)*
+- [x] `settings.json` equals its backup apart from the two new entries. *(assistant)*
+- [x] A real folder with a skill's name is left alone, with a warning. *(assistant)*
+- [x] The Claude block. Asked to load `plan-tasks`, Haiku replies `BLOCKED` with the block and
+  loads the skill without it. *(assistant)*
+- [x] The Copilot block. `--deny-tool=skill(plan-tasks)` is silently ignored, so it isn't
+  used; `--excluded-tools=skill` blocks. *(assistant)*
+- [x] The real skill from the practice repo, with no `ORCH_HOME` in the environment.
+  `/plan-tasks`, asked only for its setup, reports `orch: C:\Data\AI\AgentOrchestration` and
+  `target: ...\orch-practice\demo`, in Claude (Haiku) and in Copilot. *(assistant)*
+- [x] The smoke test, both providers, with the new check `headless agents cannot start
+  skills`. That check does note a call without the block. *(assistant)*
+- [ ] **(you)** The real flow in VS Code. In the Claude Code panel of the practice repo,
+  `/plan-tasks` plans the practice spec with you, writes `tasks.json` with `provider`, and
+  validates it with the orchestrator's scripts. Afterwards `orch status` shows the plan.
+- [ ] **(you)** VS Code Copilot chat, on a PC where it is set up: `/plan-tasks` is offered in
+  another repo.
+- [ ] **(you)** *The next time you're on another PC:* pull, and run `.\Install-Orch.ps1` again
+  to make the links and the settings entry there.
+
+**Done:** (date, PC)
+
+**Notes:**
+
+---
+
+## Later steps
+
+These get detailed checks when we reach them, in the same way as steps 1 and 2.
 
 ### Step 3: The /orch guiding skill
 
@@ -483,3 +531,4 @@ The test links, the skill and the `~\.copilot\skills` folder it needed were remo
 | 2026-10-18 | The provider comes from `-Provider`, then the plan (`Plan-Tasks.ps1` records it), then `ORCH_PROVIDER` for the PC (see step 1b). |
 | 2026-10-18 | `Plan-Tasks.ps1` also saves the provider in `project.json`, checked after the plan and before `ORCH_PROVIDER`. `-MaxParallel` from `project.json` is skipped for now (see step 1c). |
 | 2026-10-18 | Runs stay hands-off `main`: `orch finish` stops when the base branch moved, and `-Force` merges anyway (see step 1d). |
+| 2026-10-18 | The skills reach other repos through junctions in the personal skill folders, not a plugin. Claude is allowed this checkout once in its user settings (see step 2). |

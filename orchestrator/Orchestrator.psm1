@@ -10,6 +10,9 @@ $script:CopilotModel = 'gpt-6-sol'
 $script:HeartbeatSeconds = 60
 # claude.ai connectors hidden from every Claude agent. They stay enabled in interactive sessions.
 $script:ClaudeDeniedMcpServers = @('mcp__claude_ai_Spotify', 'mcp__claude_ai_Strava', 'mcp__claude_ai_Claude_Docs')
+# The orchestrator's own skills, which Install-Orch.ps1 makes personal. They talk with the user, so
+# no headless agent may start one.
+$script:OrchestratorSkills = @('write-spec', 'plan-tasks', 'auto-develop')
 
 $script:DefaultSettings = [ordered]@{
     model             = 'sonnet'
@@ -736,7 +739,8 @@ function Invoke-Agent {
         $cliArgs.AddRange([string[]]@('-p', '--output-format', 'stream-json', '--verbose', '--permission-prompts', 'none'))
         # Auto memory lives outside the repo on one machine; agents must not read or write it.
         $cliArgs.AddRange([string[]]@('--settings', '{"autoMemoryEnabled":false}'))
-        $cliArgs.AddRange([string[]]@('--disallowedTools', ($script:ClaudeDeniedMcpServers -join ',')))
+        $denied = $script:ClaudeDeniedMcpServers + @($script:OrchestratorSkills | ForEach-Object { "Skill($_)" })
+        $cliArgs.AddRange([string[]]@('--disallowedTools', ($denied -join ',')))
         if ($Schema) { $cliArgs.AddRange([string[]]@('--json-schema', (Get-CompactSchema $Schema))) }
         if ($Model) { $cliArgs.AddRange([string[]]@('--model', $Model)) }
         if ($Effort) { $cliArgs.AddRange([string[]]@('--effort', $Effort)) }
@@ -771,6 +775,8 @@ function Invoke-Agent {
             }
             $cliArgs.Add("--available-tools=$(($available | Select-Object -Unique) -join ',')")
         }
+        # A list never names the skill tool. Without one, take it away: --deny-tool can't name one skill.
+        else { $cliArgs.Add('--excluded-tools=skill') }
         if ($ResumeSessionId) { $cliArgs.AddRange([string[]]@('--resume', $ResumeSessionId)) }
         if ($Name -and -not $ResumeSessionId) { $cliArgs.AddRange([string[]]@('--name', $Name)) }
     }

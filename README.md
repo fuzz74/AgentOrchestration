@@ -64,7 +64,7 @@ result. Creating the repo, the project skeleton, the plan and the code is automa
 | Place | What it is | How to open it |
 | --- | --- | --- |
 | **Terminal** | PowerShell 7 (`pwsh`), not Windows PowerShell 5.1 | Windows Terminal with the *PowerShell* profile, or in VS Code **Terminal → New Terminal**. Check with `$PSVersionTable.PSVersion` (7.2 or later). |
-| **Agent chat** | Claude Code or Copilot, interactive, started in the `AgentOrchestration` folder. Both can discover the shared `/write-spec` and `/plan-tasks` skills in `.claude/skills`. | Open this folder in VS Code and use Claude Code or GitHub Copilot chat; or start `claude` or `copilot` in a terminal. |
+| **Agent chat** | Claude Code or Copilot, interactive. After `Install-Orch.ps1` (setup item 6), the shared `/write-spec`, `/plan-tasks` and `/auto-develop` skills work in any repo, and the repo the chat is open in is the target. Without it, start the chat in the `AgentOrchestration` folder, where both find the skills in `.claude/skills`. | Open the target repo, or this folder, in VS Code and use Claude Code or GitHub Copilot chat; or start `claude` or `copilot` in a terminal there. |
 | **Editor** | VS Code, for reading and editing files | **File → Open File…** or **File → Open Folder…** |
 
 Orchestrator commands in the terminal steps assume the current folder is
@@ -112,13 +112,22 @@ Orchestrator commands in the terminal steps assume the current folder is
     In interactive Copilot CLI, grant access through its own permission flow or use
     `copilot --add-dir C:\src\myapp`. The orchestration scripts run inside target repos
     and do not edit either assistant's interactive access settings.
-6. **The short `orch` command** (optional, once per PC): run
+6. **The `orch` command and the skills in any repo** (optional, once per PC): run
    `.\Install-Orch.ps1 -Provider Claude` (or `Copilot`). It sets the user environment variable
    `ORCH_HOME` to this folder, sets `ORCH_PROVIDER` to your default provider, and adds one line
    to your PowerShell profile (`$PROFILE.CurrentUserAllHosts`) that loads `orch` in every new
    terminal. The line holds no path, so a profile shared between PCs, for example through
-   OneDrive, works on each PC that has run the install. After that, anywhere inside a target
-   repo or one of its worktrees:
+   OneDrive, works on each PC that has run the install.
+
+   It also links `/write-spec`, `/plan-tasks` and `/auto-develop` into your personal skill
+   folders, `~\.claude\skills` (Claude Code) and `~\.copilot\skills` (Copilot). The links are
+   junctions into this checkout, so a `git pull` updates the skills, and they need no admin
+   rights. It leaves alone a real folder that has one of those names. Last, it allows this
+   folder and `~\.claude\skills` in `permissions.additionalDirectories` of
+   `~\.claude\settings.json`, after a backup of that file, so Claude reads the orchestrator's
+   files from another repo without asking. Headless agents can't start these skills.
+
+   After that, anywhere inside a target repo or one of its worktrees:
 
    | You type | It runs |
    | --- | --- |
@@ -673,7 +682,7 @@ implementation or acceptance check needs repair.
 | `Watch-Conversations.ps1` | `-RepoPath` (`.`), `-Task` (optional task ID), `-Last` (`25`), `-RefreshSeconds` (`2`), `-ShowTools`, `-FullRequests`, `-NoMouse`, `-Once`. Live view has clickable request controls and a scrollable in-terminal popup (O opens the latest request without mouse); `-Once` prints plain output. Ctrl+C or Q quits. |
 | `Clear-Orchestrator.ps1` | `-RepoPath`, `-All`. Without `-All`: removes task worktrees and `orch/task/*` branches, resets unfinished tasks to pending. With `-All`: also the integration worktree and branch, state, logs and progress, which are deleted, not archived. Refuses while a run is active. Supports `-WhatIf`. |
 | `Complete-Orchestrator.ps1` | `-RepoPath`, `-Keep` (files to leave in `.orchestrator`, by name or full path), `-Force` (archive a run that is not finished). Moves the run record to `<repo>.runs/<timestamp>/.orchestrator`, leaves `project.json`, and removes all worktrees and `orch/*` branches. Refuses while a run is active. Supports `-WhatIf`. |
-| `Install-Orch.ps1` | `-Provider Claude|Copilot` (sets `ORCH_PROVIDER`, the default provider), `-WhatIf`. Installs `orch` on this PC: sets `ORCH_HOME` and adds the line that loads it to `$PROFILE.CurrentUserAllHosts`. Running it again changes nothing unless the checkout has moved or the provider changes. |
+| `Install-Orch.ps1` | `-Provider Claude|Copilot` (sets `ORCH_PROVIDER`, the default provider), `-WhatIf`. Installs `orch` on this PC: sets `ORCH_HOME` and adds the line that loads it to `$PROFILE.CurrentUserAllHosts`. Links the skills in `.claude/skills` into `~\.claude\skills` and `~\.copilot\skills` as junctions, and allows this checkout and `~\.claude\skills` in Claude's user settings. Running it again changes nothing unless the checkout has moved or the provider changes. |
 | `orch <command>` | `plan`, `run`, `status`, `watch`, `timeline`, `talk`, `stop` run `Plan-Tasks.ps1`, `Invoke-Orchestrator.ps1`, `Show-Tasks.ps1`, `Watch-Orchestrator.ps1`, `Watch-AgentTimeline.ps1`, `Watch-Conversations.ps1` and `Request-OrchestratorStop.ps1` for the repo around the current folder; a worktree counts as its repo. The provider comes from `-Provider`, then the plan's `provider`, then `project.json`, then `ORCH_PROVIDER`. Other flags go to the script, and `-RepoPath` overrides the repo. `try` opens the `_integration` worktree with `code -n`. `finish` (`-Yes` skips the question, `-Force` merges although the base branch moved) merges the integration branch into the base branch and runs `Complete-Run`; it never pushes. `orch` alone lists the commands. |
 | `tests/Run-SmokeTest.ps1` | `-Provider Claude|Copilot` (required), `-WorkDir`. End-to-end fake-CLI test from an empty folder to merged work. |
 | `tests/New-PracticeRepo.ps1` | `-Stage Run|Planned|Empty` (`Run`), `-Provider` (`Claude`). Replaces the throwaway repo in `%TEMP%\orch-practice\demo`, made with the fake CLI, for trying commands by hand. |
@@ -720,6 +729,10 @@ model arguments or an existing plan specify another model. Claude retains its mo
 - `claude -p` loads the project's `CLAUDE.md`, hooks, skills and `.mcp.json` in every
   worktree and shows no trust prompt. That is useful for conventions, and a reason to
   run only trusted repos.
+- No headless agent can start the orchestrator's own skills (`/write-spec`, `/plan-tasks`,
+  `/auto-develop`), which talk with the user. Claude sessions deny them by name. Copilot
+  sessions always get a tool list without the skill tool, or lose that tool
+  (`--excluded-tools=skill`); Copilot's `--deny-tool` can't name a single skill.
 - Nothing is pushed. All merges are local, and merging `orch/integration` into your base
   branch is left to you.
 

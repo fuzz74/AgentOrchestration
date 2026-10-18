@@ -13,6 +13,13 @@
     into the terminal it runs in.
     -Provider sets this PC's default provider, the user environment variable ORCH_PROVIDER.
     `orch` uses it when neither -Provider nor the plan names one.
+    It also links the skills in .claude\skills (/write-spec, /plan-tasks, /auto-develop) into
+    the personal skill folders, ~\.claude\skills for Claude Code and ~\.copilot\skills for
+    Copilot, so they work in every repo. The links are junctions into this checkout: they need
+    no admin rights, and a git pull updates the skills. A real folder with a skill's name is
+    left alone. Last, it allows this checkout and ~\.claude\skills in
+    permissions.additionalDirectories of ~\.claude\settings.json, after a backup of that file,
+    so Claude reads the orchestrator's files from another repo without asking.
 .EXAMPLE
     .\Install-Orch.ps1 -Provider Claude
 .EXAMPLE
@@ -52,6 +59,43 @@ if ($text -notmatch 'Orch\.psm1' -and $PSCmdlet.ShouldProcess($profilePath, 'Add
     $separator = if ($text -and -not $text.EndsWith("`n")) { [Environment]::NewLine } else { '' }
     Add-Content -Path $profilePath -Value "$separator# The short orch command for the agent orchestrator (added by Install-Orch.ps1)`n$profileLine"
     Write-Host "Added the line that loads orch to $profilePath."
+    $changed = $true
+}
+
+$skillsSource = Join-Path $orchHome '.claude\skills'
+foreach ($root in (Join-Path $HOME '.claude\skills'), (Join-Path $HOME '.copilot\skills')) {
+    foreach ($skill in Get-ChildItem $skillsSource -Directory) {
+        $link = Join-Path $root $skill.Name
+        $item = Get-Item $link -Force -ErrorAction SilentlyContinue
+        if ($item -and -not $item.LinkType) {
+            Write-Warning "$link is a real folder, not a link, so it was left alone. /$($skill.Name) there is not this checkout's skill."
+            continue
+        }
+        if ($item -and "$($item.Target)" -eq $skill.FullName) { continue }
+        if (-not $PSCmdlet.ShouldProcess($link, "Link to $($skill.FullName)")) { continue }
+        # Delete only the old link, never the folder it points to.
+        if ($item) { [IO.Directory]::Delete($link, $false) }
+        New-Item -ItemType Directory -Force -Path $root | Out-Null
+        New-Item -ItemType Junction -Path $link -Target $skill.FullName | Out-Null
+        Write-Host "Linked $link to $($skill.FullName)."
+        $changed = $true
+    }
+}
+
+# The skills are read through their links in ~\.claude\skills, so that folder is allowed too.
+$claudeSettings = Join-Path $HOME '.claude\settings.json'
+$settings = if (Test-Path $claudeSettings) { Get-Content $claudeSettings -Raw | ConvertFrom-Json -AsHashtable } else { [ordered]@{} }
+if (-not $settings.permissions) { $settings.permissions = [ordered]@{} }
+$allowed = @($settings.permissions.additionalDirectories | Where-Object { $_ })
+$missing = @(@($orchHome, (Join-Path $HOME '.claude\skills')) | Where-Object {
+        $dir = [IO.Path]::GetFullPath($_)
+        -not ($allowed | Where-Object { [IO.Path]::GetFullPath($_).TrimEnd('\') -eq $dir.TrimEnd('\') })
+    } | ForEach-Object { $_ -replace '\\', '/' })
+if ($missing.Count -and $PSCmdlet.ShouldProcess($claudeSettings, "Allow $($missing -join ' and ') in permissions.additionalDirectories")) {
+    if (Test-Path $claudeSettings) { Copy-Item $claudeSettings "$claudeSettings.bak-$(Get-Date -Format 'yyyyMMdd-HHmmss')" }
+    $settings.permissions.additionalDirectories = @($allowed + $missing)
+    $settings | ConvertTo-Json -Depth 20 | Set-Content -Path $claudeSettings -Encoding utf8
+    Write-Host "Allowed $($missing -join ' and ') for Claude in $claudeSettings."
     $changed = $true
 }
 

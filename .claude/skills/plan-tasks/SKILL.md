@@ -14,25 +14,39 @@ into `orch/integration`.
 This is the interactive alternative to `orchestrator/Plan-Tasks.ps1`: same output, but
 you discuss the split with the user before writing it.
 
-Before planning, read `orchestrator/prompts/planning-rules.md` in the AgentOrchestration
-repo. It is the shared source of truth for task size, dependencies, ownership,
-acceptance, prompts, ids and integration. The headless planner receives the same rules.
+## Where things are
+
+- **The orchestrator** is the AgentOrchestration checkout. Its path is in the `ORCH_HOME`
+  environment variable. Your shell may lack it when the editor started before it was set;
+  then read it with `[Environment]::GetEnvironmentVariable('ORCH_HOME', 'User')`. If neither
+  has it, tell the user to run `Install-Orch.ps1` in their AgentOrchestration checkout, and
+  stop. Below, `<orch>` stands for that folder. Run its scripts by full path, for example
+  `& '<orch>\orchestrator\Show-Tasks.ps1' -RepoPath <repo>`. Don't rely on the `orch`
+  command: your shell may not load the profile that defines it.
+- **The target repo** is the repo this chat is open in, unless that is the orchestrator
+  checkout itself or the user names another repo. Then ask for its path.
+
+Before planning, read `<orch>\orchestrator\prompts\planning-rules.md`. It is the shared source
+of truth for task size, dependencies, ownership, acceptance, prompts, ids and integration.
+The headless planner receives the same rules.
 
 ## Steps
 
-1. Ask for the target repo path and the spec (a file, or the user's description). If the
-   spec is only in the conversation, save it as `.orchestrator/spec.md` in the target repo.
-   If there is no real spec yet (only an idea), suggest writing one first with `/write-spec`.
+1. Settle the target repo (see above) and ask for the spec (a file, or the user's
+   description). If the spec is only in the conversation, save it as `.orchestrator/spec.md`
+   in the target repo. If there is no real spec yet (only an idea), suggest writing one first
+   with `/write-spec`.
 
-   **Access.** The target repo is usually outside this workspace. Ask for approval to access
-   it using the active assistant's directory permissions. In Claude Code, use
-   `.claude/settings.local.json` and `permissions.additionalDirectories`; in Copilot CLI,
+   **Access.** If the target repo lies outside the folder this chat is open in, ask for
+   approval to access it using the active assistant's directory permissions. In Claude Code,
+   use `.claude/settings.local.json` and `permissions.additionalDirectories`; in Copilot CLI,
    use `--add-dir <repo>` or the session's directory permission flow. Never change access
-   settings without the user's approval.
+   settings without the user's approval. Reading `<orch>` from another repo needs no approval
+   in Claude Code once `Install-Orch.ps1` has run; in Copilot, approve it when asked.
    Ask which headless provider (Claude or Copilot) to use for the scripted stages.
 2. If the target repo doesn't exist or has no commits yet, create its skeleton first:
-   run `orchestrator/Initialize-Project.ps1 -Provider <Claude|Copilot> -Spec <spec> -RepoPath <repo>` from the
-   AgentOrchestration repo. It needs a spec that names the stack. It runs `git init`, lets
+   run `& '<orch>\orchestrator\Initialize-Project.ps1' -Provider <Claude|Copilot> -Spec <spec> -RepoPath <repo>`.
+   It needs a spec that names the stack. It runs `git init`, lets
    a bootstrap agent create the manifest, test runner and one smoke test, commits them, and
    checks them in a clean checkout. It writes `setup` and `integrationCheck` to
    `.orchestrator/project.json`. Use those two commands in the plan's settings.
@@ -40,7 +54,7 @@ acceptance, prompts, ids and integration. The headless planner receives the same
    the user wants a plan for a new feature, finish that run before you write the new plan.
    A new `tasks.json` must never sit next to an old `state.json`: a task that reuses an old
    id would count as done and be skipped. Run
-   `orchestrator/Complete-Orchestrator.ps1 -RepoPath <repo>`,
+   `& '<orch>\orchestrator\Complete-Orchestrator.ps1' -RepoPath <repo>`,
    with `-Keep <file>` for the new spec if it lies in `.orchestrator`. It moves the run
    record to `<repo>.runs/<timestamp>/.orchestrator`, removes the worktrees and `orch/*`
    branches, and leaves `project.json`. Use the `setup` and `integrationCheck` from
@@ -59,7 +73,10 @@ acceptance, prompts, ids and integration. The headless planner receives the same
    Point out which tasks run in parallel (same wave) and any owns overlaps. Adjust with
    the user.
 6. Write `.orchestrator/tasks.json` in the target repo. Format: see
-   `orchestrator/schemas/tasks.schema.json`. Minimal example:
+   `<orch>\orchestrator\schemas\tasks.schema.json`. Set `provider` to the headless provider
+   the user chose; the `orch` command and the dashboard read it. Also set `provider` in
+   `.orchestrator/project.json`, keeping its other keys, so the next plan in this repo uses
+   the same one. Minimal example:
 
    ```json
    {
@@ -67,6 +84,7 @@ acceptance, prompts, ids and integration. The headless planner receives the same
      "spec": ".orchestrator/spec.md",
      "baseBranch": "main",
      "integrationBranch": "orch/integration",
+     "provider": "Claude",
      "settings": { "model": "sonnet", "reviewModel": "sonnet", "maxAttempts": 3, "setup": "npm ci" },
      "tasks": [
        { "id": "api-types", "title": "Shared API types", "deps": [], "owns": ["src/types/**"],
@@ -74,8 +92,11 @@ acceptance, prompts, ids and integration. The headless planner receives the same
      ]
    }
    ```
-7. Validate by running `orchestrator/Show-Tasks.ps1 -RepoPath <repo>` (it reports bad ids,
-   unknown deps and cycles) and `orchestrator/Invoke-Orchestrator.ps1 -Provider <Claude|Copilot> -RepoPath <repo> -DryRun`
+7. Validate by running `& '<orch>\orchestrator\Show-Tasks.ps1' -RepoPath <repo>` (it reports
+   bad ids, unknown deps and cycles) and
+   `& '<orch>\orchestrator\Invoke-Orchestrator.ps1' -Provider <Claude|Copilot> -RepoPath <repo> -DryRun`
    (it prints the waves and same-wave owns overlaps). Fix anything reported.
-8. Tell the user the command to start the run; do not start it yourself unless asked.
+8. Tell the user the command to start the run:
+   `& '<orch>\orchestrator\Invoke-Orchestrator.ps1' -Provider <Claude|Copilot> -RepoPath <repo>`,
+   or `orch run` in a terminal inside the repo. Do not start it yourself unless asked.
 Apply the shared planning rules while discussing the split, not just when validating the final plan.

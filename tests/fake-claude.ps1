@@ -14,6 +14,16 @@ if ($env:FAKE_REQUIRE_ADD_DIR) {
         throw "Expected --add-dir $env:FAKE_REQUIRE_ADD_DIR"
     }
 }
+# Set FAKE_CHECK_SKILL_BLOCK to note every call that could start the orchestrator's own skills in
+# fake-claude/skill-block-missing.txt. Claude must deny them; Copilot must get a tool list or lose the skill tool.
+if ($env:FAKE_CHECK_SKILL_BLOCK) {
+    $blocked = if ($copilot) { [bool](@($args) -like '--available-tools=*') -or $args -contains '--excluded-tools=skill' }
+               else { ($args -join ' ') -like '*Skill(write-spec)*' }
+    if (-not $blocked) {
+        $noteDir = New-Item -ItemType Directory -Force -Path (Join-Path ([IO.Path]::GetTempPath()) 'fake-claude')
+        Add-Content (Join-Path $noteDir 'skill-block-missing.txt') ($args -join ' ')
+    }
+}
 $prompt = @($input) -join "`n"
 $role = if ($prompt -match 'orchestrator-role: (\w+)') { $Matches[1] } else { 'unknown' }
 if ($copilot -and ($toolFilter = @($args) -like '--available-tools=*')) {
