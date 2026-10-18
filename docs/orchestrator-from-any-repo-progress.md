@@ -85,7 +85,7 @@ it waits for step 2.
 at our change. It also gives every later check a safe repo to run in.
 
 **What changes**
-- Your pending edit to the design notes is committed, and the notes link to this file.
+- The design notes link to this file.
 - New `tests\New-PracticeRepo.ps1` (see [The practice repo](#the-practice-repo)).
 
 **Checks**
