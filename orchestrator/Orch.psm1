@@ -9,6 +9,76 @@ $script:Commands = [ordered]@{
     timeline = @{ Script = 'Watch-AgentTimeline.ps1'; Help = 'Follow the steps of the run as a timeline.' }
     talk     = @{ Script = 'Watch-Conversations.ps1'; Help = 'Follow the conversations with the agents.' }
     stop     = @{ Script = 'Request-OrchestratorStop.ps1'; Help = 'Pause the run once active agents finish (-Cancel undoes it).' }
+    try      = @{ Function = 'Invoke-OrchTry'; Help = 'Open the result (the _integration worktree) in a new VS Code window.' }
+    finish   = @{ Function = 'Invoke-OrchFinish'; Help = 'Merge the result into the base branch and archive the run, after you confirm.' }
+}
+
+function Invoke-OrchTry {
+    param([string]$Repo, [object[]]$Rest)
+    Import-Module (Join-Path $PSScriptRoot 'Orchestrator.psm1')
+    $worktree = (Get-OrchPaths -RepoPath $Repo).IntegrationWorktree
+    if (-not (Test-Path $worktree)) { throw "There is no integration worktree at $worktree yet. A run creates it." }
+    $code = Get-Command code -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $code) { throw "VS Code's code command isn't on PATH. Open $worktree yourself." }
+    & $code.Source -n $worktree
+    Write-Host "Opened $worktree in a new VS Code window. Close that window before orch finish."
+}
+
+function Invoke-OrchFinish {
+    # Merges the integration branch into the run's base branch and archives the run. It checks
+    # everything it can first, then asks; -Yes skips the question. A base branch that got commits
+    # during the run stops it, because the integration check never saw them; -Force merges anyway.
+    # It never pushes.
+    param([string]$Repo, [object[]]$Rest)
+    $unknown = @($Rest | Where-Object { "$_" -notin '-Yes', '-Force' })
+    if ($unknown.Count) { throw "orch finish takes only -Yes and -Force, not $($unknown -join ' ')." }
+    Import-Module (Join-Path $PSScriptRoot 'Orchestrator.psm1')
+    $paths = Get-OrchPaths -RepoPath $Repo
+    if (-not (Test-Path $paths.PlanFile)) { throw "There is no run to finish: $($paths.PlanFile) doesn't exist." }
+    $lock = Open-RunLock $paths
+    if ($lock) { $lock.Dispose() }
+    $here = (Get-Location).Path
+    if ($here -eq $paths.WorktreeRoot -or $here.StartsWith($paths.WorktreeRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Your terminal is in $here, inside the run's worktrees, which finishing removes. Run cd $Repo first."
+    }
+    $doc = Get-Content $paths.PlanFile -Raw | ConvertFrom-Json -AsHashtable
+    $int = if ($doc.integrationBranch) { $doc.integrationBranch } else { 'orch/integration' }
+    $head = (Invoke-Git $Repo @('rev-parse', '--abbrev-ref', 'HEAD')).Output
+    $base = if ($doc.baseBranch) { $doc.baseBranch } else { $head }
+    # Get-RunProblems also reports the commits still to merge, which is what finishing does. It returns
+    # one list, so the list is filtered once it is in a variable.
+    $all = Get-RunProblems $paths
+    $problems = @($all | Where-Object { $_ -notlike "$int has * commit(s) that $base lacks" })
+    if ($problems.Count) { throw "The run isn't finished: $($problems -join '; ')." }
+    if (-not (Test-GitBranch $Repo $int)) { throw "There is no $int branch to merge." }
+    if ($head -ne $base) { throw "The main checkout is on $head, but the run was based on $base. Switch to it first: git switch $base" }
+    $dirty = @((Invoke-Git $Repo @('status', '--porcelain', '--untracked-files=no')).Output -split "`n" | Where-Object { $_ })
+    # Invoke-Git trims its output, so the first status line may have lost its leading space.
+    if ($dirty.Count) { throw "The main checkout has uncommitted changes ($(($dirty | ForEach-Object { $_ -replace '^\s*\S+\s+' }) -join ', ')). Commit or stash them first." }
+    $moved = [int](Invoke-Git $Repo @('rev-list', '--count', "$int..$base")).Output
+    if ($moved -and $Rest -notcontains '-Force') {
+        throw "$base got $moved new commit(s) during the run, which the integration check never saw. Merge $int into $base by hand, or run orch finish -Force to merge anyway."
+    }
+    $ahead = [int](Invoke-Git $Repo @('rev-list', '--count', "$base..$int")).Output
+
+    Write-Host 'orch finish will:'
+    Write-Host $(if ($ahead) { "  1. Merge $int ($ahead commit(s)) into $base in $Repo." } else { "  1. Merge nothing: $base already has everything from $int." })
+    if ($moved) { Write-Host "     $base has $moved commit(s) the run never saw (-Force)." -ForegroundColor Yellow }
+    Write-Host "  2. Archive the run to $($paths.ArchiveRoot)\<timestamp>, and remove its worktrees and orch/* branches."
+    Write-Host '  It doesn''t push. Close any VS Code window that is open on a worktree, for example from orch try.'
+    if ($Rest -notcontains '-Yes' -and (Read-Host 'Go ahead? [y/N]') -notmatch '^(y|yes)$') { Write-Host 'Nothing changed.'; return }
+
+    if ($ahead) {
+        $merge = Invoke-Git $Repo @('merge', '--no-ff', '--no-edit', $int)
+        if ($merge.Exit -ne 0) {
+            [void](Invoke-Git $Repo @('merge', '--abort'))
+            throw "The merge failed and was undone, so nothing changed. Merge $int into $base by hand, then run orch finish again. Git said: $(($merge.Output -split "`n")[0])"
+        }
+        Write-Host "Merged $int into $base."
+    }
+    $archive = Complete-Run $paths
+    Write-Host "Run archived to $archive." -ForegroundColor Green
+    Write-Host "Push $base yourself if the repo has a remote."
 }
 
 function Get-OrchRepo {
@@ -52,7 +122,8 @@ function Resolve-OrchProvider {
 function Show-OrchUsage {
     Write-Host 'Usage: orch <command> [flags]'
     foreach ($name in $script:Commands.Keys) {
-        Write-Host ('  {0,-9} {1} ({2})' -f $name, $script:Commands[$name].Help, $script:Commands[$name].Script)
+        $c = $script:Commands[$name]
+        Write-Host ('  {0,-9} {1}{2}' -f $name, $c.Help, $(if ($c.Script) { " ($($c.Script))" }))
     }
     Write-Host 'Run it anywhere inside a repo. Other flags go to the script, for example: orch watch -Once'
 }
@@ -65,7 +136,6 @@ function orch {
     if (-not $command -or $command -in 'help', '--help', '-h') { Show-OrchUsage; return }
     $entry = $script:Commands[$command]
     if (-not $entry) { Write-Host "orch: unknown command '$command'." -ForegroundColor Red; Show-OrchUsage; return }
-    $file = Join-Path $PSScriptRoot $entry.Script
     try {
         $named = @{}
         $repo = Get-OrchArg $rest 'RepoPath'
@@ -89,7 +159,12 @@ function orch {
             $header += ", provider $($provider.Name) (from $($provider.From))"
         }
         Write-Host $header -ForegroundColor DarkGray
-        & $file @named @rest
+        if ($entry.Function) {
+            $others = @(for ($i = 0; $i -lt $rest.Count; $i++) { if ("$($rest[$i])" -match '^-RepoPath:?$') { $i++ } else { $rest[$i] } })
+            & $entry.Function $repo $others
+            return
+        }
+        & (Join-Path $PSScriptRoot $entry.Script) @named @rest
     }
     catch { Write-Host "orch: $($_.Exception.Message)" -ForegroundColor Red }
 }

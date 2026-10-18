@@ -129,6 +129,8 @@ Orchestrator commands in the terminal steps assume the current folder is
    | `orch timeline` | `Watch-AgentTimeline.ps1` |
    | `orch talk` | `Watch-Conversations.ps1` |
    | `orch stop` | `Request-OrchestratorStop.ps1` |
+   | `orch try` | Opens the `_integration` worktree in a new VS Code window |
+   | `orch finish` | Merges `orch/integration` into the base branch and archives the run, after you confirm (see step 7) |
 
    You never type the repo path; for a new project, give `orch plan` a `-RepoPath`. Where a
    provider is needed, it comes from `-Provider`, then from the plan, then from the repo's
@@ -342,7 +344,8 @@ The result is on the `orch/integration` branch, which is checked out in
 `C:\src\myapp.worktrees\_integration`.
 
 1. **Read the changes.** In VS Code, **File → Open Folder…** →
-   `C:\src\myapp.worktrees\_integration`. Or list them in a terminal:
+   `C:\src\myapp.worktrees\_integration`, or type `orch try` anywhere in the repo. Or list them
+   in a terminal:
    ```powershell
    git -C C:\src\myapp diff --stat main...orch/integration
    ```
@@ -360,6 +363,13 @@ The result is on the `orch/integration` branch, which is checked out in
 ### Step 7: Merge and finish the run
 
 Where: **terminal**.
+
+With the `orch` command, `orch finish` in the main checkout does all of this step except the
+push. It first checks that every task is done, that the main checkout is on the base branch
+with no uncommitted changes, and that no worktree has uncommitted changes. If the base branch
+got commits during the run, it stops, because the integration check never saw them; merge by
+hand, or use `orch finish -Force`. Then it shows what it will do and asks. `-Yes` skips the
+question. By hand:
 
 1. Merge into your base branch. The main checkout must be on `main` with no uncommitted
    changes.
@@ -664,7 +674,7 @@ implementation or acceptance check needs repair.
 | `Clear-Orchestrator.ps1` | `-RepoPath`, `-All`. Without `-All`: removes task worktrees and `orch/task/*` branches, resets unfinished tasks to pending. With `-All`: also the integration worktree and branch, state, logs and progress, which are deleted, not archived. Refuses while a run is active. Supports `-WhatIf`. |
 | `Complete-Orchestrator.ps1` | `-RepoPath`, `-Keep` (files to leave in `.orchestrator`, by name or full path), `-Force` (archive a run that is not finished). Moves the run record to `<repo>.runs/<timestamp>/.orchestrator`, leaves `project.json`, and removes all worktrees and `orch/*` branches. Refuses while a run is active. Supports `-WhatIf`. |
 | `Install-Orch.ps1` | `-Provider Claude|Copilot` (sets `ORCH_PROVIDER`, the default provider), `-WhatIf`. Installs `orch` on this PC: sets `ORCH_HOME` and adds the line that loads it to `$PROFILE.CurrentUserAllHosts`. Running it again changes nothing unless the checkout has moved or the provider changes. |
-| `orch <command>` | `plan`, `run`, `status`, `watch`, `timeline`, `talk`, `stop` run `Plan-Tasks.ps1`, `Invoke-Orchestrator.ps1`, `Show-Tasks.ps1`, `Watch-Orchestrator.ps1`, `Watch-AgentTimeline.ps1`, `Watch-Conversations.ps1` and `Request-OrchestratorStop.ps1` for the repo around the current folder; a worktree counts as its repo. The provider comes from `-Provider`, then the plan's `provider`, then `project.json`, then `ORCH_PROVIDER`. Other flags go to the script, and `-RepoPath` overrides the repo. `orch` alone lists the commands. |
+| `orch <command>` | `plan`, `run`, `status`, `watch`, `timeline`, `talk`, `stop` run `Plan-Tasks.ps1`, `Invoke-Orchestrator.ps1`, `Show-Tasks.ps1`, `Watch-Orchestrator.ps1`, `Watch-AgentTimeline.ps1`, `Watch-Conversations.ps1` and `Request-OrchestratorStop.ps1` for the repo around the current folder; a worktree counts as its repo. The provider comes from `-Provider`, then the plan's `provider`, then `project.json`, then `ORCH_PROVIDER`. Other flags go to the script, and `-RepoPath` overrides the repo. `try` opens the `_integration` worktree with `code -n`. `finish` (`-Yes` skips the question, `-Force` merges although the base branch moved) merges the integration branch into the base branch and runs `Complete-Run`; it never pushes. `orch` alone lists the commands. |
 | `tests/Run-SmokeTest.ps1` | `-Provider Claude|Copilot` (required), `-WorkDir`. End-to-end fake-CLI test from an empty folder to merged work. |
 | `tests/New-PracticeRepo.ps1` | `-Stage Run|Planned|Empty` (`Run`), `-Provider` (`Claude`). Replaces the throwaway repo in `%TEMP%\orch-practice\demo`, made with the fake CLI, for trying commands by hand. |
 

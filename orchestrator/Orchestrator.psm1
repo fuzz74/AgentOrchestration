@@ -530,7 +530,8 @@ function Get-RunProblems {
         if (-not (Test-Path $wt)) { continue }
         $changed = @((Invoke-Git $wt (@('status', '--porcelain') + $pathspec)).Output -split "`n" | Where-Object { $_ })
         if ($changed.Count) {
-            $names = (($changed | Select-Object -First 3 | ForEach-Object { $_.Substring(3) }) -join ', ') + $(if ($changed.Count -gt 3) { ', ...' })
+            # Invoke-Git trims its output, so the first status line may have lost its leading space.
+            $names = (($changed | Select-Object -First 3 | ForEach-Object { $_ -replace '^\s*\S+\s+' }) -join ', ') + $(if ($changed.Count -gt 3) { ', ...' })
             $problems.Add("the worktree $wt has uncommitted changes that would be deleted ($names)")
         }
     }

@@ -409,6 +409,23 @@ $orchChecks = [ordered]@{
 }
 $orchChecks.GetEnumerator() | ForEach-Object { Write-Host ("{0,-38} {1}" -f $_.Key, ($_.Value ? 'PASS' : 'FAIL')) -ForegroundColor ($_.Value ? 'Green' : 'Red') }
 if ($orchChecks.Values -contains $false) { Write-Host "orch plan and run test FAILED. Repo left at $repo"; exit 1 }
+
+# orch finish stops when main got a commit during the run; -Force then merges and archives.
+Set-Content (Join-Path $repo 'moved.txt') 'a change on main during the run'
+git -C $repo add moved.txt
+git -C $repo commit -q -m 'Change on main during the run'
+$archivesBefore = @(Get-ChildItem $runsRoot -Directory).Count
+$orchFinish = { param($flags) & (Join-Path $PSHOME ($IsWindows ? 'pwsh.exe' : 'pwsh')) -NoProfile -Command "Import-Module '$(Join-Path $orch 'Orch.psm1')'; Set-Location '$repo'; orch finish $flags" | Out-String }
+$finishStopped = & $orchFinish '-Yes'
+$integrationKept = (git -C $repo for-each-ref --format='%(refname:short)' refs/heads/orch/integration) -eq 'orch/integration'
+$finishForced = & $orchFinish '-Yes -Force'
+$finishChecks = [ordered]@{
+    'orch finish stops when main moved' = $finishStopped -match 'got 1 new commit' -and $integrationKept
+    'orch finish -Force merges, archives' = $finishForced -match 'Run archived to' -and (git -C $repo log -1 --format=%s main) -eq "Merge branch 'orch/integration'" -and
+        @(git -C $repo for-each-ref refs/heads/orch/).Count -eq 0 -and @(Get-ChildItem $runsRoot -Directory).Count -eq $archivesBefore + 1
+}
+$finishChecks.GetEnumerator() | ForEach-Object { Write-Host ("{0,-38} {1}" -f $_.Key, ($_.Value ? 'PASS' : 'FAIL')) -ForegroundColor ($_.Value ? 'Green' : 'Red') }
+if ($finishChecks.Values -contains $false) { Write-Host "orch finish test FAILED. Repo left at $repo"; exit 1 }
 & (Join-Path $orch 'Clear-Orchestrator.ps1') -RepoPath $repo -All
 Remove-Item $WorkDir -Recurse -Force
 Write-Host 'Smoke test passed.' -ForegroundColor Green

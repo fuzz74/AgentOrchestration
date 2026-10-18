@@ -12,7 +12,7 @@ passed. The file lives in the repo, so it works from any PC and with Claude or C
 | [1a](#step-1a-orch-status) | `orch status` from anywhere inside a repo | Done (other PC still to check) |
 | [1b](#step-1b-watch-views-without-a-provider-flag) | `orch watch`, `timeline`, `talk` and `stop` with no `-Provider` | Done |
 | [1c](#step-1c-orch-plan-and-orch-run) | `orch plan` and `orch run` | Done |
-| [1d](#step-1d-orch-try-and-orch-finish) | `orch try` and `orch finish` | Not started |
+| [1d](#step-1d-orch-try-and-orch-finish) | `orch try` and `orch finish` | Ready to check |
 | [2](#step-2-skills-from-any-repo) | `/write-spec` and `/plan-tasks` from any repo | Later |
 | [3](#step-3-the-orch-guiding-skill) | The `/orch` guiding skill | Later |
 | [4](#step-4-per-repo-conventions) | Per-repo conventions in `project.json` | Later |
@@ -344,41 +344,62 @@ needs a path or `-Provider`.
 **Why:** so you can look at the result without hunting for the worktree folder, and merge and
 archive the run in one go.
 
-**Decide first**
-- The open choice from the design notes: do runs stay hands-off `main`, or does `orch finish`
-  first merge `main` into `orch/integration` and rerun the integration check? If we choose the
-  second, this step gets a check for it.
+**Decided** (2026-10-18)
+- Runs stay hands-off `main`. If the base branch got commits during the run, `orch finish`
+  stops before merging, because the integration check never saw them. `orch finish -Force`
+  merges anyway; a merge that fails is undone, and nothing changes.
 - `orch finish` merges into the run's base branch, which `tasks.json` records. That isn't
   always `main`.
 
 **What changes**
 - `orch try` opens `<repo>.worktrees\_integration` in a new VS Code window.
-- `orch finish` shows what it's about to do and asks first. If you say yes, it merges
-  `orch/integration` into the base branch and archives the run. It never pushes.
+- `orch finish` checks first, and stops with a clear message when: a run is active, a task
+  isn't done, a worktree has uncommitted changes, the main checkout is on another branch or
+  has uncommitted changes, your terminal is inside a worktree, or the base branch moved
+  (without `-Force`). Then it shows what it will do and asks y/N; `-Yes` skips the question.
+  On yes, it merges `orch/integration` into the base branch and archives the run with the
+  orchestrator's own `Complete-Run`. It never pushes.
+- `Get-RunProblems` in `Orchestrator.psm1` now names the first changed file correctly. It used
+  to lose its first letter.
+- The README (steps 6 and 7, the `orch` table, the command reference) and the smoke test,
+  which checks that `orch finish` stops when `main` moved and that `-Force` merges and
+  archives.
 
-**Checks** (in a new practice repo with a finished run, from `$env:TEMP\orch-practice\demo`)
-- [ ] **(you)** `orch try` opens a new VS Code window on `...\orch-practice\demo.worktrees\_integration`.
-  Close that window before the next check.
-- [ ] **(you)** Saying no changes nothing. Run `orch finish` and answer `n`. `orch status` and
-  `git log --oneline -1` look the same as before.
-- [ ] It refuses while the main checkout has uncommitted changes:
-  ```powershell
-  Add-Content skeleton.txt 'local edit'
-  orch finish
-  git checkout -- skeleton.txt
-  ```
-  You should see a clear refusal that names the changed file, and nothing merged.
+**Checks** (in a practice repo with a finished run, from `$env:TEMP\orch-practice\demo`)
+- [ ] **(you)** `orch try` opens a new VS Code window on
+  `...\orch-practice\demo.worktrees\_integration`. Close that window before the next check.
+- [ ] **(you)** Saying no changes nothing. Run `orch finish` and answer `n`. It says `Nothing
+  changed.`, and `orch status` and `git log --oneline -1` look the same as before.
+- [x] It refuses, with a message that names the problem, and changes nothing when: *(assistant)*
+  - a task isn't done: `The run isn't finished: 4 of 4 tasks are not done (contracts, ...)`
+  - the main checkout has an uncommitted change: `... uncommitted changes (skeleton.txt) ...`
+  - the integration worktree has one: `... the worktree ...\_integration has uncommitted
+    changes that would be deleted (skeleton.txt)`
+  - the main checkout is on another branch: `... is on other, but the run was based on main
+    ...`
+  - the terminal is inside the integration worktree: `Your terminal is in ... Run cd ...
+    first.`
+  - an unknown flag: `orch finish takes only -Yes and -Force, not -Now.`
+  - `main` got a commit during the run: `main got 1 new commit(s) during the run ...`
+- [x] `-Force` merges although `main` moved. The summary says so in yellow, then it merges and
+  archives. *(assistant)*
+- [x] The y/N question, answered by a pipe: `n` changes nothing, `y` merges and archives.
+  *(assistant)*
 - [ ] **(you)** Saying yes merges and archives. Run `orch finish` and answer `y`. Then:
   ```powershell
   git log --oneline -3                              # a merge of orch/integration on top
   git branch --list 'orch/*'                        # nothing
   Get-ChildItem $env:TEMP\orch-practice\demo.runs   # one timestamp folder
   ```
-- [ ] The smoke test still passes.
+- [x] The smoke test still passes. *(assistant, both providers)*
 
 **Done:** (date, PC)
 
 **Notes:**
+- 2026-10-18: the assistant's first check run showed two message bugs, both fixed. "Tasks not
+  done" printed a list type name instead of the reason. "Uncommitted changes" lost the first
+  letter of the first file name, because git's output is trimmed, and the orchestrator's own
+  worktree check had the same bug.
 
 ---
 
@@ -418,3 +439,4 @@ These get detailed checks when we reach them, in the same way as step 1.
 | 2026-10-18 | `orch` loads through `ORCH_HOME`, set per PC, from a profile line with no path in the all-hosts profile (see step 1a). |
 | 2026-10-18 | The provider comes from `-Provider`, then the plan (`Plan-Tasks.ps1` records it), then `ORCH_PROVIDER` for the PC (see step 1b). |
 | 2026-10-18 | `Plan-Tasks.ps1` also saves the provider in `project.json`, checked after the plan and before `ORCH_PROVIDER`. `-MaxParallel` from `project.json` is skipped for now (see step 1c). |
+| 2026-10-18 | Runs stay hands-off `main`: `orch finish` stops when the base branch moved, and `-Force` merges anyway (see step 1d). |
