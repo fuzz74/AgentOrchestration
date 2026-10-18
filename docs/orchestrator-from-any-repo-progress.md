@@ -446,6 +446,19 @@ PC)
 - **Workers:** planners, workers and reviewers get a fixed tool list without the skill tool,
   so they can't start a skill. The bootstrap and the resolver have no list and could.
 
+**Link test** (2026-10-18, MSI). A throwaway skill in the scratchpad was linked with Windows
+junctions (no admin rights or Developer Mode needed) into `~\.claude\skills` and
+`~\.copilot\skills`, then called from the practice repo:
+- [x] Claude Code CLI (`claude -p` on Haiku): `LINK-TEST-OK C:/Users/kbjer/.claude/skills/orch-link-test`.
+  `${CLAUDE_SKILL_DIR}` is the link's path, not the real folder. *(assistant)*
+- [x] Claude Code in VS Code: the same reply. A running session picked up the new skill
+  without a restart. *(you)*
+- [x] Copilot CLI, both `copilot -p` and an interactive session: `LINK-TEST-OK
+  C:\Users\kbjer\.copilot\skills\orch-link-test`. *(assistant, you)*
+- [ ] **(you)** VS Code Copilot chat: not set up on this PC. Try it on a PC where it is.
+
+The test links, the skill and the `~\.copilot\skills` folder it needed were removed again.
+
 ### Step 3: The /orch guiding skill
 
 - It includes the rule changes from the design notes: new blank-canvas wording in `CLAUDE.md`
