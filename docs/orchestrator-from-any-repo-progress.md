@@ -10,7 +10,7 @@ passed. The file lives in the repo, so it works from any PC and with Claude or C
 |---|---|---|
 | [0](#step-0-starting-point-and-practice-repo) | A known-good starting point and a practice repo | Done |
 | [1a](#step-1a-orch-status) | `orch status` from anywhere inside a repo | Done (other PC still to check) |
-| [1b](#step-1b-watch-views-without-a-provider-flag) | `orch watch`, `timeline`, `talk` and `stop` with no `-Provider` | Ready to check |
+| [1b](#step-1b-watch-views-without-a-provider-flag) | `orch watch`, `timeline`, `talk` and `stop` with no `-Provider` | Done |
 | [1c](#step-1c-orch-plan-and-orch-run) | `orch plan` and `orch run` | Not started |
 | [1d](#step-1d-orch-try-and-orch-finish) | `orch try` and `orch finish` | Not started |
 | [2](#step-2-skills-from-any-repo) | `/write-spec` and `/plan-tasks` from any repo | Later |
@@ -264,7 +264,7 @@ needs a path or `-Provider`.
   - With none of them: `orch: no provider. Add -Provider Claude or -Provider Copilot, or set
     your default with Install-Orch.ps1 -Provider.` Nothing runs.
 - [x] The smoke test still passes. *(assistant, both providers)*
-- [ ] **(you)** The live dashboard works through `orch`. In a VS Code terminal:
+- [x] **(you)** The live dashboard works through `orch`. In a VS Code terminal: *(you)*
   ```powershell
   cd $env:TEMP\orch-practice\demo
   orch watch
@@ -274,7 +274,7 @@ needs a path or `-Provider`.
   whole terminal, so `orch`'s grey line is hidden while it runs. Press `q` to quit. The normal
   screen comes back, with the grey line `orch: repo ..., provider ...` above your prompt.
 
-**Done:** (date, PC)
+**Done:** 2026-10-18, MSI
 
 **Notes:**
 - 2026-10-18: the assistant tested the case with no provider anywhere before setting your
