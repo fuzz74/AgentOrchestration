@@ -500,6 +500,9 @@ The test links, the skill and the `~\.copilot\skills` folder it needed were remo
 **Done:** (date, PC)
 
 **Notes:**
+- 2026-10-18: paused before the user's check of the real `/plan-tasks` flow. For that check,
+  the practice repo is made with `.\tests\New-PracticeRepo.ps1 -Stage Empty`, and
+  `$env:TEMP\orch-practice\spec.md` is copied to `.orchestrator\spec.md` in it.
 
 ---
 
