@@ -8,7 +8,7 @@ passed. The file lives in the repo, so it works from any PC and with Claude or C
 
 | Step | What you get | Status |
 |---|---|---|
-| [0](#step-0-starting-point-and-practice-repo) | A known-good starting point and a practice repo | Ready to check |
+| [0](#step-0-starting-point-and-practice-repo) | A known-good starting point and a practice repo | Done |
 | [1a](#step-1a-orch-status) | `orch status` from anywhere inside a repo | Not started |
 | [1b](#step-1b-watch-views-without-a-provider-flag) | `orch watch`, `timeline`, `talk` and `stop` with no `-Provider` | Not started |
 | [1c](#step-1c-orch-plan-and-orch-run) | `orch plan` and `orch run` | Not started |
@@ -22,17 +22,21 @@ written yet).
 
 ## How a step goes
 
-1. **Agree on the checks.** Before building a step, we read its checks together and adjust them.
-2. **Build.** Claude or Copilot builds the step, runs the smoke test, updates the README, sets
-   the step to *Ready to check*, and commits and pushes.
-3. **Check.** You run the checks in a PowerShell 7 terminal. Every check says what you should
-   see. Tell the assistant what you saw, and it ticks the boxes.
+1. **Say up front.** Before building a step, the assistant says what it will build and which
+   checks it will run, and waits for the user's go-ahead. The user can adjust the checks, or
+   take over any part and do it by hand.
+2. **Build.** The assistant builds the step, runs the smoke test, updates the README, and
+   commits and pushes.
+3. **Check.** The assistant runs the checks and shows each one's real output next to what the
+   check says you should see. Checks marked **(you)** happen on the user's screen or machine,
+   where the assistant can't see, such as a VS Code window opening or a new terminal. The
+   assistant gives exact instructions for those, and the user reports what happened.
 4. **Done or fix.** When every check has passed, the step is set to *Done* and its *Done* line
    is filled in. If something looks wrong, it goes under the step's *Notes* and gets fixed
    before the next step starts.
 
-For assistants: tick a check or set a step to *Done* only after the user says it passed. Never
-tick one because your own run of it passed.
+A ticked check ends with who ran it: *(you)* or *(assistant)*. The assistant ticks its own
+checks only when the output matches, and the user's only after the user says they passed.
 
 Commands that start with `.\` run in your AgentOrchestration folder.
 
@@ -94,7 +98,7 @@ at our change. It also gives every later check a safe repo to run in.
 - New `tests\New-PracticeRepo.ps1` (see [The practice repo](#the-practice-repo)).
 
 **Checks**
-- [x] The smoke test passes for both providers:
+- [x] The smoke test passes for both providers: *(you)*
   ```powershell
   .\tests\Run-SmokeTest.ps1 -Provider Claude
   .\tests\Run-SmokeTest.ps1 -Provider Copilot
@@ -103,27 +107,27 @@ at our change. It also gives every later check a safe repo to run in.
   a minute per provider. Lines such as `[spec-only] FAILED: Gave up after 5 attempts` are
   expected, because the test makes them on purpose. Only a red `FAIL` at the end of a check line
   is a problem.
-- [ ] A practice repo with a finished run:
+- [x] A practice repo with a finished run: *(you)*
   ```powershell
   .\tests\New-PracticeRepo.ps1
   .\orchestrator\Show-Tasks.ps1 -RepoPath $env:TEMP\orch-practice\demo
   ```
   You should see a table of the four tasks, each with status `done`. Step 1a compares
   `orch status` with this table.
-- [ ] A practice repo with a plan that hasn't run:
+- [x] A practice repo with a plan that hasn't run: *(you)*
   ```powershell
   .\tests\New-PracticeRepo.ps1 -Stage Planned
   .\orchestrator\Show-Tasks.ps1 -RepoPath $env:TEMP\orch-practice\demo
   ```
   You should see the four tasks, each with status `pending`.
-- [ ] An empty practice repo:
+- [x] An empty practice repo: *(you)*
   ```powershell
   .\tests\New-PracticeRepo.ps1 -Stage Empty
   git -C $env:TEMP\orch-practice\demo log --oneline
   ```
   You should see one commit and no `.orchestrator\tasks.json`.
 
-**Done:** (date, PC)
+**Done:** 2026-10-18, MSI
 
 **Notes:**
 - 2026-10-18: the first smoke test failed for both providers, on `legacy coding and unknown role
@@ -153,11 +157,14 @@ the two things every later command needs: `orch` is installed, and it finds the 
 - A new install script, run once per PC.
 
 **Checks**
-- [ ] Install, then open a **new** terminal:
+- [ ] Install:
   ```powershell
   .\Install-Orch.ps1
   ```
   You should see a message saying which folder `orch` was installed from.
+- [ ] **(you)** Open a **new** terminal in VS Code, then run
+  `cd $env:TEMP\orch-practice\demo; orch status`. You should see the table from step 0. This
+  shows that your own terminals load `orch`.
 - [ ] Running the install a second time changes nothing. It says `orch` is already installed.
 - [ ] `orch` with nothing after it lists its commands. Only `status` exists so far.
 - [ ] It works from the repo, from a folder inside it, and from the integration worktree:
@@ -176,7 +183,7 @@ the two things every later command needs: `orch` is installed, and it finds the 
   You should see a one-line message that this folder isn't in a git repo, and no red stack
   trace.
 - [ ] The smoke test still passes (`-Provider Claude` is enough).
-- [ ] *The next time you're on another PC:* pull, run the install, open a new terminal, make a
+- [ ] **(you)** *The next time you're on another PC:* pull, run the install, open a new terminal, make a
   practice repo, and run `orch status` there.
 
 **Done:** (date, PC)
@@ -281,9 +288,9 @@ archive the run in one go.
   `orch/integration` into the base branch and archives the run. It never pushes.
 
 **Checks** (in a new practice repo with a finished run, from `$env:TEMP\orch-practice\demo`)
-- [ ] `orch try` opens a new VS Code window on `...\orch-practice\demo.worktrees\_integration`.
+- [ ] **(you)** `orch try` opens a new VS Code window on `...\orch-practice\demo.worktrees\_integration`.
   Close that window before the next check.
-- [ ] Saying no changes nothing. Run `orch finish` and answer `n`. `orch status` and
+- [ ] **(you)** Saying no changes nothing. Run `orch finish` and answer `n`. `orch status` and
   `git log --oneline -1` look the same as before.
 - [ ] It refuses while the main checkout has uncommitted changes:
   ```powershell
@@ -292,7 +299,7 @@ archive the run in one go.
   git checkout -- skeleton.txt
   ```
   You should see a clear refusal that names the changed file, and nothing merged.
-- [ ] Saying yes merges and archives. Run `orch finish` and answer `y`. Then:
+- [ ] **(you)** Saying yes merges and archives. Run `orch finish` and answer `y`. Then:
   ```powershell
   git log --oneline -3                              # a merge of orch/integration on top
   git branch --list 'orch/*'                        # nothing
