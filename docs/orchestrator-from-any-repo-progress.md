@@ -9,7 +9,7 @@ passed. The file lives in the repo, so it works from any PC and with Claude or C
 | Step | What you get | Status |
 |---|---|---|
 | [0](#step-0-starting-point-and-practice-repo) | A known-good starting point and a practice repo | Done |
-| [1a](#step-1a-orch-status) | `orch status` from anywhere inside a repo | Not started |
+| [1a](#step-1a-orch-status) | `orch status` from anywhere inside a repo | Ready to check |
 | [1b](#step-1b-watch-views-without-a-provider-flag) | `orch watch`, `timeline`, `talk` and `stop` with no `-Provider` | Not started |
 | [1c](#step-1c-orch-plan-and-orch-run) | `orch plan` and `orch run` | Not started |
 | [1d](#step-1d-orch-try-and-orch-finish) | `orch try` and `orch finish` | Not started |
@@ -145,19 +145,27 @@ at our change. It also gives every later check a safe repo to run in.
 **Why:** it's the smallest useful piece. It only reads, so it can't harm a run. It also proves
 the two things every later command needs: `orch` is installed, and it finds the right repo.
 
-**Decide first**
+**Decided** (2026-10-18)
 - Your PowerShell profile is in OneDrive (`Dokumenter\PowerShell`). If OneDrive syncs it to
   your other PCs, a line in it with this PC's checkout path breaks on any PC where the checkout
-  is somewhere else. Proposal: the profile line loads `orch` from `$env:ORCH_HOME`, a user
-  environment variable that the install script sets on each PC. That also settles the
+  is somewhere else. So the profile line holds no path: it loads `orch` from `ORCH_HOME`, a
+  user environment variable that the install script sets on each PC. That also settles the
   `ORCH_HOME` half of step 2.
+- The line goes in the all-hosts profile (`profile.ps1`), so it also works in the VS Code
+  PowerShell extension's terminal, which reads a different profile file.
+- When a terminal's environment lacks `ORCH_HOME`, the line reads it from the registry. A
+  VS Code window started before the install keeps its old environment, and its new terminals
+  would otherwise not find `orch` until VS Code restarts.
 
 **What changes**
-- A new `orch` module in `orchestrator\`, with one command: `orch status`.
-- A new install script, run once per PC.
+- `orchestrator\Orch.psm1` with one command, `orch status`.
+- `Install-Orch.ps1` at the repo root. Run it once per PC. `-WhatIf` shows what it would do.
+- The README gets setup item 6 and rows in the command reference.
+- The smoke test gets a check: `orch status` from the integration worktree, with a relative
+  `-Plan`.
 
 **Checks**
-- [ ] Install:
+- [x] Install: *(assistant)*
   ```powershell
   .\Install-Orch.ps1
   ```
@@ -165,9 +173,12 @@ the two things every later command needs: `orch` is installed, and it finds the 
 - [ ] **(you)** Open a **new** terminal in VS Code, then run
   `cd $env:TEMP\orch-practice\demo; orch status`. You should see the table from step 0. This
   shows that your own terminals load `orch`.
-- [ ] Running the install a second time changes nothing. It says `orch` is already installed.
-- [ ] `orch` with nothing after it lists its commands. Only `status` exists so far.
-- [ ] It works from the repo, from a folder inside it, and from the integration worktree:
+- [x] Running the install a second time changes nothing. It says `orch` is already installed.
+  *(assistant)*
+- [x] `orch` with nothing after it lists its commands. Only `status` exists so far.
+  *(assistant)*
+- [x] It works from the repo, from a folder inside it, and from the integration worktree:
+  *(assistant)*
   ```powershell
   .\tests\New-PracticeRepo.ps1
   cd $env:TEMP\orch-practice\demo; orch status
@@ -176,19 +187,28 @@ the two things every later command needs: `orch` is installed, and it finds the 
   ```
   You should see the same table as in step 0, three times. Each starts with a line that names
   `...\orch-practice\demo` as the repo.
-- [ ] Outside any repo:
+- [x] Outside any repo: *(assistant)*
   ```powershell
   cd $env:TEMP; orch status
   ```
   You should see a one-line message that this folder isn't in a git repo, and no red stack
   trace.
-- [ ] The smoke test still passes (`-Provider Claude` is enough).
-- [ ] **(you)** *The next time you're on another PC:* pull, run the install, open a new terminal, make a
-  practice repo, and run `orch status` there.
+- [x] The smoke test still passes. *(assistant, both providers)*
+- [ ] **(you)** *The next time you're on another PC:* pull, run the install, open a new
+  terminal, make a practice repo, and run `orch status` there.
 
 **Done:** (date, PC)
 
 **Notes:**
+- 2026-10-18: a single flag after the command, as in `orch status -Once`, reached the script as
+  separate characters. A lone leftover argument is a string, and splatting a string passes its
+  characters. Fixed by always making the leftover arguments a list.
+- 2026-10-18: an extra test found an older bug. A relative `-Plan` path was resolved against
+  the folder the PowerShell process started in, not the folder you had moved to with `cd`. This
+  affected the long commands too. Fixed in `Get-OrchPaths`, and the new smoke test check
+  covers it.
+- The assistant ran its checks in a new PowerShell process that loads your profile, and whose
+  environment had no `ORCH_HOME`, like a VS Code terminal started before the install.
 
 ---
 
@@ -345,3 +365,5 @@ These get detailed checks when we reach them, in the same way as step 1.
 | Date | Decision |
 |---|---|
 | 2026-10-18 | Build in the order the design notes suggest, with step 1 split into 1a to 1d. Every check runs in a practice repo made with the fake agent, never in a real project. |
+| 2026-10-18 | The assistant runs the checks, after saying up front what it will do. The user does the checks marked **(you)** and can take over any part. |
+| 2026-10-18 | `orch` loads through `ORCH_HOME`, set per PC, from a profile line with no path in the all-hosts profile (see step 1a). |

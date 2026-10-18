@@ -112,6 +112,14 @@ Orchestrator commands in the terminal steps assume the current folder is
     In interactive Copilot CLI, grant access through its own permission flow or use
     `copilot --add-dir C:\src\myapp`. The orchestration scripts run inside target repos
     and do not edit either assistant's interactive access settings.
+6. **The short `orch` command** (optional, once per PC): run `.\Install-Orch.ps1`. It sets the
+   user environment variable `ORCH_HOME` to this folder, and adds one line to your PowerShell
+   profile (`$PROFILE.CurrentUserAllHosts`) that loads `orch` in every new terminal. The line
+   holds no path, so a profile shared between PCs, for example through OneDrive, works on each
+   PC that has run the install. After that, anywhere inside a target repo or one of its
+   worktrees, `orch status` prints the task table, the same as `Show-Tasks.ps1` for that repo.
+   Other flags go to the script, and `orch` alone lists the commands. More commands are on
+   the way: see `docs/orchestrator-from-any-repo-progress.md`.
 
 ### Step 1: Turn the idea into a spec
 
@@ -633,7 +641,10 @@ implementation or acceptance check needs repair.
 | `Watch-Conversations.ps1` | `-RepoPath` (`.`), `-Task` (optional task ID), `-Last` (`25`), `-RefreshSeconds` (`2`), `-ShowTools`, `-FullRequests`, `-NoMouse`, `-Once`. Live view has clickable request controls and a scrollable in-terminal popup (O opens the latest request without mouse); `-Once` prints plain output. Ctrl+C or Q quits. |
 | `Clear-Orchestrator.ps1` | `-RepoPath`, `-All`. Without `-All`: removes task worktrees and `orch/task/*` branches, resets unfinished tasks to pending. With `-All`: also the integration worktree and branch, state, logs and progress, which are deleted, not archived. Refuses while a run is active. Supports `-WhatIf`. |
 | `Complete-Orchestrator.ps1` | `-RepoPath`, `-Keep` (files to leave in `.orchestrator`, by name or full path), `-Force` (archive a run that is not finished). Moves the run record to `<repo>.runs/<timestamp>/.orchestrator`, leaves `project.json`, and removes all worktrees and `orch/*` branches. Refuses while a run is active. Supports `-WhatIf`. |
+| `Install-Orch.ps1` | `-WhatIf`. Installs `orch` on this PC: sets `ORCH_HOME` and adds the line that loads it to `$PROFILE.CurrentUserAllHosts`. Running it again changes nothing unless the checkout has moved. |
+| `orch <command>` | `status` runs `Show-Tasks.ps1` for the repo around the current folder; a worktree counts as its repo. Other flags go to the script, and `-RepoPath` overrides the repo. `orch` alone lists the commands. |
 | `tests/Run-SmokeTest.ps1` | `-Provider Claude|Copilot` (required), `-WorkDir`. End-to-end fake-CLI test from an empty folder to merged work. |
+| `tests/New-PracticeRepo.ps1` | `-Stage Run|Planned|Empty` (`Run`), `-Provider` (`Claude`). Replaces the throwaway repo in `%TEMP%\orch-practice\demo`, made with the fake CLI, for trying commands by hand. |
 
 ## Agent permissions and safety
 

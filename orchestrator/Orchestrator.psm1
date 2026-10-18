@@ -48,10 +48,13 @@ function Get-OrchPaths {
     $repo = [IO.Path]::GetFullPath($top.Trim())
     $runDir = Join-Path $repo '.orchestrator'
     $wtRoot = Join-Path (Split-Path $repo -Parent) ((Split-Path $repo -Leaf) + '.worktrees')
+    # A relative plan path is relative to the PowerShell location. [IO.Path]::GetFullPath would use the
+    # folder the process started in, which cd does not change.
+    if ($PlanFile) { $PlanFile = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($PlanFile) }
     [pscustomobject]@{
         Repo                = $repo
         RunDir              = $runDir
-        PlanFile            = if ($PlanFile) { [IO.Path]::GetFullPath($PlanFile) } else { Join-Path $runDir 'tasks.json' }
+        PlanFile            = if ($PlanFile) { $PlanFile } else { Join-Path $runDir 'tasks.json' }
         StateFile           = Join-Path $runDir 'state.json'
         StopFile            = Join-Path $runDir 'stop-requested'
         ProgressFile        = Join-Path $runDir 'progress.md'
