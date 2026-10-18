@@ -11,7 +11,7 @@ passed. The file lives in the repo, so it works from any PC and with Claude or C
 | [0](#step-0-starting-point-and-practice-repo) | A known-good starting point and a practice repo | Done |
 | [1a](#step-1a-orch-status) | `orch status` from anywhere inside a repo | Done (other PC still to check) |
 | [1b](#step-1b-watch-views-without-a-provider-flag) | `orch watch`, `timeline`, `talk` and `stop` with no `-Provider` | Done |
-| [1c](#step-1c-orch-plan-and-orch-run) | `orch plan` and `orch run` | Not started |
+| [1c](#step-1c-orch-plan-and-orch-run) | `orch plan` and `orch run` | Done |
 | [1d](#step-1d-orch-try-and-orch-finish) | `orch try` and `orch finish` | Not started |
 | [2](#step-2-skills-from-any-repo) | `/write-spec` and `/plan-tasks` from any repo | Later |
 | [3](#step-3-the-orch-guiding-skill) | The `/orch` guiding skill | Later |
@@ -78,7 +78,8 @@ Step 1 builds these, a few at a time:
 | `orch finish` | Merges `orch/integration` and runs `Complete-Orchestrator.ps1`, after you confirm |
 
 - **Repo:** the one you're in, from any folder inside it, including its worktrees.
-- **Provider:** taken from `-Provider`, then the plan, then your own default (see step 1b).
+- **Provider:** taken from `-Provider`, then the plan, then the repo's `project.json`, then
+  your own default (see steps 1b and 1c).
 - **Other flags** go to the script unchanged.
 - **First line:** every `orch` command starts with one line that names the repo and the
   provider, and where the provider came from. That way you can see what it picked.
@@ -286,34 +287,55 @@ needs a path or `-Provider`.
 
 **Why:** so you can start a run from the repo you're in, with your usual settings.
 
-**What changes**
-- `orch plan <spec>` and `orch run`.
-- `-MaxParallel` can also come from `project.json`.
-- The smoke test gets a part that drives a run through `orch`, so this stays tested.
+**Decided** (2026-10-18)
+- `orch run` takes the provider from the plan, like `orch watch`.
+- `orch plan` usually has no plan to read, because finishing a run archives it. So
+  `Plan-Tasks.ps1` also saves the provider in the repo's `.orchestrator\project.json`, which
+  outlives the run and is never committed. The order is: `-Provider`, the plan, `project.json`,
+  your default. A repo you build with Copilot keeps using Copilot.
+- `-MaxParallel` from `project.json` is skipped for now. Nothing writes it, and
+  `orch run -MaxParallel 5` works, since flags pass through.
 
-**Checks.** First, in the same terminal, point the orchestrator at the fake agent so nothing
-spends tokens. If your default provider is Copilot, set `ORCH_COPILOT` instead.
-```powershell
-$env:ORCH_CLAUDE = "$env:ORCH_HOME\tests\fake-claude.ps1"
-```
-- [ ] Plan in a repo that has no plan yet:
+**What changes**
+- `orch plan <spec>` and `orch run`. Outside a repo, `orch plan` suggests `-RepoPath <folder>`
+  for a new project.
+- `Plan-Tasks.ps1` saves the provider in `project.json`, and its closing hint also mentions
+  `orch run`.
+- `New-PracticeRepo.ps1` retries deleting the old practice folder for a few seconds, since a
+  run that has just finished can hold a file for a moment.
+- The README and the smoke test, which now plans and runs through `orch`.
+
+**Checks** (with the fake agent, through `-AgentPath`, so no tokens)
+- [x] Plan in a repo that has no plan yet: *(assistant)*
   ```powershell
   .\tests\New-PracticeRepo.ps1 -Stage Empty
   cd $env:TEMP\orch-practice\demo
   orch plan $env:TEMP\orch-practice\spec.md
   orch status
   ```
-  You should see the planner finish, then the four tasks, each `pending`.
-- [ ] A dry run starts nothing. `orch run -DryRun` lists the tasks as `Wave 1`, `Wave 2` and
-  `Wave 3`, and `orch status` still shows every task `pending`.
-- [ ] A real run. `orch run` runs all four tasks, and `orch status` then shows each one `done`.
-- [ ] Settings from `project.json`. With `"maxParallel": 1` added there, the first line of
-  `orch run` shows max parallel 1.
-- [ ] The smoke test still passes.
+  You should see `provider Claude (from your default)`, the planner's waves, `or, with the orch
+  command ... orch run`, then the four tasks, each `pending`. `project.json` now holds
+  `"provider": "Claude"`.
+- [x] A dry run starts nothing. `orch run -DryRun` says `provider Claude (from the plan)` and
+  lists `Wave 1`, `Wave 2` and `Wave 3`. `orch status` still shows every task `pending`.
+  *(assistant)*
+- [x] A real run. `orch run` runs all four tasks and exits with code 0, and `orch status` then
+  shows each one `done`. *(assistant)*
+- [x] The repo remembers its provider. In a Copilot practice repo whose run was archived,
+  `orch plan` says `provider Copilot (from project.json)`. *(assistant)*
+- [x] A new project. Outside any repo, `orch plan <spec>` says to add `-RepoPath <folder>`.
+  With `-RepoPath` set to a new folder, it creates the project skeleton and plans there.
+  *(assistant)*
+- [x] The smoke test still passes. *(assistant, both providers)*
 
-**Done:** (date, PC)
+**Done:** 2026-10-18, MSI
 
 **Notes:**
+- 2026-10-18: the first smoke test run of the new `orch` flow failed with "no changes". By
+  then, `main` already held the files the fake agent writes. The test now sets `FAKE_SHARED`,
+  as the earlier rerun check does, so every task changes a shared file.
+- 2026-10-18: re-creating the practice repo right after a run once failed with "in use", and
+  worked a moment later. The script now retries for up to five seconds.
 
 ---
 
@@ -395,3 +417,4 @@ These get detailed checks when we reach them, in the same way as step 1.
 | 2026-10-18 | The assistant runs the checks, after saying up front what it will do. The user does the checks marked **(you)** and can take over any part. |
 | 2026-10-18 | `orch` loads through `ORCH_HOME`, set per PC, from a profile line with no path in the all-hosts profile (see step 1a). |
 | 2026-10-18 | The provider comes from `-Provider`, then the plan (`Plan-Tasks.ps1` records it), then `ORCH_PROVIDER` for the PC (see step 1b). |
+| 2026-10-18 | `Plan-Tasks.ps1` also saves the provider in `project.json`, checked after the plan and before `ORCH_PROVIDER`. `-MaxParallel` from `project.json` is skipped for now (see step 1c). |

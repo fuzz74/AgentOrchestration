@@ -391,6 +391,24 @@ $planChecks = [ordered]@{
 }
 $planChecks.GetEnumerator() | ForEach-Object { Write-Host ("{0,-38} {1}" -f $_.Key, ($_.Value ? 'PASS' : 'FAIL')) -ForegroundColor ($_.Value ? 'Green' : 'Red') }
 if ($planChecks.Values -contains $false) { Write-Host "Archive-on-plan test FAILED. Repo left at $repo"; exit 1 }
+
+# The same flow through orch. No plan is left, so orch plan takes the provider that the plans above
+# saved in project.json; orch run takes it from the new plan. main already holds the fake task files,
+# so FAKE_SHARED gives every task a change to commit.
+$orchFlow = "Import-Module '$(Join-Path $orch 'Orch.psm1')'; Set-Location '$repo'; " +
+    "orch plan .orchestrator/spec-next.md -AgentPath '$fake'; orch run -AgentPath '$fake'; 'orch run exit ' + `$LASTEXITCODE"
+$env:FAKE_SHARED = '1'
+try { $orchFlowOutput = & (Join-Path $PSHOME ($IsWindows ? 'pwsh.exe' : 'pwsh')) -NoProfile -Command $orchFlow | Out-String }
+finally { Remove-Item Env:FAKE_SHARED }
+$orchState = Get-Content (Join-Path $runDir 'state.json') -Raw | ConvertFrom-Json -AsHashtable
+$orchChecks = [ordered]@{
+    'orch plan takes project.json provider' = $orchFlowOutput -match "provider $Provider \(from project\.json\)"
+    'orch run takes the plan provider'     = $orchFlowOutput -match "provider $Provider \(from the plan\)"
+    'orch run finished every task'         = $orchFlowOutput -match 'orch run exit 0' -and $orchState.tasks.psbase.Count -eq 4 -and
+        @($orchState.tasks.Values | Where-Object { $_.status -ne 'done' }).Count -eq 0
+}
+$orchChecks.GetEnumerator() | ForEach-Object { Write-Host ("{0,-38} {1}" -f $_.Key, ($_.Value ? 'PASS' : 'FAIL')) -ForegroundColor ($_.Value ? 'Green' : 'Red') }
+if ($orchChecks.Values -contains $false) { Write-Host "orch plan and run test FAILED. Repo left at $repo"; exit 1 }
 & (Join-Path $orch 'Clear-Orchestrator.ps1') -RepoPath $repo -All
 Remove-Item $WorkDir -Recurse -Force
 Write-Host 'Smoke test passed.' -ForegroundColor Green

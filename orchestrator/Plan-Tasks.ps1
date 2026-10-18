@@ -146,8 +146,15 @@ for ($round = 1; $round -le 2; $round++) {
     if (-not $r.Ok) { throw "Planner failed while fixing the plan: $($r.Error)" }
 }
 
+# project.json outlives the run, so the next `orch plan` in this repo uses the same provider.
+$project = if (Test-Path $paths.ProjectFile) { Get-Content $paths.ProjectFile -Raw | ConvertFrom-Json -AsHashtable } else { [ordered]@{} }
+$project.provider = $doc.provider
+$project | ConvertTo-Json | Set-Content -Path $paths.ProjectFile -Encoding utf8
+
 Write-OrchLog $paths.ProgressFile ("Plan written: {0} tasks, {1:N2} USD" -f $doc.tasks.Count, $cost)
 if ($r.Structured.notes) { Write-Host "`nPlanner notes:`n$($r.Structured.notes)`n" -ForegroundColor Yellow }
 & (Join-Path $PSScriptRoot 'Invoke-Orchestrator.ps1') -Provider $Provider -RepoPath $paths.Repo -Plan $paths.PlanFile -DryRun
 Write-Host "`nReview and edit $($paths.PlanFile), then run:" -ForegroundColor Green
 Write-Host "  $(Join-Path $PSScriptRoot 'Invoke-Orchestrator.ps1') -Provider $Provider -RepoPath `"$($paths.Repo)`""
+Write-Host "or, with the orch command, anywhere in the repo:" -ForegroundColor Green
+Write-Host "  orch run"

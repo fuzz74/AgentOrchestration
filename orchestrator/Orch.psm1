@@ -2,6 +2,8 @@
 # folder, so you type no path. Install-Orch.ps1 loads this module from the PowerShell profile.
 
 $script:Commands = [ordered]@{
+    plan     = @{ Script = 'Plan-Tasks.ps1'; Help = 'Plan the tasks from a spec: orch plan <spec>.'; Provider = $true }
+    run      = @{ Script = 'Invoke-Orchestrator.ps1'; Help = 'Run the plan (-DryRun only shows the waves).'; Provider = $true }
     status   = @{ Script = 'Show-Tasks.ps1'; Help = 'Show the tasks of the current run.' }
     watch    = @{ Script = 'Watch-Orchestrator.ps1'; Help = 'Live dashboard of the run.'; Provider = $true }
     timeline = @{ Script = 'Watch-AgentTimeline.ps1'; Help = 'Follow the steps of the run as a timeline.' }
@@ -29,8 +31,9 @@ function Get-OrchArg {
 }
 
 function Resolve-OrchProvider {
-    # -Provider, then the provider the plan was made for, then the user's default (ORCH_PROVIDER). The
-    # registry covers terminals of an editor that was started before the default was set.
+    # -Provider, then the provider the plan was made for, then the provider of the repo's last plan
+    # (project.json), then the user's default (ORCH_PROVIDER). The registry covers terminals of an
+    # editor that was started before the default was set.
     param([string]$Repo, [object[]]$Rest)
     $flag = Get-OrchArg $Rest 'Provider'
     if ($flag) { return @{ Name = $flag; From = '-Provider'; Given = $true } }
@@ -39,6 +42,9 @@ function Resolve-OrchProvider {
                 else { Join-Path $Repo '.orchestrator\tasks.json' }
     $planned = if (Test-Path $planFile) { try { (Get-Content $planFile -Raw | ConvertFrom-Json).provider } catch { $null } }
     if ($planned) { return @{ Name = $planned; From = 'the plan' } }
+    $projectFile = Join-Path $Repo '.orchestrator\project.json'
+    $remembered = if (Test-Path $projectFile) { try { (Get-Content $projectFile -Raw | ConvertFrom-Json).provider } catch { $null } }
+    if ($remembered) { return @{ Name = $remembered; From = 'project.json' } }
     $default = $env:ORCH_PROVIDER ?? [Environment]::GetEnvironmentVariable('ORCH_PROVIDER', 'User')
     if ($default) { return @{ Name = $default; From = 'your default' } }
 }
@@ -65,7 +71,11 @@ function orch {
         $repo = Get-OrchArg $rest 'RepoPath'
         if (-not $repo) {
             $repo = Get-OrchRepo
-            if (-not $repo) { Write-Host "orch: $((Get-Location).Path) isn't inside a git repo." -ForegroundColor Red; return }
+            if (-not $repo) {
+                $hint = if ($command -eq 'plan') { ' For a new project, add -RepoPath <folder>.' } else { '' }
+                Write-Host "orch: $((Get-Location).Path) isn't inside a git repo.$hint" -ForegroundColor Red
+                return
+            }
             $named.RepoPath = $repo
         }
         $header = "orch: repo $repo"

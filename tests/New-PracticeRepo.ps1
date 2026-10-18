@@ -32,8 +32,14 @@ $marker = Join-Path $root '.orch-practice'
 if (Test-Path $root) {
     # Only replace a folder this script made.
     if (-not (Test-Path $marker)) { throw "$root exists, but this script did not make it. Move or delete it yourself." }
-    try { Remove-Item $root -Recurse -Force }
-    catch { throw "Could not delete $root. Close any VS Code window or terminal that is open in it, then try again. ($($_.Exception.Message))" }
+    # Right after a run, its last processes or a virus scan can hold a file for a moment.
+    for ($try = 1; Test-Path $root; $try++) {
+        try { Remove-Item $root -Recurse -Force }
+        catch {
+            if ($try -ge 5) { throw "Could not delete $root. Close any VS Code window or terminal that is open in it, then try again. ($($_.Exception.Message))" }
+            Start-Sleep -Seconds 1
+        }
+    }
 }
 Remove-Item (Join-Path ([IO.Path]::GetTempPath()) 'fake-claude') -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Path $root | Out-Null

@@ -122,15 +122,19 @@ Orchestrator commands in the terminal steps assume the current folder is
 
    | You type | It runs |
    | --- | --- |
+   | `orch plan <spec>` | `Plan-Tasks.ps1` |
+   | `orch run` | `Invoke-Orchestrator.ps1` |
    | `orch status` | `Show-Tasks.ps1` |
    | `orch watch` | `Watch-Orchestrator.ps1` |
    | `orch timeline` | `Watch-AgentTimeline.ps1` |
    | `orch talk` | `Watch-Conversations.ps1` |
    | `orch stop` | `Request-OrchestratorStop.ps1` |
 
-   You never type the repo path. Where a provider is needed, it comes from `-Provider`, then
-   from the plan (`Plan-Tasks.ps1` records the provider it planned with), then from your
-   default. The first line shows which repo and provider were used. Other flags go to the
+   You never type the repo path; for a new project, give `orch plan` a `-RepoPath`. Where a
+   provider is needed, it comes from `-Provider`, then from the plan, then from the repo's
+   `project.json`, then from your default. `Plan-Tasks.ps1` records the provider it planned
+   with in both files, so a repo you build with Copilot keeps using Copilot. The first line
+   shows which repo and provider were used. Other flags go to the
    script, for example `orch watch -Once`, and `orch` alone lists the commands. More commands
    are on the way: see `docs/orchestrator-from-any-repo-progress.md`.
 
@@ -612,7 +616,7 @@ upstream is shown as `blocked`.
 | --- | --- |
 | `<repo>/.orchestrator/tasks.json` | The plan. Yours to edit. |
 | `<repo>/.orchestrator/spec.md` | The spec: written there by `/write-spec`, or copied there when it lives outside the repo. |
-| `<repo>/.orchestrator/project.json` | Setup and integration-check commands from the skeleton bootstrap. |
+| `<repo>/.orchestrator/project.json` | Setup and integration-check commands from the skeleton bootstrap, and the provider of the last plan. |
 | `<repo>/.orchestrator/state.json` | Per-task status, attempts, cost, session id, summary, notes, error, merged commit. |
 | `<repo>/.orchestrator/progress.md` | Timestamped log of the whole run. |
 | `<repo>/.orchestrator/logs/<id>/<timestamp>/` | Per-run logs: each prompt sent (`*.prompt.md`), each claude JSON result, and command output. |
@@ -651,7 +655,7 @@ implementation or acceptance check needs repair.
 | Script | Parameters |
 | --- | --- |
 | `Initialize-Project.ps1` | `-Provider Claude|Copilot`, `-Spec` and `-RepoPath` (required), `-Model` (`sonnet`), `-AgentPath`, `-MaxBudgetUsd` (`0` = no cap, Claude only), `-MaxAttempts` (`3`). Creates and checks the skeleton of a new repo; does nothing if the repo has commits. `Plan-Tasks.ps1` calls it. |
-| `Plan-Tasks.ps1` | `-Provider Claude|Copilot`, `-Spec` (required), `-RepoPath` (`.`), `-Out` (plan path), `-Model` (planner, `opus`), `-WorkerModel` (`sonnet`), `-Effort` (planner reasoning effort, Claude only), `-WorkerEffort` (becomes `settings.effort`), `-Setup`, `-IntegrationCheck` (both default to `project.json`), `-AgentPath`, `-MaxBudgetUsd` (`0` = no cap, Claude only), `-Force` (overwrite a plan that never ran; archive an earlier run that is not finished). Archives a finished earlier run by itself. |
+| `Plan-Tasks.ps1` | `-Provider Claude|Copilot`, `-Spec` (required), `-RepoPath` (`.`), `-Out` (plan path), `-Model` (planner, `opus`), `-WorkerModel` (`sonnet`), `-Effort` (planner reasoning effort, Claude only), `-WorkerEffort` (becomes `settings.effort`), `-Setup`, `-IntegrationCheck` (both default to `project.json`), `-AgentPath`, `-MaxBudgetUsd` (`0` = no cap, Claude only), `-Force` (overwrite a plan that never ran; archive an earlier run that is not finished). Archives a finished earlier run by itself. Records the provider in the plan and in `project.json`. |
 | `Invoke-Orchestrator.ps1` | `-Provider Claude|Copilot` (required, even for `-DryRun`), `-RepoPath` (`.`), `-Plan`, `-MaxParallel` (`3`), `-AgentPath`, `-DryRun` (print waves and exit), `-RetryFailed` (preserve committed work), `-FreshFailed` (with `-RetryFailed`, archive and start over), `-PollSeconds` (`5`). Exit code 0 = all done, 2 = some failed or blocked, 1 = invalid plan. |
 | `Request-OrchestratorStop.ps1` | `-RepoPath` (`.`), `-Cancel` (remove a pending stop request). Graceful stop exits the runner with code 0 even if tasks are still pending. |
 | `Show-Tasks.ps1` | `-RepoPath`, `-Plan`. Validates the plan and prints wave, status, deps, attempts, cost and detail per task. |
@@ -660,7 +664,7 @@ implementation or acceptance check needs repair.
 | `Clear-Orchestrator.ps1` | `-RepoPath`, `-All`. Without `-All`: removes task worktrees and `orch/task/*` branches, resets unfinished tasks to pending. With `-All`: also the integration worktree and branch, state, logs and progress, which are deleted, not archived. Refuses while a run is active. Supports `-WhatIf`. |
 | `Complete-Orchestrator.ps1` | `-RepoPath`, `-Keep` (files to leave in `.orchestrator`, by name or full path), `-Force` (archive a run that is not finished). Moves the run record to `<repo>.runs/<timestamp>/.orchestrator`, leaves `project.json`, and removes all worktrees and `orch/*` branches. Refuses while a run is active. Supports `-WhatIf`. |
 | `Install-Orch.ps1` | `-Provider Claude|Copilot` (sets `ORCH_PROVIDER`, the default provider), `-WhatIf`. Installs `orch` on this PC: sets `ORCH_HOME` and adds the line that loads it to `$PROFILE.CurrentUserAllHosts`. Running it again changes nothing unless the checkout has moved or the provider changes. |
-| `orch <command>` | `status`, `watch`, `timeline`, `talk`, `stop` run `Show-Tasks.ps1`, `Watch-Orchestrator.ps1`, `Watch-AgentTimeline.ps1`, `Watch-Conversations.ps1` and `Request-OrchestratorStop.ps1` for the repo around the current folder; a worktree counts as its repo. The provider comes from `-Provider`, then the plan's `provider`, then `ORCH_PROVIDER`. Other flags go to the script, and `-RepoPath` overrides the repo. `orch` alone lists the commands. |
+| `orch <command>` | `plan`, `run`, `status`, `watch`, `timeline`, `talk`, `stop` run `Plan-Tasks.ps1`, `Invoke-Orchestrator.ps1`, `Show-Tasks.ps1`, `Watch-Orchestrator.ps1`, `Watch-AgentTimeline.ps1`, `Watch-Conversations.ps1` and `Request-OrchestratorStop.ps1` for the repo around the current folder; a worktree counts as its repo. The provider comes from `-Provider`, then the plan's `provider`, then `project.json`, then `ORCH_PROVIDER`. Other flags go to the script, and `-RepoPath` overrides the repo. `orch` alone lists the commands. |
 | `tests/Run-SmokeTest.ps1` | `-Provider Claude|Copilot` (required), `-WorkDir`. End-to-end fake-CLI test from an empty folder to merged work. |
 | `tests/New-PracticeRepo.ps1` | `-Stage Run|Planned|Empty` (`Run`), `-Provider` (`Claude`). Replaces the throwaway repo in `%TEMP%\orch-practice\demo`, made with the fake CLI, for trying commands by hand. |
 
