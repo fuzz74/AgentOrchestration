@@ -421,6 +421,31 @@ These get detailed checks when we reach them, in the same way as step 1.
   `/plan-tasks` are offered, and they find the orchestrator's scripts without asking for folder
   access.
 
+**Investigation** (2026-10-18; Claude Code 2.1.302, Copilot CLI 1.0.97, from the docs and this
+PC)
+- **Where personal skills are read:**
+  - Claude Code (CLI and VS Code extension): `~\.claude\skills\<name>`. The docs allow a
+    symbolic link there; Windows junctions aren't mentioned.
+  - Copilot CLI: `~\.copilot\skills` and `~\.agents\skills`. It has not read `~\.claude` since
+    version 1.0.36. A `skillDirectories` setting and `copilot skill add <folder>` register a
+    folder in place. Skills behind symbolic links load since version 1.0.62.
+  - VS Code Copilot chat: the docs list `~\.copilot\skills`, `~\.claude\skills` and
+    `~\.agents\skills`. Whether its default "Copilot" harness reads `~\.claude\skills` is
+    unclear. The setting for extra folders (`chat.agentSkillsLocations`) is deprecated and
+    ignored by that harness.
+- **Plugins:**
+  - Claude Code: plugin skills always get a prefix, so `/write-spec` becomes
+    `/orch:write-spec`. The docs say a plugin from a local marketplace loads in place, but
+    on this PC a plugin from a local marketplace was copied into `plugins\cache`.
+  - Copilot plugins: in VS Code they are off by default (`chat.plugins.enabled`), and the
+    setting for a local plugin folder is experimental.
+- **Finding the scripts:** the shell that Claude Code runs commands in doesn't load the
+  PowerShell profile. So in a chat, `orch` isn't available, and `ORCH_HOME` may exist only in
+  the registry. A skill can name its own folder with `${CLAUDE_SKILL_DIR}`, but through a link
+  that path points into `~\.claude\skills`, not into the checkout.
+- **Workers:** planners, workers and reviewers get a fixed tool list without the skill tool,
+  so they can't start a skill. The bootstrap and the resolver have no list and could.
+
 ### Step 3: The /orch guiding skill
 
 - It includes the rule changes from the design notes: new blank-canvas wording in `CLAUDE.md`
