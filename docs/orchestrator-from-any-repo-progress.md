@@ -269,7 +269,10 @@ needs a path or `-Provider`.
   cd $env:TEMP\orch-practice\demo
   orch watch
   ```
-  You should see the dashboard of a finished run, which stays on screen. Press `q` to quit.
+  You should see the dashboard of a finished run, which stays on screen. Its heading
+  `Live Copilot CLI processes` (or `Claude`) shows the provider. The dashboard covers the
+  whole terminal, so `orch`'s grey line is hidden while it runs. Press `q` to quit. The normal
+  screen comes back, with the grey line `orch: repo ..., provider ...` above your prompt.
 
 **Done:** (date, PC)
 
