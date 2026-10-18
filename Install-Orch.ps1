@@ -11,11 +11,15 @@
     lacks it, so terminals of an editor started before the install work too.
     Running the script again changes nothing, unless the checkout has moved. It also loads `orch`
     into the terminal it runs in.
+    -Provider sets this PC's default provider, the user environment variable ORCH_PROVIDER.
+    `orch` uses it when neither -Provider nor the plan names one.
+.EXAMPLE
+    .\Install-Orch.ps1 -Provider Claude
 .EXAMPLE
     .\Install-Orch.ps1 -WhatIf
 #>
 [CmdletBinding(SupportsShouldProcess)]
-param()
+param([ValidateSet('Claude', 'Copilot')][string]$Provider)
 
 $ErrorActionPreference = 'Stop'
 $orchHome = $PSScriptRoot
@@ -30,6 +34,17 @@ if ($current -ne $orchHome -and $PSCmdlet.ShouldProcess("ORCH_HOME = $orchHome",
     $changed = $true
 }
 $env:ORCH_HOME = $orchHome
+
+if ($Provider) {
+    $Provider = [string](@('Claude', 'Copilot') -eq $Provider)
+    $currentProvider = [Environment]::GetEnvironmentVariable('ORCH_PROVIDER', 'User')
+    if ($currentProvider -cne $Provider -and $PSCmdlet.ShouldProcess("ORCH_PROVIDER = $Provider", 'Set user environment variable')) {
+        [Environment]::SetEnvironmentVariable('ORCH_PROVIDER', $Provider, 'User')
+        Write-Host $(if ($currentProvider) { "Default provider changed from $currentProvider to $Provider." } else { "Default provider set to $Provider." })
+        $changed = $true
+    }
+    $env:ORCH_PROVIDER = $Provider
+}
 
 $text = if (Test-Path $profilePath) { Get-Content $profilePath -Raw } else { '' }
 if ($text -notmatch 'Orch\.psm1' -and $PSCmdlet.ShouldProcess($profilePath, 'Add the line that loads orch')) {

@@ -104,6 +104,8 @@ function New-PlanDoc($structured) {
         spec              = $specRel
         baseBranch        = $base
         integrationBranch = 'orch/integration'
+        # ValidateSet accepts any case; the schema wants the exact name.
+        provider          = [string](@('Claude', 'Copilot') -eq $Provider)
         settings          = [ordered]@{
             model            = $WorkerModel
             reviewModel      = $WorkerModel

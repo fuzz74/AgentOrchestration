@@ -142,10 +142,11 @@ $unfinished = Join-Path $repo '.orchestrator/logs/planner-unfinished.json.events
 Get-Content $plannerEvents.FullName | Select-Object -SkipLast 1 | Set-Content $unfinished
 $dashboardUnfinished = & (Join-Path $PSHOME ($IsWindows ? 'pwsh.exe' : 'pwsh')) @dashboardArgs | Out-String
 Remove-Item $unfinished
-# orch run from inside a worktree finds the main checkout, and a relative -Plan follows cd.
-$orchStatusCommand = "Import-Module '$(Join-Path $orch 'Orch.psm1')'; Set-Location '$(Join-Path $WorkDir 'demo.worktrees/_integration')'; " +
-    "orch status -Plan ../../demo/.orchestrator/tasks.json | Out-String -Width 200"
-$orchStatus = & (Join-Path $PSHOME ($IsWindows ? 'pwsh.exe' : 'pwsh')) -NoProfile -Command $orchStatusCommand | Out-String
+# orch run from inside a worktree finds the main checkout, a relative -Plan follows cd, and orch watch
+# takes the provider the plan records.
+$orchCommand = "Import-Module '$(Join-Path $orch 'Orch.psm1')'; Set-Location '$(Join-Path $WorkDir 'demo.worktrees/_integration')'; " +
+    "orch status -Plan ../../demo/.orchestrator/tasks.json | Out-String -Width 200; orch watch -Once"
+$orchOutput = & (Join-Path $PSHOME ($IsWindows ? 'pwsh.exe' : 'pwsh')) -NoProfile -Command $orchCommand | Out-String
 $checks = [ordered]@{
     'skeleton fixed and amended'        = (git -C $repo rev-list --count main) -eq '1' -and @('skeleton.txt', 'tool.txt' | Where-Object { $_ -notin (git -C $repo ls-tree -r --name-only main) }).Count -eq 0
     'plan uses skeleton commands'       = $planSettings.setup -like '*skeleton.txt*' -and $planSettings.integrationCheck -like '*tool.txt*'
@@ -164,7 +165,9 @@ $checks = [ordered]@{
     'integration check ran after merge' = @(Get-ChildItem (Join-Path $repo '.orchestrator/logs') -Filter '*-integration-check.log').Count -eq 4
     # Merges are checked on a detached HEAD; the integration worktree must end back on the branch.
     'integration worktree on its branch' = (git -C (Join-Path $WorkDir 'demo.worktrees/_integration') symbolic-ref --short HEAD) -eq 'orch/integration'
-    'orch status from a worktree'       = $orchStatus -match 'orch: repo .*[\\/]demo\r?\n' -and $orchStatus -match 'wire-up\s+done'
+    'orch status from a worktree'       = $orchOutput -match 'orch: repo .*[\\/]demo\r?\n' -and $orchOutput -match 'wire-up\s+done'
+    'orch watch uses the plan provider' = $planDoc.provider -ceq $Provider -and $orchOutput -match "provider $Provider \(from the plan\)" -and
+        $orchOutput -match "Live $Provider CLI processes"
     'orchestrator exit code 0'          = $exit -eq 0
     'duplicate run rejected'            = $duplicateRejected
     'reference directory passed to agents' = $exit -eq 0

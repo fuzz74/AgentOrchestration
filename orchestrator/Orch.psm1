@@ -2,7 +2,11 @@
 # folder, so you type no path. Install-Orch.ps1 loads this module from the PowerShell profile.
 
 $script:Commands = [ordered]@{
-    status = @{ Script = 'Show-Tasks.ps1'; Help = 'Show the tasks of the current run.' }
+    status   = @{ Script = 'Show-Tasks.ps1'; Help = 'Show the tasks of the current run.' }
+    watch    = @{ Script = 'Watch-Orchestrator.ps1'; Help = 'Live dashboard of the run.'; Provider = $true }
+    timeline = @{ Script = 'Watch-AgentTimeline.ps1'; Help = 'Follow the steps of the run as a timeline.' }
+    talk     = @{ Script = 'Watch-Conversations.ps1'; Help = 'Follow the conversations with the agents.' }
+    stop     = @{ Script = 'Request-OrchestratorStop.ps1'; Help = 'Pause the run once active agents finish (-Cancel undoes it).' }
 }
 
 function Get-OrchRepo {
@@ -13,16 +17,42 @@ function Get-OrchRepo {
     [IO.Path]::GetFullPath($lines[0].Substring(9))
 }
 
+function Get-OrchArg {
+    # The value given for -Name among the flags. `-Name:value` arrives as '-Name:' and then the value.
+    param([object[]]$Rest, [string]$Name)
+    for ($i = 0; $i -lt $Rest.Count; $i++) {
+        if ("$($Rest[$i])" -match "^-$Name(:(.+))?:?$") {
+            if ($Matches[2]) { return $Matches[2] }
+            if ($i + 1 -lt $Rest.Count) { return "$($Rest[$i + 1])" }
+        }
+    }
+}
+
+function Resolve-OrchProvider {
+    # -Provider, then the provider the plan was made for, then the user's default (ORCH_PROVIDER). The
+    # registry covers terminals of an editor that was started before the default was set.
+    param([string]$Repo, [object[]]$Rest)
+    $flag = Get-OrchArg $Rest 'Provider'
+    if ($flag) { return @{ Name = $flag; From = '-Provider'; Given = $true } }
+    $planArg = Get-OrchArg $Rest 'Plan'
+    $planFile = if ($planArg) { $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($planArg) }
+                else { Join-Path $Repo '.orchestrator\tasks.json' }
+    $planned = if (Test-Path $planFile) { try { (Get-Content $planFile -Raw | ConvertFrom-Json).provider } catch { $null } }
+    if ($planned) { return @{ Name = $planned; From = 'the plan' } }
+    $default = $env:ORCH_PROVIDER ?? [Environment]::GetEnvironmentVariable('ORCH_PROVIDER', 'User')
+    if ($default) { return @{ Name = $default; From = 'your default' } }
+}
+
 function Show-OrchUsage {
     Write-Host 'Usage: orch <command> [flags]'
     foreach ($name in $script:Commands.Keys) {
-        Write-Host ('  {0,-8} {1} ({2})' -f $name, $script:Commands[$name].Help, $script:Commands[$name].Script)
+        Write-Host ('  {0,-9} {1} ({2})' -f $name, $script:Commands[$name].Help, $script:Commands[$name].Script)
     }
-    Write-Host 'Run it anywhere inside a repo. Other flags go to the script, for example: orch status -Plan other.json'
+    Write-Host 'Run it anywhere inside a repo. Other flags go to the script, for example: orch watch -Once'
 }
 
 function orch {
-    # A plain function, not an advanced one, so flags such as -Plan reach the script unchanged.
+    # A plain function, not an advanced one, so flags such as -Once reach the script unchanged.
     # @() keeps a single flag a list: splatting a lone string would pass its characters.
     $command, $rest = $args
     $rest = @($rest | Where-Object { $null -ne $_ })
@@ -31,11 +61,25 @@ function orch {
     if (-not $entry) { Write-Host "orch: unknown command '$command'." -ForegroundColor Red; Show-OrchUsage; return }
     $file = Join-Path $PSScriptRoot $entry.Script
     try {
-        if ($rest -match '^-RepoPath(:|$)') { & $file @rest; return }
-        $repo = Get-OrchRepo
-        if (-not $repo) { Write-Host "orch: $((Get-Location).Path) isn't inside a git repo." -ForegroundColor Red; return }
-        Write-Host "orch: repo $repo" -ForegroundColor DarkGray
-        & $file -RepoPath $repo @rest
+        $named = @{}
+        $repo = Get-OrchArg $rest 'RepoPath'
+        if (-not $repo) {
+            $repo = Get-OrchRepo
+            if (-not $repo) { Write-Host "orch: $((Get-Location).Path) isn't inside a git repo." -ForegroundColor Red; return }
+            $named.RepoPath = $repo
+        }
+        $header = "orch: repo $repo"
+        if ($entry.Provider) {
+            $provider = Resolve-OrchProvider $repo $rest
+            if (-not $provider) {
+                Write-Host 'orch: no provider. Add -Provider Claude or -Provider Copilot, or set your default with Install-Orch.ps1 -Provider.' -ForegroundColor Red
+                return
+            }
+            if (-not $provider.Given) { $named.Provider = $provider.Name }
+            $header += ", provider $($provider.Name) (from $($provider.From))"
+        }
+        Write-Host $header -ForegroundColor DarkGray
+        & $file @named @rest
     }
     catch { Write-Host "orch: $($_.Exception.Message)" -ForegroundColor Red }
 }

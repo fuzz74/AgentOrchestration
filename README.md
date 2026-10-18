@@ -112,14 +112,27 @@ Orchestrator commands in the terminal steps assume the current folder is
     In interactive Copilot CLI, grant access through its own permission flow or use
     `copilot --add-dir C:\src\myapp`. The orchestration scripts run inside target repos
     and do not edit either assistant's interactive access settings.
-6. **The short `orch` command** (optional, once per PC): run `.\Install-Orch.ps1`. It sets the
-   user environment variable `ORCH_HOME` to this folder, and adds one line to your PowerShell
-   profile (`$PROFILE.CurrentUserAllHosts`) that loads `orch` in every new terminal. The line
-   holds no path, so a profile shared between PCs, for example through OneDrive, works on each
-   PC that has run the install. After that, anywhere inside a target repo or one of its
-   worktrees, `orch status` prints the task table, the same as `Show-Tasks.ps1` for that repo.
-   Other flags go to the script, and `orch` alone lists the commands. More commands are on
-   the way: see `docs/orchestrator-from-any-repo-progress.md`.
+6. **The short `orch` command** (optional, once per PC): run
+   `.\Install-Orch.ps1 -Provider Claude` (or `Copilot`). It sets the user environment variable
+   `ORCH_HOME` to this folder, sets `ORCH_PROVIDER` to your default provider, and adds one line
+   to your PowerShell profile (`$PROFILE.CurrentUserAllHosts`) that loads `orch` in every new
+   terminal. The line holds no path, so a profile shared between PCs, for example through
+   OneDrive, works on each PC that has run the install. After that, anywhere inside a target
+   repo or one of its worktrees:
+
+   | You type | It runs |
+   | --- | --- |
+   | `orch status` | `Show-Tasks.ps1` |
+   | `orch watch` | `Watch-Orchestrator.ps1` |
+   | `orch timeline` | `Watch-AgentTimeline.ps1` |
+   | `orch talk` | `Watch-Conversations.ps1` |
+   | `orch stop` | `Request-OrchestratorStop.ps1` |
+
+   You never type the repo path. Where a provider is needed, it comes from `-Provider`, then
+   from the plan (`Plan-Tasks.ps1` records the provider it planned with), then from your
+   default. The first line shows which repo and provider were used. Other flags go to the
+   script, for example `orch watch -Once`, and `orch` alone lists the commands. More commands
+   are on the way: see `docs/orchestrator-from-any-repo-progress.md`.
 
 ### Step 1: Turn the idea into a spec
 
@@ -402,6 +415,7 @@ never loses progress. The JSON Schema is
   "spec": ".orchestrator/spec.md",
   "baseBranch": "main",
   "integrationBranch": "orch/integration",
+  "provider": "Claude",
   "settings": { "model": "sonnet", "reviewModel": "sonnet", "maxAttempts": 3, "setup": "npm ci",
                 "shared": ["package-lock.json"] },
   "tasks": [
@@ -414,6 +428,10 @@ never loses progress. The JSON Schema is
   ]
 }
 ```
+
+`Plan-Tasks.ps1` records `provider`, the provider the plan was made for (`Claude` or
+`Copilot`). The `orch` command uses it when you don't pass `-Provider`. Older plans don't have
+it.
 
 **Task fields**
 
@@ -641,8 +659,8 @@ implementation or acceptance check needs repair.
 | `Watch-Conversations.ps1` | `-RepoPath` (`.`), `-Task` (optional task ID), `-Last` (`25`), `-RefreshSeconds` (`2`), `-ShowTools`, `-FullRequests`, `-NoMouse`, `-Once`. Live view has clickable request controls and a scrollable in-terminal popup (O opens the latest request without mouse); `-Once` prints plain output. Ctrl+C or Q quits. |
 | `Clear-Orchestrator.ps1` | `-RepoPath`, `-All`. Without `-All`: removes task worktrees and `orch/task/*` branches, resets unfinished tasks to pending. With `-All`: also the integration worktree and branch, state, logs and progress, which are deleted, not archived. Refuses while a run is active. Supports `-WhatIf`. |
 | `Complete-Orchestrator.ps1` | `-RepoPath`, `-Keep` (files to leave in `.orchestrator`, by name or full path), `-Force` (archive a run that is not finished). Moves the run record to `<repo>.runs/<timestamp>/.orchestrator`, leaves `project.json`, and removes all worktrees and `orch/*` branches. Refuses while a run is active. Supports `-WhatIf`. |
-| `Install-Orch.ps1` | `-WhatIf`. Installs `orch` on this PC: sets `ORCH_HOME` and adds the line that loads it to `$PROFILE.CurrentUserAllHosts`. Running it again changes nothing unless the checkout has moved. |
-| `orch <command>` | `status` runs `Show-Tasks.ps1` for the repo around the current folder; a worktree counts as its repo. Other flags go to the script, and `-RepoPath` overrides the repo. `orch` alone lists the commands. |
+| `Install-Orch.ps1` | `-Provider Claude|Copilot` (sets `ORCH_PROVIDER`, the default provider), `-WhatIf`. Installs `orch` on this PC: sets `ORCH_HOME` and adds the line that loads it to `$PROFILE.CurrentUserAllHosts`. Running it again changes nothing unless the checkout has moved or the provider changes. |
+| `orch <command>` | `status`, `watch`, `timeline`, `talk`, `stop` run `Show-Tasks.ps1`, `Watch-Orchestrator.ps1`, `Watch-AgentTimeline.ps1`, `Watch-Conversations.ps1` and `Request-OrchestratorStop.ps1` for the repo around the current folder; a worktree counts as its repo. The provider comes from `-Provider`, then the plan's `provider`, then `ORCH_PROVIDER`. Other flags go to the script, and `-RepoPath` overrides the repo. `orch` alone lists the commands. |
 | `tests/Run-SmokeTest.ps1` | `-Provider Claude|Copilot` (required), `-WorkDir`. End-to-end fake-CLI test from an empty folder to merged work. |
 | `tests/New-PracticeRepo.ps1` | `-Stage Run|Planned|Empty` (`Run`), `-Provider` (`Claude`). Replaces the throwaway repo in `%TEMP%\orch-practice\demo`, made with the fake CLI, for trying commands by hand. |
 

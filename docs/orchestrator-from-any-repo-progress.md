@@ -10,7 +10,7 @@ passed. The file lives in the repo, so it works from any PC and with Claude or C
 |---|---|---|
 | [0](#step-0-starting-point-and-practice-repo) | A known-good starting point and a practice repo | Done |
 | [1a](#step-1a-orch-status) | `orch status` from anywhere inside a repo | Done (other PC still to check) |
-| [1b](#step-1b-watch-views-without-a-provider-flag) | `orch watch`, `timeline`, `talk` and `stop` with no `-Provider` | Not started |
+| [1b](#step-1b-watch-views-without-a-provider-flag) | `orch watch`, `timeline`, `talk` and `stop` with no `-Provider` | Ready to check |
 | [1c](#step-1c-orch-plan-and-orch-run) | `orch plan` and `orch run` | Not started |
 | [1d](#step-1d-orch-try-and-orch-finish) | `orch try` and `orch finish` | Not started |
 | [2](#step-2-skills-from-any-repo) | `/write-spec` and `/plan-tasks` from any repo | Later |
@@ -78,7 +78,7 @@ Step 1 builds these, a few at a time:
 | `orch finish` | Merges `orch/integration` and runs `Complete-Orchestrator.ps1`, after you confirm |
 
 - **Repo:** the one you're in, from any folder inside it, including its worktrees.
-- **Provider:** taken from `-Provider`, then the repo's `project.json`, then your own default.
+- **Provider:** taken from `-Provider`, then the plan, then your own default (see step 1b).
 - **Other flags** go to the script unchanged.
 - **First line:** every `orch` command starts with one line that names the repo and the
   provider, and where the provider came from. That way you can see what it picked.
@@ -218,41 +218,64 @@ the two things every later command needs: `orch` is installed, and it finds the 
 **Why:** these are the commands you keep open during a run. After this step, none of them
 needs a path or `-Provider`.
 
-**Decide first**
-- Where your own default provider lives: an `ORCH_PROVIDER` user environment variable (simple,
-  set per PC) or a small settings file.
-- Whether `orch` saves the provider to `project.json` the first time you pass `-Provider` in
-  a repo.
+**Decided** (2026-10-18)
+- Of these four commands, only `watch` needs a provider. `timeline`, `talk` and `stop` never
+  took one.
+- The provider comes from `-Provider`, then from the plan, then from your default for this PC.
+  A plan made for Copilot holds Copilot model names, so the plan is the most reliable source.
+  `Plan-Tasks.ps1` now records it in `tasks.json` as `provider`, a small engine change. Older
+  plans lack it and fall through to your default.
+- Your default is the user environment variable `ORCH_PROVIDER`, which
+  `Install-Orch.ps1 -Provider` sets. On this PC (MSI) it is `Claude`.
+- The idea of saving the provider to `project.json` moves to step 1c. It only matters for
+  `orch plan`, where no plan exists yet.
 
 **What changes**
 - `orch watch`, `orch timeline`, `orch talk` and `orch stop`.
-- The provider lookup, shown in each command's first line.
+- `Plan-Tasks.ps1` records `provider` in `tasks.json`, and the schema allows it.
+- `Install-Orch.ps1 -Provider Claude|Copilot` sets `ORCH_PROVIDER`.
+- The first line of each command names the repo, plus the provider and where it came from
+  when the command needs one.
+- The README gets a table of the `orch` commands and the `provider` plan field. The smoke test
+  checks that the plan records its provider and that `orch watch` uses it.
 
 **Checks** (in a practice repo with a finished run)
-- [ ] Each view draws once and returns, without asking for a provider:
+- [x] Each view draws once and returns, without asking for a provider: *(assistant)*
   ```powershell
   orch watch -Once
   orch timeline -Once
   orch talk -Once
   ```
-- [ ] Stop, then cancel:
+- [x] Stop, then cancel: *(assistant)*
   ```powershell
   orch stop
   orch stop -Cancel
   ```
   You should see `Stop requested for ...`, then `Stop request cleared for ...`.
-- [ ] The provider order. The first line of `orch watch -Once` says which provider it used and
-  why:
-  - With only your default set: your default, "(your default)".
-  - With `"provider": "Copilot"` added to the practice repo's `project.json`: Copilot,
-    "(project.json)".
-  - With `-Provider Claude` added to the command: Claude, "(flag)".
-  - With none of them set: a message that tells you how to set one, and nothing runs.
-- [ ] The smoke test still passes.
+- [x] Set the default: `.\Install-Orch.ps1 -Provider Claude` says `Default provider set to
+  Claude.` Running it again says nothing changed. *(assistant)*
+- [x] The provider order. The first line of `orch watch -Once` says which provider it used and
+  why: *(assistant)*
+  - In a Copilot practice repo (`.\tests\New-PracticeRepo.ps1 -Provider Copilot`):
+    `provider Copilot (from the plan)`. The dashboard lists live Copilot processes.
+  - The same, with `-Provider Claude` added: `provider Claude (from -Provider)`.
+  - In a plan without `provider`, as made before this step: `provider Claude (from your
+    default)`.
+  - With none of them: `orch: no provider. Add -Provider Claude or -Provider Copilot, or set
+    your default with Install-Orch.ps1 -Provider.` Nothing runs.
+- [x] The smoke test still passes. *(assistant, both providers)*
+- [ ] **(you)** The live dashboard works through `orch`. In a VS Code terminal:
+  ```powershell
+  cd $env:TEMP\orch-practice\demo
+  orch watch
+  ```
+  You should see the dashboard of a finished run, which stays on screen. Press `q` to quit.
 
 **Done:** (date, PC)
 
 **Notes:**
+- 2026-10-18: the assistant tested the case with no provider anywhere before setting your
+  default, so it didn't have to remove the default afterwards.
 
 ---
 
@@ -368,3 +391,4 @@ These get detailed checks when we reach them, in the same way as step 1.
 | 2026-10-18 | Build in the order the design notes suggest, with step 1 split into 1a to 1d. Every check runs in a practice repo made with the fake agent, never in a real project. |
 | 2026-10-18 | The assistant runs the checks, after saying up front what it will do. The user does the checks marked **(you)** and can take over any part. |
 | 2026-10-18 | `orch` loads through `ORCH_HOME`, set per PC, from a profile line with no path in the all-hosts profile (see step 1a). |
+| 2026-10-18 | The provider comes from `-Provider`, then the plan (`Plan-Tasks.ps1` records it), then `ORCH_PROVIDER` for the PC (see step 1b). |

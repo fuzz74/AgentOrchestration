@@ -17,6 +17,11 @@
       "type": "string",
       "description": "Branch that approved tasks are merged into. Default: orch/integration."
     },
+    "provider": {
+      "type": "string",
+      "enum": ["Claude", "Copilot"],
+      "description": "The provider the plan was made for, recorded by Plan-Tasks.ps1. The orch command uses it when -Provider is not given."
+    },
     "settings": {
       "type": "object",
       "description": "Overrides for the orchestrator defaults. Every key is optional.",
