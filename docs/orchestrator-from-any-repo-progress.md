@@ -9,10 +9,10 @@ passed. The file lives in the repo, so it works from any PC and with Claude or C
 | Step | What you get | Status |
 |---|---|---|
 | [0](#step-0-starting-point-and-practice-repo) | A known-good starting point and a practice repo | Done |
-| [1a](#step-1a-orch-status) | `orch status` from anywhere inside a repo | Done (other PC still to check) |
+| [1a](#step-1a-orch-status) | `orch status` from anywhere inside a repo | Done (VS Code terminal and other PC still to check) |
 | [1b](#step-1b-watch-views-without-a-provider-flag) | `orch watch`, `timeline`, `talk` and `stop` with no `-Provider` | Done |
 | [1c](#step-1c-orch-plan-and-orch-run) | `orch plan` and `orch run` | Done |
-| [1d](#step-1d-orch-try-and-orch-finish) | `orch try` and `orch finish` | Ready to check |
+| [1d](#step-1d-orch-try-and-orch-finish) | `orch try` and `orch finish` | Done |
 | [2](#step-2-skills-from-any-repo) | `/write-spec` and `/plan-tasks` from any repo | Later |
 | [3](#step-3-the-orch-guiding-skill) | The `/orch` guiding skill | Later |
 | [4](#step-4-per-repo-conventions) | Per-repo conventions in `project.json` | Later |
@@ -173,7 +173,11 @@ the two things every later command needs: `orch` is installed, and it finds the 
   You should see a message saying which folder `orch` was installed from.
 - [x] **(you)** Open a **new** terminal in VS Code, then run
   `cd $env:TEMP\orch-practice\demo; orch status`. You should see the table from step 0. This
-  shows that your own terminals load `orch`. *(you)*
+  shows that your own terminals load `orch`. *(you, in Windows Terminal)*
+- [ ] **(you)** The same in a **new VS Code terminal**: `orch` alone lists its commands. VS Code
+  is where the design notes expect you to work, and its terminal may be set to Windows
+  PowerShell 5.1, which reads another profile file and would not load `orch`. This check stays
+  open and doesn't block the next steps.
 - [x] Running the install a second time changes nothing. It says `orch` is already installed.
   *(assistant)*
 - [x] `orch` with nothing after it lists its commands. Only `status` exists so far.
@@ -265,7 +269,8 @@ needs a path or `-Provider`.
   - With none of them: `orch: no provider. Add -Provider Claude or -Provider Copilot, or set
     your default with Install-Orch.ps1 -Provider.` Nothing runs.
 - [x] The smoke test still passes. *(assistant, both providers)*
-- [x] **(you)** The live dashboard works through `orch`. In a VS Code terminal: *(you)*
+- [x] **(you)** The live dashboard works through `orch`. In a VS Code terminal: *(you, in
+  Windows Terminal)*
   ```powershell
   cd $env:TEMP\orch-practice\demo
   orch watch
@@ -366,9 +371,10 @@ archive the run in one go.
   archives.
 
 **Checks** (in a practice repo with a finished run, from `$env:TEMP\orch-practice\demo`)
-- [ ] **(you)** `orch try` opens a new VS Code window on
+- [x] **(you)** `orch try` opens a new VS Code window on
   `...\orch-practice\demo.worktrees\_integration`. Close that window before the next check.
-- [ ] **(you)** Saying no changes nothing. Run `orch finish` and answer `n`. It says `Nothing
+  *(you)*
+- [x] **(you)** Saying no changes nothing. *(you)* Run `orch finish` and answer `n`. It says `Nothing
   changed.`, and `orch status` and `git log --oneline -1` look the same as before.
 - [x] It refuses, with a message that names the problem, and changes nothing when: *(assistant)*
   - a task isn't done: `The run isn't finished: 4 of 4 tasks are not done (contracts, ...)`
@@ -385,7 +391,7 @@ archive the run in one go.
   archives. *(assistant)*
 - [x] The y/N question, answered by a pipe: `n` changes nothing, `y` merges and archives.
   *(assistant)*
-- [ ] **(you)** Saying yes merges and archives. Run `orch finish` and answer `y`. Then:
+- [x] **(you)** Saying yes merges and archives. Run `orch finish` and answer `y`. Then: *(you)*
   ```powershell
   git log --oneline -3                              # a merge of orch/integration on top
   git branch --list 'orch/*'                        # nothing
@@ -393,7 +399,7 @@ archive the run in one go.
   ```
 - [x] The smoke test still passes. *(assistant, both providers)*
 
-**Done:** (date, PC)
+**Done:** 2026-10-18, MSI. Your checks ran in Windows Terminal.
 
 **Notes:**
 - 2026-10-18: the assistant's first check run showed two message bugs, both fixed. "Tasks not
