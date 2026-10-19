@@ -82,12 +82,14 @@ repo.
      step 5.
      `-UserEnvironment` gives the run the user's own environment variables, as a new terminal
      has, so its agents don't inherit this chat's session variables. Always add it here.
-   - Tell the user three things:
+   - Tell the user three things. Say that `orch ...` commands are typed in a terminal (for
+     example a VS Code terminal) whose folder is in the repo, not in the chat:
      - **Keep the chat open:** the run belongs to this chat until it ends. Closing the chat or
-       VS Code ends it halfway. `orch run` in the repo picks it up again later, but tasks that
-       were halfway start over.
-     - **Watch it with `orch watch`** in a terminal in the repo, or with their own dashboard.
-     - **`orch stop`** pauses it once the active agents finish.
+       VS Code ends it halfway. To pick it up again, type `orch run` in a terminal in the
+       repo, or start `/orch` again in a chat there. Tasks that were halfway start over.
+     - **Watch it** with `orch watch` in a terminal in the repo, or with their own dashboard.
+     - **Pause it** with `orch stop` in a terminal in the repo. It waits for the active agents
+       to finish.
    - When the run's command ends, you are told its exit code: 0 means every task is done, 2
      that some failed or are blocked, 1 that the plan is invalid or the run couldn't start.
      For 1, show its output and ask the user. Otherwise, the wait in step 5 tells you more.

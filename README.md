@@ -192,11 +192,12 @@ changes your repo:
    tests this run added, it offers to copy them into `project.json` after the merge.
 
 **Keep the chat open during the run.** The run belongs to the chat: closing the chat or VS
-Code ends it halfway. `orch run` in the repo picks it up again later, but tasks that were
-halfway start over. To watch the run, use `orch watch` in a terminal in the repo, or any
-dashboard that reads `.orchestrator`. `orch stop` pauses it once the active agents finish. For
-a run that should outlive the chat, start it yourself with `orch run -Window` instead and
-ask `/orch` to wait for it.
+Code ends it halfway. To pick it up again, type `orch run` in a **terminal** in the repo (the
+command from setup item 6, not the `/orch` chat skill), or start `/orch` again in a chat
+there. Tasks that were halfway start over. To watch the run, type `orch watch` in a terminal
+in the repo, or use any dashboard that reads `.orchestrator`. `orch stop` in a terminal
+pauses the run once the active agents finish. For a run that should outlive the chat, start
+it yourself in a terminal with `orch run -Window`, and ask `/orch` to wait for it.
 
 It never commits or pushes in the repo by itself; only the orchestrator's own steps change
 it, each after your yes. `/orch` in an existing repo builds on that repo and follows its
