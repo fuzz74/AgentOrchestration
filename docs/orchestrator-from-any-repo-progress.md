@@ -14,7 +14,7 @@ passed. The file lives in the repo, so it works from any PC and with Claude or C
 | [1c](#step-1c-orch-plan-and-orch-run) | `orch plan` and `orch run` | Done |
 | [1d](#step-1d-orch-try-and-orch-finish) | `orch try` and `orch finish` | Done |
 | [2](#step-2-skills-from-any-repo) | `/write-spec` and `/plan-tasks` from any repo | Done (other PC still to check) |
-| [3](#step-3-the-orch-guiding-skill) | The `/orch` guiding skill | Building |
+| [3](#step-3-the-orch-guiding-skill) | The `/orch` guiding skill | Ready to check |
 | [4](#step-4-per-repo-conventions) | Per-repo conventions in `project.json` | Later |
 
 The statuses are *Not started*, *Building*, *Ready to check*, *Done*, and *Later* (no checks
@@ -50,6 +50,7 @@ spends no tokens. It always uses `$env:TEMP\orch-practice` and replaces whatever
 |---|---|
 | `.\tests\New-PracticeRepo.ps1` | A finished run: four tasks done, the result on `orch/integration`, not merged yet |
 | `.\tests\New-PracticeRepo.ps1 -Stage Planned` | A plan with four tasks, none started |
+| `.\tests\New-PracticeRepo.ps1 -Stage Failing` | The same plan, but `feature-b` always fails, and `feature-a` takes 20 seconds longer, so the run is still going when `feature-b` fails |
 | `.\tests\New-PracticeRepo.ps1 -Stage Empty` | A repo with one commit and no plan. A spec is ready in `$env:TEMP\orch-practice\spec.md` |
 
 The four tasks are `contracts`, then `feature-a` and `feature-b` side by side, then `wire-up`.
@@ -526,6 +527,10 @@ don't have to watch terminals during the run.
 - The run gets its own PowerShell window, opened by the chat. Closing the chat or VS Code
   doesn't stop it, and you can watch its output there. The window starts with your normal
   environment, like a new terminal, not with the chat's.
+- Windows' WMI service opens that window (`Win32_Process.Create`), not the chat's shell. On
+  this PC, VS Code and everything it starts run inside one job object, and so did a window
+  opened with `Start-Process`. A job can end all its processes at once. A window from WMI is
+  in no job and isn't part of the chat's process tree, so nothing about the chat can end it.
 - `/auto-develop` is `/orch` with the prime directive and no checkpoints. It stops before the
   merge: it gets to a checked result on `orch/integration`, then tells you to `orch try` and
   `orch finish`.
@@ -547,6 +552,9 @@ don't have to watch terminals during the run.
 - `orchestrator\Wait-Orchestrator.ps1` (and `orch wait`). It waits until a task newly fails or
   the run ends, prints the task table, and its exit code says which happened.
 - `orch run -Window` opens the run in a new PowerShell window, which stays open at the end.
+- `New-PracticeRepo.ps1 -Stage Failing`, for the failing-run checks.
+- A fix in the engine: the acceptance feedback that a worker gets on a retry had a broken code
+  fence (see the notes).
 - `/auto-develop` runs `/orch` instead of `/write-spec`, with the same prime directive.
 - The blank-canvas rule in `CLAUDE.md` and `write-spec`: starting `/orch`, `/write-spec` or
   `/plan-tasks` in an existing repo counts as saying the work builds on that repo. Other
@@ -557,20 +565,31 @@ don't have to watch terminals during the run.
 - The README and the smoke test.
 
 **Checks** (every run uses the fake agent, so only the chat itself spends tokens)
-- [ ] The install. It adds the two `orch` links, and a second run changes nothing.
-  *(assistant)*
-- [ ] The headless block. The smoke test's skill check also requires `Skill(orch)` to be
+- [x] The install. It adds the two `orch` links, and a second run changes nothing.
+  *(assistant)* The dry run listed only the two `orch` links, the install made them as
+  junctions, and the second run said `Nothing changed.`
+- [x] The headless block. The smoke test's skill check also requires `Skill(orch)` to be
   denied. *(assistant)*
-- [ ] `Wait-Orchestrator.ps1` in practice repos: *(assistant)*
-  - a good run: it returns once, at the end, with all 4 tasks done and exit code 0.
-  - a task that always fails (its acceptance is `exit 1`): it returns when that task fails
-    while the run goes on, then again at the end with the failed and blocked tasks.
-  - no run: it says so at once.
-- [ ] The run window. `orch run -Window` opens a window that runs the plan and stays open at
-  the end. It keeps going after the chat session that started it has ended. *(assistant)*
-- [ ] `/orch`, asked only for its setup, names the orchestrator and the target repo, in Claude
-  (Haiku) and in Copilot, as in step 2. *(assistant)*
-- [ ] The smoke test still passes. *(assistant, both providers)*
+- [x] `Wait-Orchestrator.ps1` in practice repos: *(assistant)*
+  - a good run (`-Stage Planned`, started with `orch run -Window`): it returned once, after 10
+    seconds, with `The run ended: all 4 tasks are done.` and exit code 0.
+  - a task that always fails (`-Stage Failing`): it returned with exit code 3 when `feature-b`
+    failed while `feature-a` was still running, with the acceptance output. Run again, it
+    returned at the end with exit code 2: `1 failed (feature-b), 1 blocked (wire-up), 2 done`.
+  - no run: `No run is active, and 4 of 4 tasks are not done yet.`, at once, exit code 4.
+- [x] The run window. `orch run -Window` opens a window that runs the plan and stays open at
+  the end. It keeps going after the chat session that started it has ended. *(assistant)* A
+  headless Claude session (Haiku) started the run of a `-Stage Failing` repo and ended. The
+  window's parent is `WmiPrvSE` and it is in no job. Right after the session, the run was
+  still going, then it reported `feature-b` and ended normally. The window was still open
+  afterwards. It has your user environment variables, finds `claude`, and has no `CLAUDE*`
+  variables.
+- [x] `/orch`, asked only for its setup, names the orchestrator and the target repo, in Claude
+  (Haiku) and in Copilot, as in step 2. *(assistant)* Both replied
+  `orch: C:\Data\AI\AgentOrchestration` and `target: ...\orch-practice\demo` with no
+  `ORCH_HOME` in the environment. Copilot read it from the registry.
+- [x] The smoke test still passes. *(assistant, both providers)* 64 checks each, including
+  the new `wait reports the failed task` and `orch wait reports all done`.
 - [ ] **(you)** The spec start. In an empty practice repo, `/orch <idea>` starts the spec
   interview. You can stop after its first question.
 - [ ] **(you)** A good run. In a planned practice repo, with the fake agent, `/orch` asks for
@@ -586,6 +605,16 @@ don't have to watch terminals during the run.
 **Done:** (date, PC)
 
 **Notes:**
+- 2026-10-19: the first window check found that a window opened with `Start-Process` from
+  the chat's shell sits in a job object. On this PC, VS Code and everything under it share
+  that job. It didn't end when the headless test session ended, but a job can end all its
+  processes at once, and other PCs may start VS Code differently. The window now comes from
+  WMI, which puts it outside any job and outside the chat's process tree. The check passed
+  after that change.
+- 2026-10-19: the failing-run test showed an older bug in the engine. The feedback for a
+  failed acceptance command opened its code fence as ```` ```n ```` instead of ```` ``` ```` and a
+  line break, because a backtick was missing in the PowerShell string. So the worker's
+  retry prompt had a broken fence. Fixed in `Invoke-TaskPipeline`.
 
 ---
 
@@ -611,3 +640,4 @@ These get detailed checks when we reach them, in the same way as steps 1 and 2.
 | 2026-10-18 | `Plan-Tasks.ps1` also saves the provider in `project.json`, checked after the plan and before `ORCH_PROVIDER`. `-MaxParallel` from `project.json` is skipped for now (see step 1c). |
 | 2026-10-18 | Runs stay hands-off `main`: `orch finish` stops when the base branch moved, and `-Force` merges anyway (see step 1d). |
 | 2026-10-18 | The skills reach other repos through junctions in the personal skill folders, not a plugin. Claude is allowed this checkout once in its user settings (see step 2). |
+| 2026-10-19 | `/orch` starts the run in its own window, opened through WMI so that nothing about the chat can end it. `/auto-develop` is `/orch` without checkpoints, and stops before the merge (see step 3). |
