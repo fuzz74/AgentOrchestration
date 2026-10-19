@@ -75,8 +75,9 @@ repo.
      `Import-Module '<orch>\orchestrator\Orch.psm1'; Set-Location '<repo>'; orch run -UserEnvironment; exit $LASTEXITCODE`,
      plus the extra flags after `-UserEnvironment`. In Claude Code, run it with
      `run_in_background`. In other assistants, use your shell's way to run a command in the
-     background. If there is none, give the user that command without its first two parts
-     (`orch run` and the flags), to run in a terminal in the repo, and go on with step 5.
+     background. If there is none, ask the user to run `orch run`, plus the extra flags, in a
+     terminal in the repo (a terminal already has their own environment), and go on with
+     step 5.
      `-UserEnvironment` gives the run the user's own environment variables, as a new terminal
      has, so its agents don't inherit this chat's session variables. Always add it here.
    - Tell the user three things:

@@ -610,7 +610,8 @@ don't have to watch terminals during the run.
   `orch: C:\Data\AI\AgentOrchestration` and `target: ...\orch-practice\demo` with no
   `ORCH_HOME` in the environment. Copilot read it from the registry.
 - [x] The smoke test still passes. *(assistant, both providers)* 64 checks each, including
-  the new `wait reports the failed task` and `orch wait reports all done`.
+  the new `wait reports the failed task` and `orch wait reports all done`. Run again after
+  the switch to `-UserEnvironment`: 64 checks each, all passed.
 - [x] **(you)** The spec start. In an empty practice repo, `/orch <idea>` starts the spec
   interview. You can stop after its first question. *(you)*
 - [x] **(you)** A good run. In a planned practice repo, with the fake agent, `/orch` asks for
