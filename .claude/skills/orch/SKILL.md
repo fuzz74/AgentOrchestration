@@ -39,8 +39,9 @@ repo.
   `-MaxParallel`, add them to every run command, reruns included.
 - **No involvement.** When the request says the user wants no involvement (the prime directive
   of `/auto-develop`), skip the questions and take the recommended option each time. For the
-  provider, take the one in `.orchestrator\project.json`, else the user's default
-  (`ORCH_PROVIDER`, from the environment or the registry), else Claude. Start the run
+  provider, take the one the request names (such as "use Copilot"), else the one in
+  `.orchestrator\project.json`, else the user's default (`ORCH_PROVIDER`, from the
+  environment or the registry), else Claude. Start the run
   yourself, and fix failed tasks and rerun them yourself, at most twice. Stop before
   `orch finish`: report the result and give the user the `orch try` and `orch finish`
   commands. Access to a repo outside this chat's folder still needs the user's approval.

@@ -231,7 +231,8 @@ conventions. You can also start it with a spec, an existing plan or a run in pro
 it picks up from there. The steps below describe the same flow one piece at a time.
 
 `/auto-develop <idea>` is the same flow without the questions: it writes the spec, plans,
-runs, and fixes and reruns failed tasks up to twice by itself. It stops before
+runs, and fixes and reruns failed tasks up to twice by itself. It takes the provider you name
+in the request (`/auto-develop add export. Use Copilot.`), else the repo's, else your default. It stops before
 `orch finish`, so merging stays your decision. A failure it can't honestly fix, such as an
 agent that can't do the work, it reports instead of working around the checks.
 
