@@ -590,15 +590,15 @@ don't have to watch terminals during the run.
   `ORCH_HOME` in the environment. Copilot read it from the registry.
 - [x] The smoke test still passes. *(assistant, both providers)* 64 checks each, including
   the new `wait reports the failed task` and `orch wait reports all done`.
-- [ ] **(you)** The spec start. In an empty practice repo, `/orch <idea>` starts the spec
-  interview. You can stop after its first question.
-- [ ] **(you)** A good run. In a planned practice repo, with the fake agent, `/orch` asks for
+- [x] **(you)** The spec start. In an empty practice repo, `/orch <idea>` starts the spec
+  interview. You can stop after its first question. *(you)*
+- [x] **(you)** A good run. In a planned practice repo, with the fake agent, `/orch` asks for
   your OK, warns about `main`, and starts the run in its own window. It tells you when all 4
   tasks are done, then offers `orch try`. When you say yes to finishing, it merges and
-  archives. Nothing is pushed.
-- [ ] **(you)** A failing run. In a practice repo where one task always fails, it tells you
+  archives. Nothing is pushed. *(you)*
+- [x] **(you)** A failing run. In a practice repo where one task always fails, it tells you
   when that task fails, while the run is still going, and again at the end. It says why and
-  offers a fix with `-RetryFailed`. You say no.
+  offers a fix with `-RetryFailed`. You say no. *(you)*
 - [ ] **(you, optional)** `/auto-develop` in an empty practice repo, with the fake agent for
   the run. It goes from spec to run without asking you anything and stops before the merge.
 
@@ -615,6 +615,13 @@ don't have to watch terminals during the run.
   failed acceptance command opened its code fence as ```` ```n ```` instead of ```` ``` ```` and a
   line break, because a backtick was missing in the PowerShell string. So the worker's
   retry prompt had a broken fence. Fixed in `Invoke-TaskPipeline`.
+- 2026-10-19: after the user's checks, `New-PracticeRepo.ps1` couldn't delete the practice
+  folder. The run window from the failing-run check was still open. Windows Terminal is the
+  default console on this PC, so the window had opened as a tab in the user's Windows
+  Terminal window. The window's process had the repo as its working folder, and `cd` in
+  PowerShell doesn't change that. The window now starts in the home folder, and only
+  PowerShell's location moves to the repo. After the fix, a repo folder could be deleted
+  while its run window was still open (assistant, in a throwaway repo).
 
 ---
 

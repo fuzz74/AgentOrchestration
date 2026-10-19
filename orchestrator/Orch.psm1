@@ -87,7 +87,9 @@ function Start-OrchWindow {
     # creates the window, so it belongs neither to the caller's process tree nor to its job object:
     # closing the chat or the editor that started it doesn't end the run. It also gets the user's own
     # environment, as a new terminal would, not the caller's: a chat's shell carries its session's
-    # variables, which the run's agents must not inherit.
+    # variables, which the run's agents must not inherit. The process starts in the home folder and
+    # only PowerShell's location moves to the repo: cd doesn't change a process's working folder, so
+    # a window left open would otherwise keep the repo folder from being moved or deleted.
     param([string]$Repo, [string]$Script, [hashtable]$Named, [object[]]$Rest)
     if (-not $IsWindows) { throw 'orch run -Window works on Windows only. Run orch run in a terminal of its own.' }
     $quote = { param($value) "'" + ("$value" -replace "'", "''") + "'" }
@@ -102,7 +104,7 @@ function Start-OrchWindow {
     ) -join "`n"
     $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
     $started = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{
-        CommandLine = "`"$(Join-Path $PSHOME 'pwsh.exe')`" -NoExit -EncodedCommand $encoded"; CurrentDirectory = $Repo
+        CommandLine = "`"$(Join-Path $PSHOME 'pwsh.exe')`" -NoExit -EncodedCommand $encoded"; CurrentDirectory = $HOME
     }
     if ($started.ReturnValue -ne 0) { throw "Windows could not open the run window (Win32_Process.Create returned $($started.ReturnValue))." }
     Write-Host "The run started in a new window, $title. orch status or orch watch shows it here."
