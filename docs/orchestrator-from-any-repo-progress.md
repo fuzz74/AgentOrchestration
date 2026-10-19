@@ -15,7 +15,7 @@ passed. The file lives in the repo, so it works from any PC and with Claude or C
 | [1d](#step-1d-orch-try-and-orch-finish) | `orch try` and `orch finish` | Done |
 | [2](#step-2-skills-from-any-repo) | `/write-spec` and `/plan-tasks` from any repo | Done (other PC still to check) |
 | [3](#step-3-the-orch-guiding-skill) | The `/orch` guiding skill | Done |
-| [4](#step-4-per-repo-conventions) | Per-repo conventions in `orch.json` | Building |
+| [4](#step-4-per-repo-conventions) | Per-repo conventions in `orch.json` | Ready to check |
 
 The statuses are *Not started*, *Building*, *Ready to check*, *Done*, and *Later* (no checks
 written yet).
@@ -703,18 +703,30 @@ continues the requirement numbers of the last one. Until now the spec ended up o
 - `/orch`: before the finish, when `orch.json` has no `specArchive`, it asks once where this
   repo keeps its specs, or "nowhere", and writes the answer to `orch.json`.
 - `/write-spec`: numbers new requirement areas after the highest one in the saved specs.
+- `/auto-develop` doesn't ask where specs go. When the repo has no `specArchive`, its final
+  report says so and shows the line to put in `orch.json` before `orch finish`.
 - The README and the smoke test.
 
 **Checks** (every run uses the fake agent)
-- [ ] The saved spec. In a practice repo with a finished run, `specArchive` set, and a
+- [x] The saved spec. In a practice repo with a finished run, `specArchive` set, and a
   `001-...` spec already in `docs/specs`, `orch finish -Yes` merges and archives the run, and
   `docs/specs/002-<title>.md` is on `main` in its own commit after the merge, with
-  `orch.json`. *(assistant)*
-- [ ] Without the setting, `orch finish` behaves as before. *(assistant)*
-- [ ] A bad pattern (no `{n}`, or a path outside the repo): `orch finish` refuses, and nothing
-  changes. *(assistant)*
-- [ ] The numbering. In a practice repo whose saved spec uses areas 1 to 3, `/write-spec` in
-  Claude (Haiku), asked only for its numbering, starts at area 4. *(assistant)*
+  `orch.json`. *(assistant)* With the spec heading `# Habit Tracker: Reminders!`, the
+  summary said `2. Save the spec as docs/specs/002-habit-tracker-reminders.md and commit it,
+  together with orch.json`. After the merge, the commit
+  `Add spec docs/specs/002-habit-tracker-reminders.md` holds those two files, the working
+  tree is clean, and the run is archived.
+- [x] Without the setting, `orch finish` behaves as before. *(assistant)* A merge and the
+  archive, with no extra summary line and no extra commit.
+- [x] A bad pattern (no `{n}`, or a path outside the repo): `orch finish` refuses, and nothing
+  changes. *(assistant)* Four patterns: `docs/specs/{title}.md` (no `{n}`), `../specs/{n}.md`,
+  `.orchestrator/{n}.md`, and `docs/{n}/spec.md` (a placeholder in a folder). Each was refused
+  with its reason, and `main`, the 5 `orch/*` branches and the archive folder stayed as
+  they were.
+- [x] The numbering. In a practice repo whose saved spec uses areas 1 to 3, `/write-spec` in
+  Claude (Haiku), asked only for its numbering, starts at area 4. *(assistant)* It replied
+  that the first new area would be 4, because `docs/specs/001-tool-basics.md` already uses
+  areas 1 to 3.
 - [x] The smoke test passes with a new check for the saved spec. *(assistant, both providers)*
   66 checks each, including the new `orch finish refuses a bad specArchive` and
   `orch finish saves and commits the spec` (a spec without a heading is saved as
