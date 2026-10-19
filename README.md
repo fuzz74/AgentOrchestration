@@ -91,6 +91,8 @@ Orchestrator commands in the terminal steps assume the current folder is
    - sub-agent calls by the planner and the workers, and their labels in the watch views
    - finishing a run: an unfinished run blocks, a finished one is archived, and planning the
      next feature archives the earlier run by itself
+   - the `orch` commands, including `orch wait`, `orch finish` and the provider they pick
+   - that no headless agent can start the orchestrator's own skills
 
    It ends with `Smoke test passed.`
 
@@ -113,8 +115,9 @@ Orchestrator commands in the terminal steps assume the current folder is
     In interactive Copilot CLI, grant access through its own permission flow or use
     `copilot --add-dir C:\src\myapp`. The orchestration scripts run inside target repos
     and do not edit either assistant's interactive access settings.
-6. **The `orch` command and the skills in any repo** (optional, once per PC): run
-   `.\Install-Orch.ps1 -Provider Claude` (or `Copilot`). It sets the user environment variable
+6. **The `orch` command and the skills in any repo** (recommended, once per PC, and again
+   after a pull that adds a skill; see [Another PC, and after a pull](#another-pc-and-after-a-pull)):
+   run `.\Install-Orch.ps1 -Provider Claude` (or `Copilot`). It sets the user environment variable
    `ORCH_HOME` to this folder, sets `ORCH_PROVIDER` to your default provider, and adds one line
    to your PowerShell profile (`$PROFILE.CurrentUserAllHosts`) that loads `orch` in every new
    terminal. The line holds no path, so a profile shared between PCs, for example through
@@ -126,7 +129,9 @@ Orchestrator commands in the terminal steps assume the current folder is
    rights. It leaves alone a real folder that has one of those names. Last, it allows this
    folder and `~\.claude\skills` in `permissions.additionalDirectories` of
    `~\.claude\settings.json`, after a backup of that file, so Claude reads the orchestrator's
-   files from another repo without asking. Headless agents can't start these skills.
+   files from another repo without asking. Headless agents can't start these skills. Claude
+   Code (CLI and VS Code) and Copilot CLI find the linked skills; VS Code's Copilot chat hasn't
+   been tested with them yet.
 
    After that, anywhere inside a target repo or one of its worktrees:
 
@@ -147,9 +152,10 @@ Orchestrator commands in the terminal steps assume the current folder is
    provider is needed, it comes from `-Provider`, then from the plan, then from the repo's
    `project.json`, then from your default. `Plan-Tasks.ps1` records the provider it planned
    with in both files, so a repo you build with Copilot keeps using Copilot. The first line
-   shows which repo and provider were used. Other flags go to the
-   script, for example `orch watch -Once`, and `orch` alone lists the commands. More commands
-   are on the way: see `docs/orchestrator-from-any-repo-progress.md`.
+   shows which repo and provider were used. Other flags go to the script, for example
+   `orch watch -Once`, and `orch` alone lists the commands. Outside a git repo, a command
+   runs nothing and says so. How these commands and the skills were built and checked is in
+   `docs/orchestrator-from-any-repo-progress.md`.
 
    `orch run` has two extra flags for where the run's environment and output come from:
 
@@ -166,6 +172,26 @@ Orchestrator commands in the terminal steps assume the current folder is
      console, the window opens as a tab in Windows Terminal. Windows starts it (through WMI),
      not your shell, so it doesn't belong to the terminal, chat or editor you typed it in:
      closing those doesn't end the run. Use it for a run that should outlive the chat.
+
+#### Another PC, and after a pull
+
+On each other PC you work on:
+
+1. Install PowerShell 7.2+, git and the CLI, and log in (items 1 and 2).
+2. Clone this repo (item 3), or `git pull` in the checkout that is already there. The
+   checkout may be in another folder than on your other PCs.
+3. In the checkout, run `.\Install-Orch.ps1 -Provider Claude` (or `Copilot`). It is safe to
+   run again: it says what it changed, or that nothing changed.
+4. Open a **new** terminal and type `orch`: it lists its commands. A VS Code window that was
+   open before the install finds `orch` too, in its new terminals. Claude Code picks up the
+   skills without a restart, so `/orch` works in the next chat.
+5. If you like, run the smoke test (item 4) to see that everything works there, without
+   spending tokens.
+
+After a `git pull` on a PC that is already set up, changed scripts and skills apply at once,
+because `orch` and the skill links point into the checkout. Only a pull that **adds** a skill
+(a new folder in `.claude\skills`) needs `.\Install-Orch.ps1` again, so the new skill gets its
+link. If you're not sure, run it: it changes nothing that is already in place.
 
 ### The short way: /orch
 
