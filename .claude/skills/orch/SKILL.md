@@ -55,11 +55,13 @@ repo.
      user's idea or spec, if they gave one.
    - **2:** the last run ended with failed or blocked tasks. Tell the user, and go to step 6,
      unless they want to drop that run: then `plan-tasks` handles it when it plans.
-   - **4:** a plan that hasn't run, or a run that was stopped. Without a new idea or spec, ask
-     whether to run it (step 4). With one, go on: `plan-tasks` asks before it replaces the plan.
+   - **4:** a plan that hasn't run, or a run that was stopped. Without a new idea or spec, that
+     plan is the work: ask whether to run it (step 4). With no involvement, run it without
+     asking. With a new idea or spec, go on: `plan-tasks` asks before it replaces the plan.
 
    Then, with a spec from the user (a file, or its text), go to step 3. With an idea, go to
-   step 2.
+   step 2. With neither, and no plan to run, ask what to build, even with no involvement:
+   there is nothing to go on.
 2. **Spec.** Start `write-spec` with the user's idea. When it reaches its hand-off, don't stop:
    go on to step 3 with the spec it wrote.
 3. **Plan.** Start `plan-tasks` with the spec. It asks for the provider, agrees the task table
