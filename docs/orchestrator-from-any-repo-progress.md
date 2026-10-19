@@ -708,6 +708,8 @@ step 3. The README's step 8 now says why specs stay out of the repo. The smoke t
 again afterwards (see the notes).
 
 **Notes:**
+- 2026-10-19: after the removal, the smoke test passed for both providers, 64 checks each,
+  the same set as at the end of step 3 *(assistant)*.
 
 ---
 
