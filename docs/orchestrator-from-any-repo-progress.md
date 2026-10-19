@@ -14,7 +14,7 @@ passed. The file lives in the repo, so it works from any PC and with Claude or C
 | [1c](#step-1c-orch-plan-and-orch-run) | `orch plan` and `orch run` | Done |
 | [1d](#step-1d-orch-try-and-orch-finish) | `orch try` and `orch finish` | Done |
 | [2](#step-2-skills-from-any-repo) | `/write-spec` and `/plan-tasks` from any repo | Done (other PC still to check) |
-| [3](#step-3-the-orch-guiding-skill) | The `/orch` guiding skill | Ready to check |
+| [3](#step-3-the-orch-guiding-skill) | The `/orch` guiding skill | Done |
 | [4](#step-4-per-repo-conventions) | Per-repo conventions in `project.json` | Later |
 
 The statuses are *Not started*, *Building*, *Ready to check*, *Done*, and *Later* (no checks
@@ -621,13 +621,18 @@ don't have to watch terminals during the run.
 - [x] **(you)** A failing run. In a practice repo where one task always fails, it tells you
   when that task fails, while the run is still going, and again at the end. It says why and
   offers a fix with `-RetryFailed`. You say no. *(you)*
-- [ ] **(you)** `/auto-develop` and the fix loop. In a `-Stage Failing` practice repo, with the
+- [x] **(you)** `/auto-develop` and the fix loop. In a `-Stage Failing` practice repo, with the
   fake agent, `/auto-develop` runs the plan without asking you anything. When `feature-b`
   fails, it fixes that task's acceptance command (which can never pass), reruns with
   `-RetryFailed`, gets all 4 tasks done, and stops before the merge. It starts the run in
   the chat's background. `project.json` keeps its own `setup` and `integrationCheck`.
+  *(you; the assistant checked the repo afterwards)* The prompt held only the `-AgentPath`
+  line. It corrected the path typo in `tasks.json`, reran only `feature-b` with
+  `-AgentPath`, and `wire-up` followed: all 4 done, one fix of the two allowed. `main` still
+  has only the skeleton commit, `project.json` is unchanged apart from `provider`, and no
+  window was opened.
 
-**Done:** (date, PC)
+**Done:** 2026-10-19, MSI
 
 **Notes:**
 - 2026-10-19: the first window check found that a window opened with `Start-Process` from
