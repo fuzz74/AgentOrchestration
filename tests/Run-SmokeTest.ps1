@@ -418,32 +418,19 @@ $orchChecks = [ordered]@{
 $orchChecks.GetEnumerator() | ForEach-Object { Write-Host ("{0,-38} {1}" -f $_.Key, ($_.Value ? 'PASS' : 'FAIL')) -ForegroundColor ($_.Value ? 'Green' : 'Red') }
 if ($orchChecks.Values -contains $false) { Write-Host "orch plan and run test FAILED. Repo left at $repo"; exit 1 }
 
-# orch finish stops when main got a commit during the run; -Force then merges and archives. That
-# commit also brings an earlier saved spec, so orch.json's specArchive gives the next one number 2.
+# orch finish stops when main got a commit during the run; -Force then merges and archives.
 Set-Content (Join-Path $repo 'moved.txt') 'a change on main during the run'
-New-Item -ItemType Directory -Force -Path (Join-Path $repo 'docs/specs') | Out-Null
-Set-Content (Join-Path $repo 'docs/specs/001-earlier.md') '# Earlier'
-git -C $repo add moved.txt docs/specs
+git -C $repo add moved.txt
 git -C $repo commit -q -m 'Change on main during the run'
 $archivesBefore = @(Get-ChildItem $runsRoot -Directory).Count
 $orchFinish = { param($flags) & (Join-Path $PSHOME ($IsWindows ? 'pwsh.exe' : 'pwsh')) -NoProfile -Command "Import-Module '$(Join-Path $orch 'Orch.psm1')'; Set-Location '$repo'; orch finish $flags" | Out-String }
 $finishStopped = & $orchFinish '-Yes'
 $integrationKept = (git -C $repo for-each-ref --format='%(refname:short)' refs/heads/orch/integration) -eq 'orch/integration'
-Set-Content (Join-Path $repo 'orch.json') '{ "specArchive": "docs/specs/{title}.md" }'
-$finishBadPattern = & $orchFinish '-Yes -Force'
-$badPatternKept = (git -C $repo for-each-ref --format='%(refname:short)' refs/heads/orch/integration) -eq 'orch/integration' -and
-    (git -C $repo log -1 --format=%s main) -eq 'Change on main during the run'
-Set-Content (Join-Path $repo 'orch.json') '{ "specArchive": "docs/specs/{n:3}-{title}.md" }'
 $finishForced = & $orchFinish '-Yes -Force'
 $finishChecks = [ordered]@{
     'orch finish stops when main moved' = $finishStopped -match 'got 1 new commit' -and $integrationKept
-    'orch finish refuses a bad specArchive' = $finishBadPattern -match 'needs \{n\}' -and $badPatternKept
-    'orch finish -Force merges, archives' = $finishForced -match 'Run archived to' -and (git -C $repo log -2 --format=%s main)[1] -eq "Merge branch 'orch/integration'" -and
+    'orch finish -Force merges, archives' = $finishForced -match 'Run archived to' -and (git -C $repo log -1 --format=%s main) -eq "Merge branch 'orch/integration'" -and
         @(git -C $repo for-each-ref refs/heads/orch/).Count -eq 0 -and @(Get-ChildItem $runsRoot -Directory).Count -eq $archivesBefore + 1
-    'orch finish saves and commits the spec' = $finishForced -match 'Save the spec as docs/specs/002-spec-next\.md and commit it, together with orch\.json' -and
-        (git -C $repo log -1 --format=%s main) -eq 'Add spec docs/specs/002-spec-next.md' -and
-        (@(git -C $repo show --name-only --format= main | Where-Object { $_ }) -join ',') -eq 'docs/specs/002-spec-next.md,orch.json' -and
-        (git -C $repo show main:docs/specs/002-spec-next.md) -eq 'Build the next part.' -and -not (git -C $repo status --porcelain)
 }
 $finishChecks.GetEnumerator() | ForEach-Object { Write-Host ("{0,-38} {1}" -f $_.Key, ($_.Value ? 'PASS' : 'FAIL')) -ForegroundColor ($_.Value ? 'Green' : 'Red') }
 if ($finishChecks.Values -contains $false) { Write-Host "orch finish test FAILED. Repo left at $repo"; exit 1 }

@@ -187,12 +187,9 @@ changes your repo:
 4. It waits with `Wait-Orchestrator.ps1` and tells you when a task fails and when the run
    ends. For a failed task it explains why, from the task's error and logs, and offers a fix
    to `tasks.json` and a rerun with `-RetryFailed`.
-5. When every task is done, it offers `orch try`, then `orch finish`. The first time in a
-   repo, it asks where the repo keeps its specs and writes the answer to `orch.json` (see
-   [Keeping specs in the repo](#keeping-specs-in-the-repo)); `orch finish` then saves and
-   commits the spec there. If the plan used other `setup` or `integrationCheck` commands than
-   `project.json`, for example a check that runs tests this run added, it offers to copy them
-   into `project.json` after the merge.
+5. When every task is done, it offers `orch try`, then `orch finish`. If the plan used other
+   `setup` or `integrationCheck` commands than `project.json`, for example a check that runs
+   tests this run added, it offers to copy them into `project.json` after the merge.
 
 **Keep the chat open during the run.** The run belongs to the chat: closing the chat or VS
 Code ends it halfway. To pick it up again, type `orch run` in a **terminal** in the repo (the
@@ -210,9 +207,7 @@ it picks up from there. The steps below describe the same flow one piece at a ti
 `/auto-develop <idea>` is the same flow without the questions: it writes the spec, plans,
 runs, and fixes and reruns failed tasks up to twice by itself. It stops before
 `orch finish`, so merging stays your decision. A failure it can't honestly fix, such as an
-agent that can't do the work, it reports instead of working around the checks. It doesn't ask
-where specs go: when the repo has no `specArchive` in `orch.json`, its report says so and shows
-the line to add before `orch finish`.
+agent that can't do the work, it reports instead of working around the checks.
 
 ### Step 1: Turn the idea into a spec
 
@@ -454,9 +449,7 @@ push. It first checks that every task is done, that the main checkout is on the 
 with no uncommitted changes, and that no worktree has uncommitted changes. If the base branch
 got commits during the run, it stops, because the integration check never saw them; merge by
 hand, or use `orch finish -Force`. Then it shows what it will do and asks. `-Yes` skips the
-question. When the repo's `orch.json` names a spec folder, it also saves the spec there after
-the merge and commits it (see [Keeping specs in the repo](#keeping-specs-in-the-repo)). By
-hand:
+question. By hand:
 
 1. Merge into your base branch. The main checkout must be on `main` with no uncommitted
    changes.
@@ -500,32 +493,9 @@ spec next to the old one under a new name, such as `.orchestrator\spec-<topic>.m
 - The repo now has commits, so no new skeleton is made, and `project.json` still supplies
   the commands.
 - `.orchestrator/` is never committed, and the archive in `C:\src\myapp.runs` lies outside
-  the repo. To keep the specs in the repo as well, see below.
-
-### Keeping specs in the repo
-
-A repo can keep its specs in the repo, under numbered names such as
-`docs/specs/003-reminders.md`. It says so in `orch.json`, a small file at the repo's root that
-is committed with the repo, so the setting is the same on every PC:
-
-```json
-{ "specArchive": "docs/specs/{n:3}-{title}.md" }
-```
-
-- `{n}` is the next free number among the files in that folder that match the pattern, and
-  `{n:3}` pads it to 3 digits. `{title}` is the spec's first heading as a file name, such as
-  `reminders`. Both may appear in the file name only, and `{n}` must be there.
-- `orch finish` merges, then copies the spec there and commits it, together with `orch.json`
-  when that file is new or changed. Its summary names the file before you say yes. A
-  pattern without `{n}`, or one that points outside the repo or into `.orchestrator`, stops
-  it before it changes anything.
-- `/write-spec` reads the saved specs and numbers the new requirement areas after the
-  highest one in them, so the numbers go on from spec to spec.
-- `/orch` asks the first time, before the finish, and writes your answer to `orch.json`.
-  `"specArchive": null` means "don't save specs", so it doesn't ask again. You can also
-  write the file yourself. `/orch` doesn't commit it by itself: a commit on the base branch
-  during a run makes `orch finish` stop, as a commit the run never saw. `orch finish` commits
-  it with the spec. Between runs, you can commit it yourself.
+  the repo. That is on purpose: agents read the repo, and an old spec says what was planned
+  then, not what the code does now, so it could mislead them. Each spec stays in the
+  archive, at `C:\src\myapp.runs\<timestamp>\.orchestrator`.
 
 ## The task file
 
@@ -613,8 +583,6 @@ writes such a spec with you:
   acceptance criteria.
 - It has the spec checked by a fresh [reviewer subagent](.claude/skills/write-spec/reviewer-prompt.md).
 - It saves the result to `.orchestrator/spec.md` and hands off to `/plan-tasks`.
-- In a repo that keeps its specs (see [Keeping specs in the repo](#keeping-specs-in-the-repo)),
-  it reads the saved specs and numbers the new requirement areas after the highest one.
 
 The method adapts [Superpowers' brainstorming skill](https://github.com/obra/superpowers/blob/main/skills/brainstorming/SKILL.md)
 and [cc-sdd](https://github.com/gotalab/cc-sdd)'s requirements and design rules. Copies of
@@ -744,8 +712,7 @@ upstream is shown as `blocked`.
 | --- | --- |
 | `<repo>/.orchestrator/tasks.json` | The plan. Yours to edit. |
 | `<repo>/.orchestrator/spec.md` | The spec: written there by `/write-spec`, or copied there when it lives outside the repo. |
-| `<repo>/.orchestrator/project.json` | Setup and integration-check commands from the skeleton bootstrap, and the provider of the last plan. It outlives every run, so its commands must fit the base branch: a plan's own commands go in the plan's `settings`. It is never committed, so it exists only on the PC that wrote it. |
-| `<repo>/orch.json` | The repo's own conventions, committed with the repo, so the same on every PC: `specArchive`, where `orch finish` saves each spec (see [Keeping specs in the repo](#keeping-specs-in-the-repo)). Optional. |
+| `<repo>/.orchestrator/project.json` | Setup and integration-check commands from the skeleton bootstrap, and the provider of the last plan. It outlives every run, so its commands must fit the base branch: a plan's own commands go in the plan's `settings`. |
 | `<repo>/.orchestrator/state.json` | Per-task status, attempts, cost, session id, summary, notes, error, merged commit. |
 | `<repo>/.orchestrator/progress.md` | Timestamped log of the whole run. |
 | `<repo>/.orchestrator/logs/<id>/<timestamp>/` | Per-run logs: each prompt sent (`*.prompt.md`), each claude JSON result, and command output. |
@@ -794,7 +761,7 @@ implementation or acceptance check needs repair.
 | `Clear-Orchestrator.ps1` | `-RepoPath`, `-All`. Without `-All`: removes task worktrees and `orch/task/*` branches, resets unfinished tasks to pending. With `-All`: also the integration worktree and branch, state, logs and progress, which are deleted, not archived. Refuses while a run is active. Supports `-WhatIf`. |
 | `Complete-Orchestrator.ps1` | `-RepoPath`, `-Keep` (files to leave in `.orchestrator`, by name or full path), `-Force` (archive a run that is not finished). Moves the run record to `<repo>.runs/<timestamp>/.orchestrator`, leaves `project.json`, and removes all worktrees and `orch/*` branches. Refuses while a run is active. Supports `-WhatIf`. |
 | `Install-Orch.ps1` | `-Provider Claude|Copilot` (sets `ORCH_PROVIDER`, the default provider), `-WhatIf`. Installs `orch` on this PC: sets `ORCH_HOME` and adds the line that loads it to `$PROFILE.CurrentUserAllHosts`. Links the skills in `.claude/skills` into `~\.claude\skills` and `~\.copilot\skills` as junctions, and allows this checkout and `~\.claude\skills` in Claude's user settings. Running it again changes nothing unless the checkout has moved or the provider changes. |
-| `orch <command>` | `plan`, `run`, `status`, `wait`, `watch`, `timeline`, `talk`, `stop` run `Plan-Tasks.ps1`, `Invoke-Orchestrator.ps1`, `Show-Tasks.ps1`, `Wait-Orchestrator.ps1`, `Watch-Orchestrator.ps1`, `Watch-AgentTimeline.ps1`, `Watch-Conversations.ps1` and `Request-OrchestratorStop.ps1` for the repo around the current folder; a worktree counts as its repo. The provider comes from `-Provider`, then the plan's `provider`, then `project.json`, then `ORCH_PROVIDER`. Other flags go to the script, and `-RepoPath` overrides the repo. `run -UserEnvironment` runs the plan in this console, in a new PowerShell process with your own environment variables, as a new terminal has, not this shell's; an agent chat uses it so the run's agents don't inherit the chat's session variables. `run -Window` starts the run in a new PowerShell window (a Windows Terminal tab where that is the default console), started through WMI so that closing the shell, chat or editor it came from doesn't end it; it also has your own environment variables and stays open at the end. `try` opens the `_integration` worktree with `code -n`. `finish` (`-Yes` skips the question, `-Force` merges although the base branch moved) merges the integration branch into the base branch, saves and commits the spec when the repo's `orch.json` names a `specArchive` (with `orch.json` when that is new or changed), and runs `Complete-Run`; it never pushes. `orch` alone lists the commands. |
+| `orch <command>` | `plan`, `run`, `status`, `wait`, `watch`, `timeline`, `talk`, `stop` run `Plan-Tasks.ps1`, `Invoke-Orchestrator.ps1`, `Show-Tasks.ps1`, `Wait-Orchestrator.ps1`, `Watch-Orchestrator.ps1`, `Watch-AgentTimeline.ps1`, `Watch-Conversations.ps1` and `Request-OrchestratorStop.ps1` for the repo around the current folder; a worktree counts as its repo. The provider comes from `-Provider`, then the plan's `provider`, then `project.json`, then `ORCH_PROVIDER`. Other flags go to the script, and `-RepoPath` overrides the repo. `run -UserEnvironment` runs the plan in this console, in a new PowerShell process with your own environment variables, as a new terminal has, not this shell's; an agent chat uses it so the run's agents don't inherit the chat's session variables. `run -Window` starts the run in a new PowerShell window (a Windows Terminal tab where that is the default console), started through WMI so that closing the shell, chat or editor it came from doesn't end it; it also has your own environment variables and stays open at the end. `try` opens the `_integration` worktree with `code -n`. `finish` (`-Yes` skips the question, `-Force` merges although the base branch moved) merges the integration branch into the base branch and runs `Complete-Run`; it never pushes. `orch` alone lists the commands. |
 | `tests/Run-SmokeTest.ps1` | `-Provider Claude|Copilot` (required), `-WorkDir`. End-to-end fake-CLI test from an empty folder to merged work. |
 | `tests/New-PracticeRepo.ps1` | `-Stage Run|Planned|Failing|Empty` (`Run`), `-Provider` (`Claude`). Replaces the throwaway repo in `%TEMP%\orch-practice\demo`, made with the fake CLI, for trying commands by hand. |
 

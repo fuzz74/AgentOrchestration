@@ -541,64 +541,6 @@ function Get-RunProblems {
     , $problems
 }
 
-function Read-RepoSettings {
-    # The repo's own orch.json, committed at its root: conventions that travel with the repo to
-    # every PC, unlike .orchestrator/project.json. Returns a hashtable, empty without the file.
-    param([string]$Repo)
-    $file = Join-Path $Repo 'orch.json'
-    if (-not (Test-Path -LiteralPath $file)) { return @{} }
-    try { $settings = Get-Content -LiteralPath $file -Raw | ConvertFrom-Json -AsHashtable }
-    catch { throw "$file is not valid JSON: $($_.Exception.Message)" }
-    if ($settings -isnot [Collections.IDictionary]) { throw "$file must hold a JSON object, such as { `"specArchive`": `"docs/specs/{n:3}-{title}.md`" }." }
-    if ($null -ne $settings.specArchive -and $settings.specArchive -isnot [string]) { throw "specArchive in $file must be a path pattern or null." }
-    $settings
-}
-
-function Resolve-SpecArchivePath {
-    # Where the spec goes under orch.json's specArchive pattern: a path relative to the repo, with
-    # forward slashes. {n} is the next free number among the files that match the pattern ({n:3}
-    # pads it to 3 digits), {title} the spec's first heading as a file name. Placeholders are
-    # allowed in the file name only. Throws when the pattern can't work.
-    param([string]$Repo, [string]$Pattern, [string]$SpecFile)
-    $why = "specArchive '$Pattern' in orch.json"
-    $slashed = $Pattern.Replace('\', '/').Trim()
-    if (-not $slashed -or [IO.Path]::IsPathRooted($slashed) -or $slashed -match '^[A-Za-z]:') { throw "$why must be a path inside the repo, relative to its root." }
-    $cut = $slashed.LastIndexOf('/')
-    $dir = if ($cut -ge 0) { $slashed.Substring(0, $cut) } else { '' }
-    $name = $slashed.Substring($cut + 1)
-    if ($dir -match '[{}]') { throw "$why may use placeholders only in the file name." }
-    $tokens = @([regex]::Matches($name, '\{[^}]*\}') | ForEach-Object Value)
-    $unknown = @($tokens | Where-Object { $_ -notmatch '^\{(n(:\d+)?|title)\}$' })
-    if ($unknown.Count) { throw "$why has an unknown placeholder $($unknown[0]). Use {n}, {n:3} or {title}." }
-    $number = @($tokens | Where-Object { $_ -match '^\{n(:\d+)?\}$' })
-    if ($number.Count -ne 1) { throw "$why needs {n} (or {n:3}) exactly once in the file name, for the spec's number." }
-    $sep = [IO.Path]::DirectorySeparatorChar
-    $folder = if ($dir) { [IO.Path]::GetFullPath($dir, $Repo).TrimEnd($sep) } else { $Repo }
-    if (-not "$folder$sep".StartsWith("$Repo$sep", [StringComparison]::OrdinalIgnoreCase) -or
-        "$folder$sep".StartsWith((Join-Path $Repo '.orchestrator') + $sep, [StringComparison]::OrdinalIgnoreCase)) {
-        throw "$why must point inside the repo, and not into .orchestrator."
-    }
-
-    $heading = Get-Content -LiteralPath $SpecFile | Where-Object { $_ -match '^#\s+\S' } | Select-Object -First 1
-    $title = if ($heading) { (($heading -replace '^#\s+').ToLowerInvariant() -replace '[^\p{L}\p{Nd}]+', '-').Trim('-') } else { '' }
-    if ($title.Length -gt 60) { $title = $title.Substring(0, 60).TrimEnd('-') }
-    if (-not $title) { $title = [IO.Path]::GetFileNameWithoutExtension($SpecFile) }
-
-    $regex = '^' + (@($name -split '(\{[^}]*\})' | ForEach-Object {
-                if ($_ -match '^\{n(:\d+)?\}$') { '(?<n>\d+)' } elseif ($_ -eq '{title}') { '.+' } else { [regex]::Escape($_) }
-            }) -join '') + '$'
-    $last = 0
-    if (Test-Path -LiteralPath $folder) {
-        foreach ($f in Get-ChildItem -LiteralPath $folder -File) {
-            $m = [regex]::Match($f.Name, $regex, 'IgnoreCase')
-            if ($m.Success -and [long]$m.Groups['n'].Value -gt $last) { $last = [long]$m.Groups['n'].Value }
-        }
-    }
-    $width = if ($number[0] -match ':(\d+)') { [int]$Matches[1] } else { 1 }
-    $file = $name.Replace($number[0], ($last + 1).ToString().PadLeft($width, '0')).Replace('{title}', $title)
-    (@($dir, $file) | Where-Object { $_ }) -join '/'
-}
-
 function Complete-Run {
     # Finishes the run in .orchestrator: removes the worktrees under <repo>.worktrees and the orch/*
     # branches, then moves the run record to <repo>.runs/<timestamp>/.orchestrator. project.json stays

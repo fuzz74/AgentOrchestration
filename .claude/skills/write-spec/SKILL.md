@@ -171,12 +171,6 @@ would help, say which one and why, and wait for a yes.
 - **Follow-up specs.** When the code already cites an earlier spec's requirement ids (in
   comments, or test names such as `Req11_2_...`), number the new areas after the highest
   old one and say so in the Summary, so workers and reviewers keep the two apart.
-- **Saved specs.** A repo can keep its specs in the repo: the `specArchive` pattern in
-  `orch.json` at its root names where, such as `docs/specs/{n:3}-{title}.md`. The specs saved
-  there are this repo's earlier specs, so read the newest ones for context. Number the new
-  requirement areas after the highest area number in any of them (or in the code, if that is
-  higher), and say so in the Summary. `orch finish` saves the new spec there later; don't
-  save it there yourself.
 
 ## EARS quick reference
 

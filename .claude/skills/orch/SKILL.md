@@ -32,8 +32,7 @@ repo.
 - **Git.** Never commit, merge, switch branches or push in the target repo yourself. Only the
   orchestrator's own steps change it, each after the user's yes: planning a new project makes
   its first commit, the run works on `orch/*` branches in separate worktrees, and
-  `orch finish` merges, then commits the saved spec and `orch.json`. Never push; the user
-  does that.
+  `orch finish` merges. Never push; the user does that.
 - **Checkpoints.** Ask, and wait for a yes, before planning a new project, before starting a
   run, before changing `tasks.json` or rerunning failed tasks, and before `orch finish`.
 - **Extra flags.** When the user asks for flags on the run, such as `-AgentPath` or
@@ -44,11 +43,7 @@ repo.
   (`ORCH_PROVIDER`, from the environment or the registry), else Claude. Start the run
   yourself, and fix failed tasks and rerun them yourself, at most twice. Stop before
   `orch finish`: report the result and give the user the `orch try` and `orch finish`
-  commands. If `<repo>\orch.json` has no `specArchive` key, or there is no such file, add one
-  line: `orch finish` will keep the spec only in `<repo>.runs`, and to save it in the repo,
-  they can first put `{ "specArchive": "docs/specs/{n:3}-{title}.md" }` in `orch.json` at
-  the repo's root. Access to a repo outside this chat's folder still needs the user's
-  approval.
+  commands. Access to a repo outside this chat's folder still needs the user's approval.
 
 ## Steps
 
@@ -133,29 +128,14 @@ repo.
    - Tell the user that every task is done and the result is on the integration branch. Offer
      `orch try`, which opens it in a new VS Code window, and ask them to close that window
      before finishing.
-   - **Where specs go.** Read `<repo>\orch.json`, the repo's own committed settings. If it has
-     no `specArchive` key, or there is no such file, ask once where this repo keeps its specs:
-     - Look first. If the repo already keeps specs in a folder (for example `docs/specs`, or
-       what its `CLAUDE.md`, `AGENTS.md` or README says), suggest a pattern that fits the file
-       names there. Otherwise suggest `docs/specs/{n:3}-{title}.md`. `{n}` becomes the next
-       free number (`{n:3}` pads it to 3 digits) and `{title}` the spec's heading as a file
-       name, such as `004-reminders.md`. Offer "nowhere" too.
-     - Write the answer to `orch.json` as `"specArchive": "<pattern>"`, or `null` for
-       nowhere, and keep its other keys. Don't commit it: `orch finish` commits it together
-       with the spec. A commit on the base branch before the finish would stop `orch finish`,
-       as a commit the run never saw.
-     - With no involvement, skip this: you stop before the finish anyway.
-   - Then say what finishing does: merge the integration branch into the base branch. When
-     `orch.json` names a spec folder, also save the spec there under the next number and
-     commit it, with `orch.json` when that is new or changed. Then archive the run to
-     `<repo>.runs\<timestamp>`, and remove its worktrees and `orch/*` branches. It doesn't
-     push. Ask whether to go ahead.
+   - Then say what finishing does: merge the integration branch into the base branch, archive
+     the run to `<repo>.runs\<timestamp>`, and remove its worktrees and `orch/*` branches. It
+     doesn't push. Ask whether to go ahead.
    - On a yes, run `Import-Module '<orch>\orchestrator\Orch.psm1'; Set-Location '<repo>'; orch finish -Yes`.
      It still checks everything first, and refuses with a reason when something is wrong:
      report that reason and what to do. Add `-Force` only when the user asks for it.
-   - Afterwards, tell the user to push the base branch themselves if the repo has a remote. Say
-     where the spec is: in the spec folder, when `orch finish` saved it there, and always in
-     the archive, at `<repo>.runs\<timestamp>\.orchestrator`.
+   - Afterwards, tell the user to push the base branch themselves if the repo has a remote, and
+     that the spec is kept in the archive, at `<repo>.runs\<timestamp>\.orchestrator`.
    - If the plan's `settings.integrationCheck` or `setup` differs from the one in
      `.orchestrator\project.json`, for example because it also runs tests that this run added,
      the base branch now has those files. Offer to copy the plan's commands into

@@ -79,6 +79,10 @@ last two:
 `specArchive: "docs/specs/<name>-v{n}.md"` and `nextRequirementId: <n>`, used by write-spec
 and by the finish step. Alternatively, write-spec could read the repo's `AGENTS.md` and ask.
 The config is more reliable.
+- *Dropped (2026-10-19).* It was built and worked, then removed: old specs kept in the repo
+  could mislead agents, which read the repo, because a spec says what was planned then, not
+  what the code does now. Each spec stays in `<repo>.runs`, outside the repo. See step 4 in
+  the progress file.
 
 **5. VS Code integration, later if at all.** `orch` could write a `.vscode/tasks.json` snippet
 with Run, Watch and Status tasks, kept out of git through `.git/info/exclude`, because other

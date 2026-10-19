@@ -15,10 +15,10 @@ passed. The file lives in the repo, so it works from any PC and with Claude or C
 | [1d](#step-1d-orch-try-and-orch-finish) | `orch try` and `orch finish` | Done |
 | [2](#step-2-skills-from-any-repo) | `/write-spec` and `/plan-tasks` from any repo | Done (other PC still to check) |
 | [3](#step-3-the-orch-guiding-skill) | The `/orch` guiding skill | Done |
-| [4](#step-4-per-repo-conventions) | Per-repo conventions in `orch.json` | Ready to check |
+| [4](#step-4-per-repo-conventions) | Per-repo conventions (keeping specs in the repo) | Dropped |
 
-The statuses are *Not started*, *Building*, *Ready to check*, *Done*, and *Later* (no checks
-written yet).
+The statuses are *Not started*, *Building*, *Ready to check*, *Done*, *Later* (no checks
+written yet), and *Dropped* (built or planned, then removed by decision).
 
 ## How a step goes
 
@@ -678,64 +678,34 @@ don't have to watch terminals during the run.
 
 ## Step 4: Per-repo conventions
 
-**Why:** some repos keep their specs in the repo, under numbered names, and each new spec
-continues the requirement numbers of the last one. Until now the spec ended up only in
-`<repo>.runs\<timestamp>`, and saving it in the repo was a chore by hand.
+**The idea:** some repos keep their specs in the repo, under numbered names, and each new
+spec continues the requirement numbers of the last one. The spec otherwise ends up only in
+`<repo>.runs\<timestamp>`, outside the repo.
 
-**Decided** (2026-10-19)
-- The setting lives in a small file that is committed in the target repo, `orch.json` at its
-  root, so it travels with the repo to every PC. `.orchestrator\project.json` would stay on
-  the PC where it was written.
-- No `nextRequirementId` counter. `/write-spec` reads the highest requirement area from the
-  saved specs, which works on any PC and can't drift.
-- `orch finish` commits `orch.json` together with the spec when the file is new or changed.
-  Committing it on the base branch before the finish would count as a commit during the run,
-  and `orch finish` would then stop.
+**Dropped** (2026-10-19), at the user's decision, after it was built and the assistant's
+checks had passed. Old specs kept in the repo could mislead agents, which read the repo. A
+spec says what was planned then, not what the code does now, so an agent could build toward
+a requirement that has since changed or been dropped. Nothing is lost without it: each spec
+stays in `<repo>.runs\<timestamp>\.orchestrator`, outside the repo, where agents don't look.
+Requirement numbers still go on from spec to spec, because `/write-spec` continues after the
+ids it finds cited in the code and tests.
 
-**What changes**
-- `orch.json` with one setting, `specArchive`: a path pattern such as
-  `docs/specs/{n:3}-{title}.md`. `{n}` is the next free number (`{n:3}` pads it to 3 digits),
-  `{title}` the spec's heading as a file name. `null` means "don't save specs".
-- `orch finish`: when `specArchive` is set, its summary says where the spec goes. After the
-  merge it copies the spec there and commits it, with `orch.json` when that is new or
-  changed. A pattern without `{n}`, or one that points outside the repo, stops it before it
-  does anything. Without the setting, nothing changes.
-- `/orch`: before the finish, when `orch.json` has no `specArchive`, it asks once where this
-  repo keeps its specs, or "nowhere", and writes the answer to `orch.json`.
-- `/write-spec`: numbers new requirement areas after the highest one in the saved specs.
-- `/auto-develop` doesn't ask where specs go. When the repo has no `specArchive`, its final
-  report says so and shows the line to put in `orch.json` before `orch finish`.
-- The README and the smoke test.
+**What was built, then removed**
+- `orch.json`, a small committed file at the target repo's root, with one setting:
+  `specArchive`, a path pattern such as `docs/specs/{n:3}-{title}.md`. A committed file was
+  chosen over `.orchestrator\project.json`, which exists only on the PC that wrote it.
+- `orch finish` saved the spec under the next free number after the merge, and committed it
+  with `orch.json`. It refused bad patterns before changing anything.
+- `/orch` asked once where a repo keeps its specs. `/write-spec` numbered new requirement
+  areas after the highest one in the saved specs. `/auto-develop` mentioned a missing
+  setting in its report.
+- The README section "Keeping specs in the repo", and two smoke-test checks.
 
-**Checks** (every run uses the fake agent)
-- [x] The saved spec. In a practice repo with a finished run, `specArchive` set, and a
-  `001-...` spec already in `docs/specs`, `orch finish -Yes` merges and archives the run, and
-  `docs/specs/002-<title>.md` is on `main` in its own commit after the merge, with
-  `orch.json`. *(assistant)* With the spec heading `# Habit Tracker: Reminders!`, the
-  summary said `2. Save the spec as docs/specs/002-habit-tracker-reminders.md and commit it,
-  together with orch.json`. After the merge, the commit
-  `Add spec docs/specs/002-habit-tracker-reminders.md` holds those two files, the working
-  tree is clean, and the run is archived.
-- [x] Without the setting, `orch finish` behaves as before. *(assistant)* A merge and the
-  archive, with no extra summary line and no extra commit.
-- [x] A bad pattern (no `{n}`, or a path outside the repo): `orch finish` refuses, and nothing
-  changes. *(assistant)* Four patterns: `docs/specs/{title}.md` (no `{n}`), `../specs/{n}.md`,
-  `.orchestrator/{n}.md`, and `docs/{n}/spec.md` (a placeholder in a folder). Each was refused
-  with its reason, and `main`, the 5 `orch/*` branches and the archive folder stayed as
-  they were.
-- [x] The numbering. In a practice repo whose saved spec uses areas 1 to 3, `/write-spec` in
-  Claude (Haiku), asked only for its numbering, starts at area 4. *(assistant)* It replied
-  that the first new area would be 4, because `docs/specs/001-tool-basics.md` already uses
-  areas 1 to 3.
-- [x] The smoke test passes with a new check for the saved spec. *(assistant, both providers)*
-  66 checks each, including the new `orch finish refuses a bad specArchive` and
-  `orch finish saves and commits the spec` (a spec without a heading is saved as
-  `002-spec-next.md`, after an earlier `001-earlier.md`, in one commit with `orch.json`).
-- [ ] **(you)** In a practice repo with a finished run, `/orch` asks where specs go before
-  the finish, and writes `orch.json`. The finish summary lists the spec line. After your yes,
-  the spec and `orch.json` are on `main` in one commit, and nothing is pushed.
-
-**Done:** (date, PC)
+All of it passed the assistant's checks: the saved spec and its commit, no setting, four bad
+patterns, the numbering in Claude (Haiku), and the smoke test for both providers (66 checks).
+The user's check wasn't needed. Removing it brought the code back to how it was at the end of
+step 3. The README's step 8 now says why specs stay out of the repo. The smoke test passed
+again afterwards (see the notes).
 
 **Notes:**
 
@@ -753,3 +723,4 @@ continues the requirement numbers of the last one. Until now the spec ended up o
 | 2026-10-18 | Runs stay hands-off `main`: `orch finish` stops when the base branch moved, and `-Force` merges anyway (see step 1d). |
 | 2026-10-18 | The skills reach other repos through junctions in the personal skill folders, not a plugin. Claude is allowed this checkout once in its user settings (see step 2). |
 | 2026-10-19 | `/orch` starts the run in the chat's background with `orch run -UserEnvironment`, so the agents get your own environment variables. `orch run -Window` (through WMI) is there for a run that should outlive the chat. `/auto-develop` is `/orch` without checkpoints, and stops before the merge. `project.json` keeps the base branch's commands (see step 3). |
+| 2026-10-19 | Step 4 is dropped: specs are not kept in the target repo, because old specs could mislead the agents that read it. Each spec stays in `<repo>.runs` (see step 4). |
