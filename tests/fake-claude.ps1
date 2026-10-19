@@ -18,7 +18,7 @@ if ($env:FAKE_REQUIRE_ADD_DIR) {
 # fake-claude/skill-block-missing.txt. Claude must deny them; Copilot must get a tool list or lose the skill tool.
 if ($env:FAKE_CHECK_SKILL_BLOCK) {
     $blocked = if ($copilot) { [bool](@($args) -like '--available-tools=*') -or $args -contains '--excluded-tools=skill' }
-               else { ($args -join ' ') -like '*Skill(write-spec)*' }
+               else { $all = $args -join ' '; @('write-spec', 'plan-tasks', 'auto-develop', 'orch' | Where-Object { $all -notlike "*Skill($_)*" }).Count -eq 0 }
     if (-not $blocked) {
         $noteDir = New-Item -ItemType Directory -Force -Path (Join-Path ([IO.Path]::GetTempPath()) 'fake-claude')
         Add-Content (Join-Path $noteDir 'skill-block-missing.txt') ($args -join ' ')

@@ -12,7 +12,7 @@ $script:HeartbeatSeconds = 60
 $script:ClaudeDeniedMcpServers = @('mcp__claude_ai_Spotify', 'mcp__claude_ai_Strava', 'mcp__claude_ai_Claude_Docs')
 # The orchestrator's own skills, which Install-Orch.ps1 makes personal. They talk with the user, so
 # no headless agent may start one.
-$script:OrchestratorSkills = @('write-spec', 'plan-tasks', 'auto-develop')
+$script:OrchestratorSkills = @('write-spec', 'plan-tasks', 'auto-develop', 'orch')
 
 $script:DefaultSettings = [ordered]@{
     model             = 'sonnet'
@@ -1091,7 +1091,8 @@ function Invoke-TaskPipeline {
                 & $log "acceptance: $($Ctx.Acceptance)"
                 $a = Invoke-ShellCommand $Ctx.Worktree $Ctx.Acceptance (Join-Path $Ctx.LogDir "attempt-$attempt-acceptance.log") $Ctx.CommandTimeoutSec
                 if (-not $a.Ok) {
-                    $feedback = "The acceptance command ``$($Ctx.Acceptance)`` failed (exit $($a.Exit)). Last output:`n``````n$($a.Tail)`n``````"
+                    $fence = '```'
+                    $feedback = "The acceptance command ``$($Ctx.Acceptance)`` failed (exit $($a.Exit)). Last output:`n$fence`n$($a.Tail)`n$fence"
                     & $log "acceptance failed (exit $($a.Exit))"; continue
                 }
             }

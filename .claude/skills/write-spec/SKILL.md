@@ -39,14 +39,16 @@ the spec.
 </HARD-GATE>
 
 <HARD-GATE>
-Every project is a blank canvas. The one exception is when the user explicitly says this
-spec builds on an existing project: then that project, and no other, may be read and its
-stack and conventions followed. Otherwise, while writing a spec, read only the target repo,
-this skill's own files, and what the user explicitly tells you to read for this spec (in a
-message, or in a brief or draft they hand you). Do not open, search or copy from any other
-project: no other repos, specs, briefs, code or run folders, and not as a style example
-either. Do not carry over a stack, layout, rule or convention because an earlier project
-used it, even when a memory note records it as the user's usual choice. Ask the user
+Every project is a blank canvas. The one exception is a spec that builds on an existing
+project: then that project, and no other, may be read and its stack and conventions followed.
+A spec builds on one when the user explicitly says so, or when this chat is open in an
+existing repo (one with commits) and that repo is the target: starting `/orch`, `/write-spec`
+or `/plan-tasks` there counts as saying so. Otherwise, while writing a spec, read only the
+target repo, this skill's own files, and what the user explicitly tells you to read for this
+spec (in a message, or in a brief or draft they hand you). Do not open, search or copy from
+any other project: no other repos, specs, briefs, code or run folders, and not as a style
+example either. Do not carry over a stack, layout, rule or convention because an earlier
+project used it, even when a memory note records it as the user's usual choice. Ask the user
 instead, without presenting the earlier choice as the default. If you think another project
 would help, say which one and why, and wait for a yes.
 </HARD-GATE>

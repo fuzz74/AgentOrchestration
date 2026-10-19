@@ -3,8 +3,9 @@
 
 $script:Commands = [ordered]@{
     plan     = @{ Script = 'Plan-Tasks.ps1'; Help = 'Plan the tasks from a spec: orch plan <spec>.'; Provider = $true }
-    run      = @{ Script = 'Invoke-Orchestrator.ps1'; Help = 'Run the plan (-DryRun only shows the waves).'; Provider = $true }
+    run      = @{ Script = 'Invoke-Orchestrator.ps1'; Help = 'Run the plan (-DryRun only shows the waves, -Window runs it in a new window).'; Provider = $true }
     status   = @{ Script = 'Show-Tasks.ps1'; Help = 'Show the tasks of the current run.' }
+    wait     = @{ Script = 'Wait-Orchestrator.ps1'; Help = 'Wait until a task fails or the run ends.' }
     watch    = @{ Script = 'Watch-Orchestrator.ps1'; Help = 'Live dashboard of the run.'; Provider = $true }
     timeline = @{ Script = 'Watch-AgentTimeline.ps1'; Help = 'Follow the steps of the run as a timeline.' }
     talk     = @{ Script = 'Watch-Conversations.ps1'; Help = 'Follow the conversations with the agents.' }
@@ -79,6 +80,32 @@ function Invoke-OrchFinish {
     $archive = Complete-Run $paths
     Write-Host "Run archived to $archive." -ForegroundColor Green
     Write-Host "Push $base yourself if the repo has a remote."
+}
+
+function Start-OrchWindow {
+    # Runs the script in a new PowerShell window, which stays open at the end. Windows' WMI service
+    # creates the window, so it belongs neither to the caller's process tree nor to its job object:
+    # closing the chat or the editor that started it doesn't end the run. It also gets the user's own
+    # environment, as a new terminal would, not the caller's: a chat's shell carries its session's
+    # variables, which the run's agents must not inherit.
+    param([string]$Repo, [string]$Script, [hashtable]$Named, [object[]]$Rest)
+    if (-not $IsWindows) { throw 'orch run -Window works on Windows only. Run orch run in a terminal of its own.' }
+    $quote = { param($value) "'" + ("$value" -replace "'", "''") + "'" }
+    $words = @(foreach ($key in $Named.Keys) { "-$key"; & $quote $Named[$key] }) +
+             @(foreach ($arg in $Rest) { if ("$arg" -match '^-[A-Za-z]\w*:?$') { "$arg" } else { & $quote $arg } })
+    $title = "orch run: $(Split-Path $Repo -Leaf)"
+    $command = @(
+        "`$Host.UI.RawUI.WindowTitle = $(& $quote $title)"
+        "Set-Location -LiteralPath $(& $quote $Repo)"
+        "try { & $(& $quote $Script) $($words -join ' '); `$code = `$LASTEXITCODE } catch { Write-Host `$_ -ForegroundColor Red; `$code = 1 }"
+        "Write-Host `"The run ended with exit code `$code. You can close this window.`""
+    ) -join "`n"
+    $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
+    $started = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{
+        CommandLine = "`"$(Join-Path $PSHOME 'pwsh.exe')`" -NoExit -EncodedCommand $encoded"; CurrentDirectory = $Repo
+    }
+    if ($started.ReturnValue -ne 0) { throw "Windows could not open the run window (Win32_Process.Create returned $($started.ReturnValue))." }
+    Write-Host "The run started in a new window, $title. orch status or orch watch shows it here."
 }
 
 function Get-OrchRepo {
@@ -162,6 +189,10 @@ function orch {
         if ($entry.Function) {
             $others = @(for ($i = 0; $i -lt $rest.Count; $i++) { if ("$($rest[$i])" -match '^-RepoPath:?$') { $i++ } else { $rest[$i] } })
             & $entry.Function $repo $others
+            return
+        }
+        if ($command -eq 'run' -and $rest -contains '-Window') {
+            Start-OrchWindow $repo (Join-Path $PSScriptRoot $entry.Script) $named @($rest | Where-Object { "$_" -ne '-Window' })
             return
         }
         & (Join-Path $PSScriptRoot $entry.Script) @named @rest

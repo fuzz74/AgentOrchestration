@@ -13,7 +13,7 @@
     into the terminal it runs in.
     -Provider sets this PC's default provider, the user environment variable ORCH_PROVIDER.
     `orch` uses it when neither -Provider nor the plan names one.
-    It also links the skills in .claude\skills (/write-spec, /plan-tasks, /auto-develop) into
+    It also links the skills in .claude\skills (/orch, /write-spec, /plan-tasks, /auto-develop) into
     the personal skill folders, ~\.claude\skills for Claude Code and ~\.copilot\skills for
     Copilot, so they work in every repo. The links are junctions into this checkout: they need
     no admin rights, and a git pull updates the skills. A real folder with a skill's name is

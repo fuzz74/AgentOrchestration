@@ -11,8 +11,9 @@
 
 - Every project the orchestrator builds starts as a blank canvas. Do not read other projects
   or reuse their stack, layout, rules or conventions for a new one, unless I explicitly say
-  it builds on an existing project or name what to read. Ask instead of assuming. The
-  write-spec skill has the full rule.
+  it builds on an existing project or name what to read. Starting `/orch`, `/write-spec` or
+  `/plan-tasks` in a chat that is open in an existing repo counts as saying the work builds on
+  that repo, and on no other. Ask instead of assuming. The write-spec skill has the full rule.
 
 ## Where knowledge goes
 

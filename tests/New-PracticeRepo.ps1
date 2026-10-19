@@ -8,6 +8,8 @@
     <temp>\orch-practice\demo and its spec <temp>\orch-practice\spec.md. -Stage sets how far it gets:
       Run      (default) a finished run: four tasks done, the result on orch/integration, not merged
       Planned  a plan with four tasks, none started
+      Failing  the same plan, but feature-b always fails, and feature-a takes 20 seconds longer, so
+               the run is still going when feature-b fails
       Empty    a project skeleton with one commit and no plan
     The orchestrator's output goes to <temp>\orch-practice\setup.log, apart from the run's progress
     lines, which the worker threads write to the screen. Close any VS Code window or terminal that
@@ -16,7 +18,7 @@
     .\tests\New-PracticeRepo.ps1 -Stage Planned
 #>
 param(
-    [ValidateSet('Run', 'Planned', 'Empty')][string]$Stage = 'Run',
+    [ValidateSet('Run', 'Planned', 'Failing', 'Empty')][string]$Stage = 'Run',
     [ValidateSet('Claude', 'Copilot')][string]$Provider = 'Claude'
 )
 
@@ -53,6 +55,15 @@ try {
     }
     else {
         & (Join-Path $orch 'Plan-Tasks.ps1') @common -Spec $spec *> $log
+        if ($Stage -eq 'Failing') {
+            $planFile = Join-Path $repo '.orchestrator\tasks.json'
+            $doc = Get-Content $planFile -Raw | ConvertFrom-Json -AsHashtable
+            foreach ($t in $doc.tasks) {
+                if ($t.id -eq 'feature-a') { $t.acceptance = "Start-Sleep -Seconds 20; $($t.acceptance)" }
+                if ($t.id -eq 'feature-b') { $t.acceptance = "Write-Output 'feature-b never passes in this practice repo'; exit 1" }
+            }
+            $doc | ConvertTo-Json -Depth 20 | Set-Content $planFile -Encoding utf8
+        }
         if ($Stage -eq 'Run') {
             & (Join-Path $orch 'Invoke-Orchestrator.ps1') @common *>> $log
             if ($LASTEXITCODE -ne 0) { throw "The run ended with exit code $LASTEXITCODE." }
@@ -67,6 +78,7 @@ catch {
 $what = @{
     Run     = 'a finished run: four tasks done, the result on orch/integration, not merged yet'
     Planned = 'a plan with four tasks, none started'
+    Failing = 'a plan with four tasks, none started, in which feature-b always fails and feature-a is slow'
     Empty   = "a project skeleton with one commit and no plan. Spec for planning: $spec"
 }[$Stage]
 Write-Host "Practice repo ready: $repo" -ForegroundColor Green

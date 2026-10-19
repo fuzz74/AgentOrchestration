@@ -210,11 +210,14 @@ $retryPlan | ConvertTo-Json -Depth 10 | Set-Content $planFile
 & (Join-Path $orch 'Invoke-Orchestrator.ps1') -Provider $Provider -RepoPath $repo -AgentPath $fake -MaxParallel 2 -PollSeconds 1
 $retryExit = $LASTEXITCODE
 $retryState = Get-Content (Join-Path $repo '.orchestrator/state.json') -Raw | ConvertFrom-Json -AsHashtable
+$retryWait = & (Join-Path $orch 'Wait-Orchestrator.ps1') -RepoPath $repo -Once *>&1 | Out-String
+$retryWaitExit = $LASTEXITCODE
 $retryChecks = [ordered]@{
     'quality bug retried beyond three' = $retryState.tasks['quality-only'].status -eq 'done' -and $retryState.tasks['quality-only'].attempts -eq 5
     'five spec rejections stop task'    = $retryState.tasks['spec-only'].status -eq 'failed' -and $retryState.tasks['spec-only'].attempts -eq 5
     'rejection leaves earlier work done' = $retryExit -eq 2 -and $retryState.tasks['contracts'].status -eq 'done'
     'property-named task ids run'      = @('count', 'keys', 'values' | Where-Object { $retryState.tasks[$_].status -ne 'done' }).Count -eq 0
+    'wait reports the failed task'     = $retryWaitExit -eq 2 -and $retryWait -match 'No run is active: 1 failed \(spec-only\)' -and $retryWait -match 'spec-only failed:'
 }
 $retryChecks.GetEnumerator() | ForEach-Object { Write-Host ("{0,-38} {1}" -f $_.Key, ($_.Value ? 'PASS' : 'FAIL')) -ForegroundColor ($_.Value ? 'Green' : 'Red') }
 if ($retryChecks.Values -contains $false) { Write-Host "Retry test FAILED. Repo left at $repo"; exit 1 }
@@ -399,7 +402,8 @@ if ($planChecks.Values -contains $false) { Write-Host "Archive-on-plan test FAIL
 # saved in project.json; orch run takes it from the new plan. main already holds the fake task files,
 # so FAKE_SHARED gives every task a change to commit.
 $orchFlow = "Import-Module '$(Join-Path $orch 'Orch.psm1')'; Set-Location '$repo'; " +
-    "orch plan .orchestrator/spec-next.md -AgentPath '$fake'; orch run -AgentPath '$fake'; 'orch run exit ' + `$LASTEXITCODE"
+    "orch plan .orchestrator/spec-next.md -AgentPath '$fake'; orch run -AgentPath '$fake'; 'orch run exit ' + `$LASTEXITCODE; " +
+    "orch wait -Once; 'orch wait exit ' + `$LASTEXITCODE"
 $env:FAKE_SHARED = '1'
 try { $orchFlowOutput = & (Join-Path $PSHOME ($IsWindows ? 'pwsh.exe' : 'pwsh')) -NoProfile -Command $orchFlow | Out-String }
 finally { Remove-Item Env:FAKE_SHARED }
@@ -409,6 +413,7 @@ $orchChecks = [ordered]@{
     'orch run takes the plan provider'     = $orchFlowOutput -match "provider $Provider \(from the plan\)"
     'orch run finished every task'         = $orchFlowOutput -match 'orch run exit 0' -and $orchState.tasks.psbase.Count -eq 4 -and
         @($orchState.tasks.Values | Where-Object { $_.status -ne 'done' }).Count -eq 0
+    'orch wait reports all done'           = $orchFlowOutput -match 'No run is active: all 4 tasks are done' -and $orchFlowOutput -match 'orch wait exit 0'
 }
 $orchChecks.GetEnumerator() | ForEach-Object { Write-Host ("{0,-38} {1}" -f $_.Key, ($_.Value ? 'PASS' : 'FAIL')) -ForegroundColor ($_.Value ? 'Green' : 'Red') }
 if ($orchChecks.Values -contains $false) { Write-Host "orch plan and run test FAILED. Repo left at $repo"; exit 1 }
