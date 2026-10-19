@@ -715,7 +715,10 @@ continues the requirement numbers of the last one. Until now the spec ended up o
   changes. *(assistant)*
 - [ ] The numbering. In a practice repo whose saved spec uses areas 1 to 3, `/write-spec` in
   Claude (Haiku), asked only for its numbering, starts at area 4. *(assistant)*
-- [ ] The smoke test passes with a new check for the saved spec. *(assistant, both providers)*
+- [x] The smoke test passes with a new check for the saved spec. *(assistant, both providers)*
+  66 checks each, including the new `orch finish refuses a bad specArchive` and
+  `orch finish saves and commits the spec` (a spec without a heading is saved as
+  `002-spec-next.md`, after an earlier `001-earlier.md`, in one commit with `orch.json`).
 - [ ] **(you)** In a practice repo with a finished run, `/orch` asks where specs go before
   the finish, and writes `orch.json`. The finish summary lists the spec line. After your yes,
   the spec and `orch.json` are on `main` in one commit, and nothing is pushed.
