@@ -13,7 +13,7 @@ passed. The file lives in the repo, so it works from any PC and with Claude or C
 | [1b](#step-1b-watch-views-without-a-provider-flag) | `orch watch`, `timeline`, `talk` and `stop` with no `-Provider` | Done |
 | [1c](#step-1c-orch-plan-and-orch-run) | `orch plan` and `orch run` | Done |
 | [1d](#step-1d-orch-try-and-orch-finish) | `orch try` and `orch finish` | Done |
-| [2](#step-2-skills-from-any-repo) | `/write-spec` and `/plan-tasks` from any repo | Ready to check |
+| [2](#step-2-skills-from-any-repo) | `/write-spec` and `/plan-tasks` from any repo | Done (other PC still to check) |
 | [3](#step-3-the-orch-guiding-skill) | The `/orch` guiding skill | Later |
 | [4](#step-4-per-repo-conventions) | Per-repo conventions in `project.json` | Later |
 
@@ -489,20 +489,31 @@ The test links, the skill and the `~\.copilot\skills` folder it needed were remo
   `target: ...\orch-practice\demo`, in Claude (Haiku) and in Copilot. *(assistant)*
 - [x] The smoke test, both providers, with the new check `headless agents cannot start
   skills`. That check does note a call without the block. *(assistant)*
-- [ ] **(you)** The real flow in VS Code. In the Claude Code panel of the practice repo,
+- [x] **(you)** The real flow in VS Code. In the Claude Code panel of the practice repo,
   `/plan-tasks` plans the practice spec with you, writes `tasks.json` with `provider`, and
   validates it with the orchestrator's scripts. Afterwards `orch status` shows the plan.
+  *(you; the assistant also checked the files, `orch status` and `orch run -DryRun`)*
+  - It asked for the provider and the split in one question, then wrote four tasks:
+    `contracts`, then `component-a` and `component-b` side by side, then `wire`.
+  - `tasks.json` and `project.json` both hold `"provider": "Claude"`, and `project.json` kept
+    `setup` and `integrationCheck`.
+  - `Show-Tasks.ps1` and the dry run found nothing to fix. It gave the start command and
+    didn't start the run.
+  - Reading the orchestrator's files asked for no permission. Only running its two scripts
+    did.
+  - `orch run -DryRun` said `provider Claude (from the plan)`.
 - [ ] **(you)** VS Code Copilot chat, on a PC where it is set up: `/plan-tasks` is offered in
-  another repo.
+  another repo. This check stays open and doesn't block the next steps.
 - [ ] **(you)** *The next time you're on another PC:* pull, and run `.\Install-Orch.ps1` again
-  to make the links and the settings entry there.
+  to make the links and the settings entry there. This check stays open and doesn't block
+  the next steps.
 
-**Done:** (date, PC)
+**Done:** 2026-10-19, MSI (the two other-PC checks are still open)
 
 **Notes:**
-- 2026-10-18: paused before the user's check of the real `/plan-tasks` flow. For that check,
-  the practice repo is made with `.\tests\New-PracticeRepo.ps1 -Stage Empty`, and
-  `$env:TEMP\orch-practice\spec.md` is copied to `.orchestrator\spec.md` in it.
+- 2026-10-19: for the user's check of the real `/plan-tasks` flow, the practice repo was made
+  with `.\tests\New-PracticeRepo.ps1 -Stage Empty`, and `$env:TEMP\orch-practice\spec.md` was
+  copied to `.orchestrator\spec.md` in it.
 
 ---
 
