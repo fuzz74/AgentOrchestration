@@ -193,6 +193,30 @@ because `orch` and the skill links point into the checkout. Only a pull that **a
 (a new folder in `.claude\skills`) needs `.\Install-Orch.ps1` again, so the new skill gets its
 link. If you're not sure, run it: it changes nothing that is already in place.
 
+#### Choosing Claude or Copilot for a run
+
+The provider is who runs the run's agents: the planner, the workers and the reviewers. It is
+a separate choice from the chat you talk to. You can chat with Claude Code while Copilot runs
+the agents, or the other way round. Log in to the provider's CLI first (`claude`, or
+`copilot login`).
+
+`Install-Orch.ps1 -Provider Claude` sets only your **default** for that PC. It is the last
+place the provider is taken from, so you can pick another one at any time:
+
+| Where | How to pick Copilot |
+| --- | --- |
+| `/orch` in a chat | When it plans, it asks which provider to use: answer Copilot. |
+| `/auto-develop` in a chat | It asks nothing, so name it in the request: `/auto-develop add export. Use Copilot.` |
+| A terminal, for a new plan | `orch plan <spec> -Provider Copilot`, then plain `orch run`: the plan records Copilot, and `orch run` takes it from there. |
+| A terminal, for one run | `orch run -Provider Copilot` uses Copilot whatever the plan says. A plan made for Claude names Claude models, but Copilot runs always use their own model, so that works. |
+| The default for the PC | `.\Install-Orch.ps1 -Provider Copilot`. |
+
+The repo remembers the choice: once a plan in a repo has used Copilot, its `project.json`
+says Copilot, and later plans there use Copilot until you pick something else. In full, the
+provider comes from `-Provider` (or what you tell the chat), then the current plan, then the
+repo's `project.json`, then your default. The first line of every `orch` command shows which
+one it took and why, for example `orch: repo C:\src\myapp, provider Copilot (from project.json)`.
+
 ### The short way: /orch
 
 With setup item 6 done, open the target repo in VS Code (for a new project, an empty folder)
