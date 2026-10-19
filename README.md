@@ -211,8 +211,11 @@ place the provider is taken from, so you can pick another one at any time:
 | A terminal, for one run | `orch run -Provider Copilot` uses Copilot whatever the plan says. A plan made for Claude names Claude models, but Copilot runs always use their own model, so that works. |
 | The default for the PC | `.\Install-Orch.ps1 -Provider Copilot`. |
 
-The repo remembers the choice: once a plan in a repo has used Copilot, its `project.json`
-says Copilot, and later plans there use Copilot until you pick something else. In full, the
+The checkout remembers the choice: once a plan in a repo has used Copilot, the repo's
+`.orchestrator\project.json` says Copilot, and later plans there use Copilot until you pick
+something else. `.orchestrator` is never committed, so this holds only for that checkout on
+that PC. A clone on another PC has no `project.json` until its first plan, and starts from
+that PC's default. In full, the
 provider comes from `-Provider` (or what you tell the chat), then the current plan, then the
 repo's `project.json`, then your default. The first line of every `orch` command shows which
 one it took and why, for example `orch: repo C:\src\myapp, provider Copilot (from project.json)`.
