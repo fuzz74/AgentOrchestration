@@ -14,7 +14,7 @@ passed. The file lives in the repo, so it works from any PC and with Claude or C
 | [1c](#step-1c-orch-plan-and-orch-run) | `orch plan` and `orch run` | Done |
 | [1d](#step-1d-orch-try-and-orch-finish) | `orch try` and `orch finish` | Done |
 | [2](#step-2-skills-from-any-repo) | `/write-spec` and `/plan-tasks` from any repo | Done (other PC still to check) |
-| [3](#step-3-the-orch-guiding-skill) | The `/orch` guiding skill | Later |
+| [3](#step-3-the-orch-guiding-skill) | The `/orch` guiding skill | Building |
 | [4](#step-4-per-repo-conventions) | Per-repo conventions in `project.json` | Later |
 
 The statuses are *Not started*, *Building*, *Ready to check*, *Done*, and *Later* (no checks
@@ -517,16 +517,81 @@ The test links, the skill and the `~\.copilot\skills` folder it needed were remo
 
 ---
 
+## Step 3: The /orch guiding skill
+
+**Why:** so one chat in the target repo takes you from an idea to a merged result, and you
+don't have to watch terminals during the run.
+
+**Decided** (2026-10-19)
+- The run gets its own PowerShell window, opened by the chat. Closing the chat or VS Code
+  doesn't stop it, and you can watch its output there. The window starts with your normal
+  environment, like a new terminal, not with the chat's.
+- `/auto-develop` is `/orch` with the prime directive and no checkpoints. It stops before the
+  merge: it gets to a checked result on `orch/integration`, then tells you to `orch try` and
+  `orch finish`.
+
+**What changes**
+- A new skill, `orch`, with the same "Where things are" section as the other two. Its stages:
+  - **Spec:** it runs `write-spec`, or skips the interview when you hand it a spec.
+  - **Plan:** it runs `plan-tasks`. The task table and your OK are the checkpoint. For a new
+    project, it asks before planning makes the git repo and its skeleton commit.
+  - **Run:** after your OK, it warns you to keep your hands off `main`, then starts the run in
+    its own window. Extra flags you ask for, such as `-AgentPath`, are passed through.
+  - **Wait:** it waits for the run in the background, and tells you when a task fails and
+    when the run ends.
+  - **Failures:** it says which task failed and why, from `state.json` and the logs. It offers
+    to fix `tasks.json` and rerun with `-RetryFailed`, and does so only after your yes.
+  - **Finish:** it offers `orch try`, then `orch finish`, which it runs only after you say yes
+    in the chat. It never commits or pushes anything else in the target repo, and never
+    pushes at all.
+- `orchestrator\Wait-Orchestrator.ps1` (and `orch wait`). It waits until a task newly fails or
+  the run ends, prints the task table, and its exit code says which happened.
+- `orch run -Window` opens the run in a new PowerShell window, which stays open at the end.
+- `/auto-develop` runs `/orch` instead of `/write-spec`, with the same prime directive.
+- The blank-canvas rule in `CLAUDE.md` and `write-spec`: starting `/orch`, `/write-spec` or
+  `/plan-tasks` in an existing repo counts as saying the work builds on that repo. Other
+  projects are still never read.
+- No headless agent can start `/orch` either: Claude sessions deny `Skill(orch)`.
+  `Install-Orch.ps1` already links every skill folder, so running it again adds the `orch`
+  links.
+- The README and the smoke test.
+
+**Checks** (every run uses the fake agent, so only the chat itself spends tokens)
+- [ ] The install. It adds the two `orch` links, and a second run changes nothing.
+  *(assistant)*
+- [ ] The headless block. The smoke test's skill check also requires `Skill(orch)` to be
+  denied. *(assistant)*
+- [ ] `Wait-Orchestrator.ps1` in practice repos: *(assistant)*
+  - a good run: it returns once, at the end, with all 4 tasks done and exit code 0.
+  - a task that always fails (its acceptance is `exit 1`): it returns when that task fails
+    while the run goes on, then again at the end with the failed and blocked tasks.
+  - no run: it says so at once.
+- [ ] The run window. `orch run -Window` opens a window that runs the plan and stays open at
+  the end. It keeps going after the chat session that started it has ended. *(assistant)*
+- [ ] `/orch`, asked only for its setup, names the orchestrator and the target repo, in Claude
+  (Haiku) and in Copilot, as in step 2. *(assistant)*
+- [ ] The smoke test still passes. *(assistant, both providers)*
+- [ ] **(you)** The spec start. In an empty practice repo, `/orch <idea>` starts the spec
+  interview. You can stop after its first question.
+- [ ] **(you)** A good run. In a planned practice repo, with the fake agent, `/orch` asks for
+  your OK, warns about `main`, and starts the run in its own window. It tells you when all 4
+  tasks are done, then offers `orch try`. When you say yes to finishing, it merges and
+  archives. Nothing is pushed.
+- [ ] **(you)** A failing run. In a practice repo where one task always fails, it tells you
+  when that task fails, while the run is still going, and again at the end. It says why and
+  offers a fix with `-RetryFailed`. You say no.
+- [ ] **(you, optional)** `/auto-develop` in an empty practice repo, with the fake agent for
+  the run. It goes from spec to run without asking you anything and stops before the merge.
+
+**Done:** (date, PC)
+
+**Notes:**
+
+---
+
 ## Later steps
 
 These get detailed checks when we reach them, in the same way as steps 1 and 2.
-
-### Step 3: The /orch guiding skill
-
-- It includes the rule changes from the design notes: new blank-canvas wording in `CLAUDE.md`
-  and the write-spec skill, and never committing or pushing in the target repo without asking.
-- The check, in outline: in a practice repo, `/orch <idea>` goes from spec to plan, waits for
-  your OK, runs in the background, and tells you when the run finishes or a task fails.
 
 ### Step 4: Per-repo conventions
 
