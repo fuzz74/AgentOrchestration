@@ -29,7 +29,8 @@ function Invoke-OrchFinish {
     # Merges the integration branch into the run's base branch and archives the run. It checks
     # everything it can first, then asks; -Yes skips the question. A base branch that got commits
     # during the run stops it, because the integration check never saw them; -Force merges anyway.
-    # It never pushes.
+    # When the repo's orch.json names a specArchive, it saves the spec there after the merge and
+    # commits it, together with orch.json when that is new or changed. It never pushes.
     param([string]$Repo, [object[]]$Rest)
     $unknown = @($Rest | Where-Object { "$_" -notin '-Yes', '-Force' })
     if ($unknown.Count) { throw "orch finish takes only -Yes and -Force, not $($unknown -join ' ')." }
@@ -53,19 +54,34 @@ function Invoke-OrchFinish {
     if ($problems.Count) { throw "The run isn't finished: $($problems -join '; ')." }
     if (-not (Test-GitBranch $Repo $int)) { throw "There is no $int branch to merge." }
     if ($head -ne $base) { throw "The main checkout is on $head, but the run was based on $base. Switch to it first: git switch $base" }
-    $dirty = @((Invoke-Git $Repo @('status', '--porcelain', '--untracked-files=no')).Output -split "`n" | Where-Object { $_ })
     # Invoke-Git trims its output, so the first status line may have lost its leading space.
+    # orch.json may be changed: finishing commits it.
+    $dirty = @((Invoke-Git $Repo @('status', '--porcelain', '--untracked-files=no')).Output -split "`n" |
+        Where-Object { $_ -and $_ -notmatch '^\s*\S+\s+orch\.json$' })
     if ($dirty.Count) { throw "The main checkout has uncommitted changes ($(($dirty | ForEach-Object { $_ -replace '^\s*\S+\s+' }) -join ', ')). Commit or stash them first." }
     $moved = [int](Invoke-Git $Repo @('rev-list', '--count', "$int..$base")).Output
     if ($moved -and $Rest -notcontains '-Force') {
         throw "$base got $moved new commit(s) during the run, which the integration check never saw. Merge $int into $base by hand, or run orch finish -Force to merge anyway."
     }
     $ahead = [int](Invoke-Git $Repo @('rev-list', '--count', "$base..$int")).Output
+    $settings = Read-RepoSettings $Repo
+    $specTarget = $null
+    if ($settings.specArchive) {
+        $specFile = if ($doc.spec) { [IO.Path]::GetFullPath($doc.spec, $Repo) }
+        if (-not $specFile -or -not (Test-Path -LiteralPath $specFile)) { throw "orch.json says to save the spec, but the plan's spec ($($doc.spec)) doesn't exist." }
+        $specTarget = Resolve-SpecArchivePath $Repo $settings.specArchive $specFile
+    }
+    $orchJsonState = (Invoke-Git $Repo @('status', '--porcelain', '--', 'orch.json')).Output
+    $toCommit = @(if ($specTarget) { $specTarget }) + @(if ($orchJsonState) { 'orch.json' })
 
     Write-Host 'orch finish will:'
-    Write-Host $(if ($ahead) { "  1. Merge $int ($ahead commit(s)) into $base in $Repo." } else { "  1. Merge nothing: $base already has everything from $int." })
+    $step = 1
+    Write-Host $(if ($ahead) { "  $step. Merge $int ($ahead commit(s)) into $base in $Repo." } else { "  $step. Merge nothing: $base already has everything from $int." })
     if ($moved) { Write-Host "     $base has $moved commit(s) the run never saw (-Force)." -ForegroundColor Yellow }
-    Write-Host "  2. Archive the run to $($paths.ArchiveRoot)\<timestamp>, and remove its worktrees and orch/* branches."
+    if ($specTarget) { $step++; Write-Host "  $step. Save the spec as $specTarget and commit it$(if ($orchJsonState) { ', together with orch.json' })." }
+    elseif ($orchJsonState) { $step++; Write-Host "  $step. Commit orch.json." }
+    $step++
+    Write-Host "  $step. Archive the run to $($paths.ArchiveRoot)\<timestamp>, and remove its worktrees and orch/* branches."
     Write-Host '  It doesn''t push. Close any VS Code window that is open on a worktree, for example from orch try.'
     if ($Rest -notcontains '-Yes' -and (Read-Host 'Go ahead? [y/N]') -notmatch '^(y|yes)$') { Write-Host 'Nothing changed.'; return }
 
@@ -76,6 +92,24 @@ function Invoke-OrchFinish {
             throw "The merge failed and was undone, so nothing changed. Merge $int into $base by hand, then run orch finish again. Git said: $(($merge.Output -split "`n")[0])"
         }
         Write-Host "Merged $int into $base."
+    }
+    if ($toCommit.Count) {
+        if ($specTarget) {
+            $saved = Join-Path $Repo $specTarget
+            New-Item -ItemType Directory -Force -Path (Split-Path $saved) | Out-Null
+            Copy-Item -LiteralPath $specFile -Destination $saved
+        }
+        $message = if ($specTarget) { "Add spec $specTarget" } elseif ($orchJsonState -match '^\?\?') { 'Add orch.json' } else { 'Update orch.json' }
+        $add = Invoke-Git $Repo (@('add', '--') + $toCommit)
+        $commit = if ($add.Exit -eq 0) { Invoke-Git $Repo (@('commit', '-q', '-m', $message, '--') + $toCommit) } else { $add }
+        if ($commit.Exit -ne 0) {
+            # Undo, so that running orch finish again saves the spec under the same name.
+            [void](Invoke-Git $Repo (@('reset', '-q', '--') + $toCommit))
+            if ($specTarget) { Remove-Item -LiteralPath $saved -ErrorAction SilentlyContinue }
+            $done = if ($ahead) { "Merged $int into $base, but committing" } else { 'Committing' }
+            throw "$done $($toCommit -join ' and ') failed, so the run isn't archived yet. Fix that, then run orch finish again. Git said: $(($commit.Output -split "`n")[0])"
+        }
+        Write-Host "Committed $($toCommit -join ' and ') on $base."
     }
     $archive = Complete-Run $paths
     Write-Host "Run archived to $archive." -ForegroundColor Green
