@@ -660,7 +660,14 @@ don't have to watch terminals during the run.
   the chat's background again (see Decided).
 - 2026-10-19: started with its output redirected, as in a chat's background shell, a child
   `pwsh` also wrote every host line to stderr as CLIXML, so the chat got each line twice,
-  once in XML. `-OutputFormat Text` fixes that.
+  once in XML. `-OutputFormat Text` fixes that. With output redirected, the table also had
+  colour codes, so the run now switches to plain text then.
+- 2026-10-19: before the fix-loop check, `feature-b`'s acceptance command in `-Stage Failing`
+  said `feature-b never passes in this practice repo`. An assistant that reads that may
+  rightly leave it alone as a deliberate failure. It now has a typo in the path instead
+  (`b/feature_b.txt`, while the agent writes `b/feature-b.txt`), a mistake a planner might
+  make. The assistant checked that fixing the path and rerunning with `-RetryFailed` gets
+  all 4 tasks done.
 
 ---
 

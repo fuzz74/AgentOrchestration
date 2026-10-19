@@ -60,7 +60,8 @@ try {
             $doc = Get-Content $planFile -Raw | ConvertFrom-Json -AsHashtable
             foreach ($t in $doc.tasks) {
                 if ($t.id -eq 'feature-a') { $t.acceptance = "Start-Sleep -Seconds 20; $($t.acceptance)" }
-                if ($t.id -eq 'feature-b') { $t.acceptance = "Write-Output 'feature-b never passes in this practice repo'; exit 1" }
+                # A typo in the path, as a planner might make it: the agent writes b/feature-b.txt.
+                if ($t.id -eq 'feature-b') { $t.acceptance = "if (-not (Test-Path 'b/feature_b.txt')) { Write-Output 'missing b/feature_b.txt'; exit 1 }" }
             }
             $doc | ConvertTo-Json -Depth 20 | Set-Content $planFile -Encoding utf8
         }

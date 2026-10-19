@@ -115,7 +115,13 @@ function Invoke-OrchUserEnvironment {
     # with its output redirected, as in a chat's background shell, pwsh otherwise also writes every
     # host line to stderr as CLIXML.
     param([string]$Repo, [string]$Script, [hashtable]$Named, [object[]]$Rest)
-    $command = "Set-Location -LiteralPath $(ConvertTo-OrchLiteral $Repo)`n$(Format-OrchCall $Script $Named $Rest)`nexit `$LASTEXITCODE"
+    $command = @(
+        # Redirected output, as in a chat, gets no colour codes.
+        "if ([Console]::IsOutputRedirected) { `$PSStyle.OutputRendering = 'PlainText' }"
+        "Set-Location -LiteralPath $(ConvertTo-OrchLiteral $Repo)"
+        Format-OrchCall $Script $Named $Rest
+        "exit `$LASTEXITCODE"
+    ) -join "`n"
     $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
     $pwsh = Join-Path $PSHOME ($IsWindows ? 'pwsh.exe' : 'pwsh')
     $process = Start-Process -FilePath $pwsh -ArgumentList '-NoProfile', '-NonInteractive', '-OutputFormat', 'Text', '-EncodedCommand', $encoded -UseNewEnvironment -NoNewWindow -Wait -PassThru

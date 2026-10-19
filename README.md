@@ -157,7 +157,10 @@ Orchestrator commands in the terminal steps assume the current folder is
      has your own environment variables, the ones a new terminal gets, instead of this
      shell's. Use it when the shell belongs to an agent chat: the chat's shell carries its
      session's variables, such as `CLAUDECODE` and the session id, and without the flag the
-     run's agents inherit them. `/orch` always adds it.
+     run's agents inherit them. `/orch` always adds it. The run's output goes straight to the
+     console or to whatever reads the process's output, as in a chat's background shell.
+     PowerShell redirection such as `> run.log` doesn't catch it; `progress.md` has every
+     line.
    - `-Window` runs the plan in a new PowerShell window, which stays open at the end and also
      has your own environment variables. On a PC where Windows Terminal is the default
      console, the window opens as a tab in Windows Terminal. Windows starts it (through WMI),
