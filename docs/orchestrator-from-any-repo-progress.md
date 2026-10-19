@@ -15,7 +15,7 @@ passed. The file lives in the repo, so it works from any PC and with Claude or C
 | [1d](#step-1d-orch-try-and-orch-finish) | `orch try` and `orch finish` | Done |
 | [2](#step-2-skills-from-any-repo) | `/write-spec` and `/plan-tasks` from any repo | Done (other PC still to check) |
 | [3](#step-3-the-orch-guiding-skill) | The `/orch` guiding skill | Done |
-| [4](#step-4-per-repo-conventions) | Per-repo conventions in `project.json` | Later |
+| [4](#step-4-per-repo-conventions) | Per-repo conventions in `orch.json` | Building |
 
 The statuses are *Not started*, *Building*, *Ready to check*, *Done*, and *Later* (no checks
 written yet).
@@ -676,14 +676,53 @@ don't have to watch terminals during the run.
 
 ---
 
-## Later steps
+## Step 4: Per-repo conventions
 
-These get detailed checks when we reach them, in the same way as steps 1 and 2.
+**Why:** some repos keep their specs in the repo, under numbered names, and each new spec
+continues the requirement numbers of the last one. Until now the spec ended up only in
+`<repo>.runs\<timestamp>`, and saving it in the repo was a chore by hand.
 
-### Step 4: Per-repo conventions
+**Decided** (2026-10-19)
+- The setting lives in a small file that is committed in the target repo, `orch.json` at its
+  root, so it travels with the repo to every PC. `.orchestrator\project.json` would stay on
+  the PC where it was written.
+- No `nextRequirementId` counter. `/write-spec` reads the highest requirement area from the
+  saved specs, which works on any PC and can't drift.
+- `orch finish` commits `orch.json` together with the spec when the file is new or changed.
+  Committing it on the base branch before the finish would count as a commit during the run,
+  and `orch finish` would then stop.
 
-- The check, in outline: with `specArchive` set in a practice repo's `project.json`,
-  `orch finish` saves the spec under the next numbered name.
+**What changes**
+- `orch.json` with one setting, `specArchive`: a path pattern such as
+  `docs/specs/{n:3}-{title}.md`. `{n}` is the next free number (`{n:3}` pads it to 3 digits),
+  `{title}` the spec's heading as a file name. `null` means "don't save specs".
+- `orch finish`: when `specArchive` is set, its summary says where the spec goes. After the
+  merge it copies the spec there and commits it, with `orch.json` when that is new or
+  changed. A pattern without `{n}`, or one that points outside the repo, stops it before it
+  does anything. Without the setting, nothing changes.
+- `/orch`: before the finish, when `orch.json` has no `specArchive`, it asks once where this
+  repo keeps its specs, or "nowhere", and writes the answer to `orch.json`.
+- `/write-spec`: numbers new requirement areas after the highest one in the saved specs.
+- The README and the smoke test.
+
+**Checks** (every run uses the fake agent)
+- [ ] The saved spec. In a practice repo with a finished run, `specArchive` set, and a
+  `001-...` spec already in `docs/specs`, `orch finish -Yes` merges and archives the run, and
+  `docs/specs/002-<title>.md` is on `main` in its own commit after the merge, with
+  `orch.json`. *(assistant)*
+- [ ] Without the setting, `orch finish` behaves as before. *(assistant)*
+- [ ] A bad pattern (no `{n}`, or a path outside the repo): `orch finish` refuses, and nothing
+  changes. *(assistant)*
+- [ ] The numbering. In a practice repo whose saved spec uses areas 1 to 3, `/write-spec` in
+  Claude (Haiku), asked only for its numbering, starts at area 4. *(assistant)*
+- [ ] The smoke test passes with a new check for the saved spec. *(assistant, both providers)*
+- [ ] **(you)** In a practice repo with a finished run, `/orch` asks where specs go before
+  the finish, and writes `orch.json`. The finish summary lists the spec line. After your yes,
+  the spec and `orch.json` are on `main` in one commit, and nothing is pushed.
+
+**Done:** (date, PC)
+
+**Notes:**
 
 ---
 
