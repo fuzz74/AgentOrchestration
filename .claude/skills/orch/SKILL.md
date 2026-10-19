@@ -1,6 +1,6 @@
 ---
 name: orch
-description: Take a feature or project from idea to merged result with the agent orchestrator, in one chat in the target repo. It writes the spec with the user, plans the tasks, runs them in their own window, reports failures, and finishes the run, each step after the user's OK. Use when the user invokes /orch, or wants the orchestrator to take an idea, a spec or an existing plan through to the result.
+description: Take a feature or project from idea to merged result with the agent orchestrator, in one chat in the target repo. It writes the spec with the user, plans the tasks, runs them in the background, reports failures, and finishes the run, each step after the user's OK. Use when the user invokes /orch, or wants the orchestrator to take an idea, a spec or an existing plan through to the result.
 ---
 
 # /orch: from idea to result with the agent orchestrator
@@ -71,24 +71,38 @@ repo.
    - Warn the user: "While the run is going, don't commit on `<base branch>` in this repo, and
      keep its working tree clean. `orch finish` stops when the base branch got commits the
      run never saw." Then ask whether to start the run.
-   - On a yes, run `Import-Module '<orch>\orchestrator\Orch.psm1'; Set-Location '<repo>'; orch run -Window`,
-     plus the extra flags. It opens the run in its own PowerShell window, which stays open at
-     the end. Tell the user that closing this chat doesn't stop the run, and that
-     `orch watch` in a terminal in the repo shows a live dashboard.
-5. **Wait.** Run `& '<orch>\orchestrator\Wait-Orchestrator.ps1' -RepoPath '<repo>'`, with
-   `-StartSeconds 60` the first time after starting a run. Run it so you hear when it ends
-   without blocking the chat: in Claude Code, run it in the background, and you are woken when
-   it exits. If your shell can't do that, run it in the foreground with `-TimeoutMinutes 9`.
-   Meanwhile, answer the user if they write. Then act on its exit code:
+   - On a yes, start the run in the background, so that the chat goes on while it runs:
+     `Import-Module '<orch>\orchestrator\Orch.psm1'; Set-Location '<repo>'; orch run -UserEnvironment; exit $LASTEXITCODE`,
+     plus the extra flags after `-UserEnvironment`. In Claude Code, run it with
+     `run_in_background`. In other assistants, use your shell's way to run a command in the
+     background. If there is none, give the user that command without its first two parts
+     (`orch run` and the flags), to run in a terminal in the repo, and go on with step 5.
+     `-UserEnvironment` gives the run the user's own environment variables, as a new terminal
+     has, so its agents don't inherit this chat's session variables. Always add it here.
+   - Tell the user three things:
+     - **Keep the chat open:** the run belongs to this chat until it ends. Closing the chat or
+       VS Code ends it halfway. `orch run` in the repo picks it up again later, but tasks that
+       were halfway start over.
+     - **Watch it with `orch watch`** in a terminal in the repo, or with their own dashboard.
+     - **`orch stop`** pauses it once the active agents finish.
+   - When the run's command ends, you are told its exit code: 0 means every task is done, 2
+     that some failed or are blocked, 1 that the plan is invalid or the run couldn't start.
+     For 1, show its output and ask the user. Otherwise, the wait in step 5 tells you more.
+5. **Wait.** Run `& '<orch>\orchestrator\Wait-Orchestrator.ps1' -RepoPath '<repo>'` in the
+   background as well, with `-StartSeconds 60` the first time after starting a run. It tells
+   you when a task fails while the run goes on, which the run's own command doesn't. If your
+   shell can't run it in the background, run it in the foreground with `-TimeoutMinutes 9`.
+   Meanwhile, answer the user if they write. When the run and the wait end at the same time,
+   report once. Act on the wait's exit code:
    - **3** (a task failed, and the run goes on): tell the user which task failed and why (see
      step 6), and that the tasks which don't depend on it go on. Offer a fix once the run has
      ended. Wait again.
    - **5** (still going, nothing new): wait again.
    - **0** (every task done): go to step 7.
    - **2** (the run ended with failed or blocked tasks): go to step 6.
-   - **4** (the run ended with tasks not done): if it never started, the run window shows why;
-     ask the user to read it out. If it was stopped (`orch stop`), say so, and offer to start
-     it again with the same command, without `-RetryFailed`.
+   - **4** (the run ended with tasks not done): if it never started, the run's own output
+     says why: report it. If it was stopped (`orch stop`), say so, and offer to start it
+     again with the same command, without `-RetryFailed`.
    - **1** or anything else: show its output and ask the user.
 6. **Failures.** For each failed task, find out why. Look at the error that the wait printed,
    and the newest folder in `<repo>\.orchestrator\logs\<task>\`:
@@ -102,7 +116,7 @@ repo.
    are too narrow, or a gap in the spec. Blocked tasks need no fix: they run once the tasks
    they depend on are done. With the user's yes, edit `tasks.json`, run
    `& '<orch>\orchestrator\Show-Tasks.ps1' -RepoPath '<repo>'` to validate it, and start the
-   rerun with `orch run -Window -RetryFailed`, plus the extra flags. Then go back to step 5.
+   rerun the way step 4 starts a run, with `-RetryFailed` added. Then go back to step 5.
    If the retry refuses, for example because a worktree has uncommitted changes, report what
    it said. Add `-FreshFailed` only when the user asks for it.
 7. **Finish.**
@@ -117,3 +131,7 @@ repo.
      report that reason and what to do. Add `-Force` only when the user asks for it.
    - Afterwards, tell the user to push the base branch themselves if the repo has a remote, and
      that the spec is kept in the archive, at `<repo>.runs\<timestamp>\.orchestrator`.
+   - If the plan's `settings.integrationCheck` or `setup` differs from the one in
+     `.orchestrator\project.json`, for example because it also runs tests that this run added,
+     the base branch now has those files. Offer to copy the plan's commands into
+     `project.json`, so the next plan in this repo uses them. Change nothing else there.

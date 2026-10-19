@@ -3,7 +3,7 @@
 
 $script:Commands = [ordered]@{
     plan     = @{ Script = 'Plan-Tasks.ps1'; Help = 'Plan the tasks from a spec: orch plan <spec>.'; Provider = $true }
-    run      = @{ Script = 'Invoke-Orchestrator.ps1'; Help = 'Run the plan (-DryRun only shows the waves, -Window runs it in a new window).'; Provider = $true }
+    run      = @{ Script = 'Invoke-Orchestrator.ps1'; Help = 'Run the plan (-DryRun only shows the waves, -Window runs it in a new window, -UserEnvironment with your own environment variables).'; Provider = $true }
     status   = @{ Script = 'Show-Tasks.ps1'; Help = 'Show the tasks of the current run.' }
     wait     = @{ Script = 'Wait-Orchestrator.ps1'; Help = 'Wait until a task fails or the run ends.' }
     watch    = @{ Script = 'Watch-Orchestrator.ps1'; Help = 'Live dashboard of the run.'; Provider = $true }
@@ -92,14 +92,11 @@ function Start-OrchWindow {
     # a window left open would otherwise keep the repo folder from being moved or deleted.
     param([string]$Repo, [string]$Script, [hashtable]$Named, [object[]]$Rest)
     if (-not $IsWindows) { throw 'orch run -Window works on Windows only. Run orch run in a terminal of its own.' }
-    $quote = { param($value) "'" + ("$value" -replace "'", "''") + "'" }
-    $words = @(foreach ($key in $Named.Keys) { "-$key"; & $quote $Named[$key] }) +
-             @(foreach ($arg in $Rest) { if ("$arg" -match '^-[A-Za-z]\w*:?$') { "$arg" } else { & $quote $arg } })
     $title = "orch run: $(Split-Path $Repo -Leaf)"
     $command = @(
-        "`$Host.UI.RawUI.WindowTitle = $(& $quote $title)"
-        "Set-Location -LiteralPath $(& $quote $Repo)"
-        "try { & $(& $quote $Script) $($words -join ' '); `$code = `$LASTEXITCODE } catch { Write-Host `$_ -ForegroundColor Red; `$code = 1 }"
+        "`$Host.UI.RawUI.WindowTitle = $(ConvertTo-OrchLiteral $title)"
+        "Set-Location -LiteralPath $(ConvertTo-OrchLiteral $Repo)"
+        "try { $(Format-OrchCall $Script $Named $Rest); `$code = `$LASTEXITCODE } catch { Write-Host `$_ -ForegroundColor Red; `$code = 1 }"
         "Write-Host `"The run ended with exit code `$code. You can close this window.`""
     ) -join "`n"
     $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
@@ -108,6 +105,32 @@ function Start-OrchWindow {
     }
     if ($started.ReturnValue -ne 0) { throw "Windows could not open the run window (Win32_Process.Create returned $($started.ReturnValue))." }
     Write-Host "The run started in a new window, $title. orch status or orch watch shows it here."
+}
+
+function Invoke-OrchUserEnvironment {
+    # Runs the script here, in this console, but in a new PowerShell process that has the user's own
+    # environment variables, as a new terminal has, not this shell's. A chat's shell carries its
+    # session's variables (CLAUDECODE, its session id and more), which the run's agents must not
+    # inherit. Returns when the script ends, with its exit code in $LASTEXITCODE. -OutputFormat Text:
+    # with its output redirected, as in a chat's background shell, pwsh otherwise also writes every
+    # host line to stderr as CLIXML.
+    param([string]$Repo, [string]$Script, [hashtable]$Named, [object[]]$Rest)
+    $command = "Set-Location -LiteralPath $(ConvertTo-OrchLiteral $Repo)`n$(Format-OrchCall $Script $Named $Rest)`nexit `$LASTEXITCODE"
+    $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
+    $pwsh = Join-Path $PSHOME ($IsWindows ? 'pwsh.exe' : 'pwsh')
+    $process = Start-Process -FilePath $pwsh -ArgumentList '-NoProfile', '-NonInteractive', '-OutputFormat', 'Text', '-EncodedCommand', $encoded -UseNewEnvironment -NoNewWindow -Wait -PassThru
+    $global:LASTEXITCODE = $process.ExitCode
+}
+
+function ConvertTo-OrchLiteral([string]$Value) { "'" + ($Value -replace "'", "''") + "'" }
+
+function Format-OrchCall {
+    # The script call as PowerShell source, for another process to run: flags stay bare, so they
+    # bind as parameters, and every value is quoted.
+    param([string]$Script, [hashtable]$Named, [object[]]$Rest)
+    $words = @(foreach ($key in $Named.Keys) { "-$key"; ConvertTo-OrchLiteral $Named[$key] }) +
+             @(foreach ($arg in $Rest) { if ("$arg" -match '^-[A-Za-z]\w*:?$') { "$arg" } else { ConvertTo-OrchLiteral $arg } })
+    "& $(ConvertTo-OrchLiteral $Script) $($words -join ' ')"
 }
 
 function Get-OrchRepo {
@@ -193,8 +216,11 @@ function orch {
             & $entry.Function $repo $others
             return
         }
-        if ($command -eq 'run' -and $rest -contains '-Window') {
-            Start-OrchWindow $repo (Join-Path $PSScriptRoot $entry.Script) $named @($rest | Where-Object { "$_" -ne '-Window' })
+        if ($command -eq 'run' -and ($rest -contains '-Window' -or $rest -contains '-UserEnvironment')) {
+            # The window has the user's environment anyway, so -Window wins when both are given.
+            $others = @($rest | Where-Object { "$_" -notin '-Window', '-UserEnvironment' })
+            if ($rest -contains '-Window') { Start-OrchWindow $repo (Join-Path $PSScriptRoot $entry.Script) $named $others }
+            else { Invoke-OrchUserEnvironment $repo (Join-Path $PSScriptRoot $entry.Script) $named $others }
             return
         }
         & (Join-Path $PSScriptRoot $entry.Script) @named @rest

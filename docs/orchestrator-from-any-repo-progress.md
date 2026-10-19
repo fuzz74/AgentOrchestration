@@ -524,13 +524,22 @@ The test links, the skill and the `~\.copilot\skills` folder it needed were remo
 don't have to watch terminals during the run.
 
 **Decided** (2026-10-19)
-- The run gets its own PowerShell window, opened by the chat. Closing the chat or VS Code
-  doesn't stop it, and you can watch its output there. The window starts with your normal
-  environment, like a new terminal, not with the chat's.
-- Windows' WMI service opens that window (`Win32_Process.Create`), not the chat's shell. On
-  this PC, VS Code and everything it starts run inside one job object, and so did a window
-  opened with `Start-Process`. A job can end all its processes at once. A window from WMI is
-  in no job and isn't part of the chat's process tree, so nothing about the chat can end it.
+- *Changed after the user's checks:* `/orch` starts the run in the chat's background, as runs
+  started from a chat did before, with `orch run -UserEnvironment`. You keep VS Code open
+  during a run anyway, and you watch with `orch watch` or your own dashboard, so a window
+  only got in the way. The run belongs to the chat: closing the chat or VS Code ends it
+  halfway.
+- `-UserEnvironment` gives the run your own environment variables, the ones a new terminal
+  gets, not the chat's. A test showed that without it, the chat's session variables
+  (`CLAUDECODE`, the session id) reach every agent of the run.
+- `orch run -Window` stays, for a run that should outlive the chat. Windows' WMI service opens
+  that window (`Win32_Process.Create`), not the shell. On this PC, VS Code and everything it
+  starts run inside one job object, and so did a window opened with `Start-Process`. A job
+  can end all its processes at once. A window from WMI is in no job and isn't part of the
+  chat's process tree, so nothing about the chat can end it.
+- `plan-tasks` and `/orch` change only `provider` in `project.json`. A plan's own `setup` or
+  `integrationCheck` goes in the plan's `settings`. After the merge, `/orch` offers to copy it
+  into `project.json`.
 - `/auto-develop` is `/orch` with the prime directive and no checkpoints. It stops before the
   merge: it gets to a checked result on `orch/integration`, then tells you to `orch try` and
   `orch finish`.
@@ -541,17 +550,22 @@ don't have to watch terminals during the run.
   - **Plan:** it runs `plan-tasks`. The task table and your OK are the checkpoint. For a new
     project, it asks before planning makes the git repo and its skeleton commit.
   - **Run:** after your OK, it warns you to keep your hands off `main`, then starts the run in
-    its own window. Extra flags you ask for, such as `-AgentPath`, are passed through.
+    the chat's background with `orch run -UserEnvironment`, and asks you to keep the chat
+    open. Extra flags you ask for, such as `-AgentPath`, are passed through.
   - **Wait:** it waits for the run in the background, and tells you when a task fails and
     when the run ends.
   - **Failures:** it says which task failed and why, from `state.json` and the logs. It offers
     to fix `tasks.json` and rerun with `-RetryFailed`, and does so only after your yes.
   - **Finish:** it offers `orch try`, then `orch finish`, which it runs only after you say yes
     in the chat. It never commits or pushes anything else in the target repo, and never
-    pushes at all.
+    pushes at all. If the plan used other commands than `project.json`, it offers to copy
+    them there after the merge.
 - `orchestrator\Wait-Orchestrator.ps1` (and `orch wait`). It waits until a task newly fails or
   the run ends, prints the task table, and its exit code says which happened.
+- `orch run -UserEnvironment` runs the plan in the current console, in a new PowerShell
+  process with your own environment variables.
 - `orch run -Window` opens the run in a new PowerShell window, which stays open at the end.
+- `plan-tasks` leaves `setup` and `integrationCheck` in `project.json` alone.
 - `New-PracticeRepo.ps1 -Stage Failing`, for the failing-run checks.
 - A fix in the engine: the acceptance feedback that a worker gets on a retry had a broken code
   fence (see the notes).
@@ -584,6 +598,13 @@ don't have to watch terminals during the run.
   still going, then it reported `feature-b` and ended normally. The window was still open
   afterwards. It has your user environment variables, finds `claude`, and has no `CLAUDE*`
   variables.
+- [x] The run in the chat's background. *(assistant)* A practice plan whose `contracts`
+  acceptance command fails when `CLAUDECODE` or the chat's session id reaches the run:
+  - plain `orch run` from the chat's shell: `contracts` failed with `the chat's variables
+    reached the run`, exit code 2. So the check works, and the variables do leak.
+  - `orch run -UserEnvironment`, started in the chat's background: `contracts` passed at the
+    first attempt, all 4 tasks done, exit code 0, and the chat was told when it ended. The
+    output is plain text (see the notes about CLIXML).
 - [x] `/orch`, asked only for its setup, names the orchestrator and the target repo, in Claude
   (Haiku) and in Copilot, as in step 2. *(assistant)* Both replied
   `orch: C:\Data\AI\AgentOrchestration` and `target: ...\orch-practice\demo` with no
@@ -599,8 +620,11 @@ don't have to watch terminals during the run.
 - [x] **(you)** A failing run. In a practice repo where one task always fails, it tells you
   when that task fails, while the run is still going, and again at the end. It says why and
   offers a fix with `-RetryFailed`. You say no. *(you)*
-- [ ] **(you, optional)** `/auto-develop` in an empty practice repo, with the fake agent for
-  the run. It goes from spec to run without asking you anything and stops before the merge.
+- [ ] **(you)** `/auto-develop` and the fix loop. In a `-Stage Failing` practice repo, with the
+  fake agent, `/auto-develop` runs the plan without asking you anything. When `feature-b`
+  fails, it fixes that task's acceptance command (which can never pass), reruns with
+  `-RetryFailed`, gets all 4 tasks done, and stops before the merge. It starts the run in
+  the chat's background. `project.json` keeps its own `setup` and `integrationCheck`.
 
 **Done:** (date, PC)
 
@@ -622,6 +646,20 @@ don't have to watch terminals during the run.
   PowerShell doesn't change that. The window now starts in the home folder, and only
   PowerShell's location moves to the repo. After the fix, a repo folder could be deleted
   while its run window was still open (assistant, in a throwaway repo).
+- 2026-10-19: the first try of `/auto-develop` (in an empty practice repo) wrote the spec,
+  planned one task and ran it without asking, and didn't merge. The task failed: the fake
+  agent writes a marker file and no code, so the real tests could never pass. It rightly
+  didn't rerun, and didn't change the checks to look for the marker file either. So it
+  never got to fix and rerun anything. That check was replaced by the fix-loop check above.
+- 2026-10-19: that run also showed a bug. `/plan-tasks` had added the new tests to
+  `integrationCheck` in `project.json`, which outlives the run, although `main` doesn't have
+  those tests. Had the run been dropped, every later plan in the repo would have failed its
+  integration check. `plan-tasks` now changes only `provider` there (see Decided).
+- 2026-10-19: the user found the run window more in the way than useful, so `/orch` runs in
+  the chat's background again (see Decided).
+- 2026-10-19: started with its output redirected, as in a chat's background shell, a child
+  `pwsh` also wrote every host line to stderr as CLIXML, so the chat got each line twice,
+  once in XML. `-OutputFormat Text` fixes that.
 
 ---
 
@@ -647,4 +685,4 @@ These get detailed checks when we reach them, in the same way as steps 1 and 2.
 | 2026-10-18 | `Plan-Tasks.ps1` also saves the provider in `project.json`, checked after the plan and before `ORCH_PROVIDER`. `-MaxParallel` from `project.json` is skipped for now (see step 1c). |
 | 2026-10-18 | Runs stay hands-off `main`: `orch finish` stops when the base branch moved, and `-Force` merges anyway (see step 1d). |
 | 2026-10-18 | The skills reach other repos through junctions in the personal skill folders, not a plugin. Claude is allowed this checkout once in its user settings (see step 2). |
-| 2026-10-19 | `/orch` starts the run in its own window, opened through WMI so that nothing about the chat can end it. `/auto-develop` is `/orch` without checkpoints, and stops before the merge (see step 3). |
+| 2026-10-19 | `/orch` starts the run in the chat's background with `orch run -UserEnvironment`, so the agents get your own environment variables. `orch run -Window` (through WMI) is there for a run that should outlive the chat. `/auto-develop` is `/orch` without checkpoints, and stops before the merge. `project.json` keeps the base branch's commands (see step 3). |

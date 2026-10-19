@@ -133,7 +133,7 @@ Orchestrator commands in the terminal steps assume the current folder is
    | You type | It runs |
    | --- | --- |
    | `orch plan <spec>` | `Plan-Tasks.ps1` |
-   | `orch run` | `Invoke-Orchestrator.ps1`; with `-Window`, in a new PowerShell window that stays open at the end |
+   | `orch run` | `Invoke-Orchestrator.ps1`; `-UserEnvironment` and `-Window` are described below |
    | `orch status` | `Show-Tasks.ps1` |
    | `orch wait` | `Wait-Orchestrator.ps1`: waits until a task fails or the run ends |
    | `orch watch` | `Watch-Orchestrator.ps1` |
@@ -151,6 +151,19 @@ Orchestrator commands in the terminal steps assume the current folder is
    script, for example `orch watch -Once`, and `orch` alone lists the commands. More commands
    are on the way: see `docs/orchestrator-from-any-repo-progress.md`.
 
+   `orch run` has two extra flags for where the run's environment and output come from:
+
+   - `-UserEnvironment` runs the plan in this console, but in a new PowerShell process that
+     has your own environment variables, the ones a new terminal gets, instead of this
+     shell's. Use it when the shell belongs to an agent chat: the chat's shell carries its
+     session's variables, such as `CLAUDECODE` and the session id, and without the flag the
+     run's agents inherit them. `/orch` always adds it.
+   - `-Window` runs the plan in a new PowerShell window, which stays open at the end and also
+     has your own environment variables. On a PC where Windows Terminal is the default
+     console, the window opens as a tab in Windows Terminal. Windows starts it (through WMI),
+     not your shell, so it doesn't belong to the terminal, chat or editor you typed it in:
+     closing those doesn't end the run. Use it for a run that should outlive the chat.
+
 ### The short way: /orch
 
 With setup item 6 done, open the target repo in VS Code (for a new project, an empty folder)
@@ -165,16 +178,32 @@ changes your repo:
 
 1. It writes the spec with you (`/write-spec`), or uses the spec you hand it.
 2. It plans with you (`/plan-tasks`) and shows the task table.
-3. After your OK, it starts the run with `orch run -Window`, in its own PowerShell window.
-   Closing the chat doesn't stop the run.
+3. After your OK, it warns you not to commit on the base branch during the run, and starts
+   the run in the chat's background with `orch run -UserEnvironment`. The chat stays free
+   while the run goes on.
 4. It waits with `Wait-Orchestrator.ps1` and tells you when a task fails and when the run
-   ends. For a failed task it explains why and offers a fix and a rerun with `-RetryFailed`.
-5. When every task is done, it offers `orch try`, then `orch finish`.
+   ends. For a failed task it explains why, from the task's error and logs, and offers a fix
+   to `tasks.json` and a rerun with `-RetryFailed`.
+5. When every task is done, it offers `orch try`, then `orch finish`. If the plan used other
+   `setup` or `integrationCheck` commands than `project.json`, for example a check that runs
+   tests this run added, it offers to copy them into `project.json` after the merge.
+
+**Keep the chat open during the run.** The run belongs to the chat: closing the chat or VS
+Code ends it halfway. `orch run` in the repo picks it up again later, but tasks that were
+halfway start over. To watch the run, use `orch watch` in a terminal in the repo, or any
+dashboard that reads `.orchestrator`. `orch stop` pauses it once the active agents finish. For
+a run that should outlive the chat, start it yourself with `orch run -Window` instead and
+ask `/orch` to wait for it.
 
 It never commits or pushes in the repo by itself; only the orchestrator's own steps change
 it, each after your yes. `/orch` in an existing repo builds on that repo and follows its
 conventions. You can also start it with a spec, an existing plan or a run in progress, and
 it picks up from there. The steps below describe the same flow one piece at a time.
+
+`/auto-develop <idea>` is the same flow without the questions: it writes the spec, plans,
+runs, and fixes and reruns failed tasks up to twice by itself. It stops before
+`orch finish`, so merging stays your decision. A failure it can't honestly fix, such as an
+agent that can't do the work, it reports instead of working around the checks.
 
 ### Step 1: Turn the idea into a spec
 
@@ -226,6 +255,12 @@ For a new project, planning first creates the project skeleton automatically:
 
 The two commands are saved in `.orchestrator/project.json` and become the plan's `setup` and
 `integrationCheck`. A repo that already has commits is left as it is.
+
+`project.json` outlives the run, so its commands must fit the base branch as it is. When a
+plan needs other commands, for example an integration check that also runs the tests this run
+adds, they go only in the plan's `settings`. `/plan-tasks` and `/orch` change only `provider`
+in `project.json`. After the merge, `/orch` offers to copy the plan's commands there, because
+the base branch then has the files they check.
 
 Pick one:
 
@@ -281,6 +316,10 @@ Where: **terminal**. Leave it open until the run ends.
 ```powershell
 .\orchestrator\Invoke-Orchestrator.ps1 -Provider Copilot -RepoPath C:\src\myapp -MaxParallel 3
 ```
+
+Or `orch run` anywhere in the repo. When an agent chat starts the run for you, it runs
+`orch run -UserEnvironment`, so the agents get your own environment variables, not the chat's
+(see setup item 6). `/orch` does this by itself.
 
 - Progress prints live. For a live dashboard, open a **second terminal** in
   `C:\Data\AgentOrchestration` and run:
@@ -356,7 +395,8 @@ Where: **terminal**. Leave it open until the run ends.
 Skip this step if every task is done.
 
 1. **Find out why** (terminal): run `.\orchestrator\Show-Tasks.ps1 -RepoPath C:\src\myapp`.
-   The detail column shows the error. For the full story, open the task's latest log
+   The detail column shows the error. `orch wait -Once` prints each failed task's whole error
+   instead of its first line, for example the acceptance command's last output. For the full story, open the task's latest log
   folder, `C:\src\myapp\.orchestrator\logs\<task-id>\<timestamp>\`, in the **editor**. It holds the prompts, the agent results and the command output. Each `*.events.jsonl` file
    is the agent's full event stream, one JSON event per line: every message and tool call.
 2. **Fix the cause** (editor):
@@ -667,7 +707,7 @@ upstream is shown as `blocked`.
 | --- | --- |
 | `<repo>/.orchestrator/tasks.json` | The plan. Yours to edit. |
 | `<repo>/.orchestrator/spec.md` | The spec: written there by `/write-spec`, or copied there when it lives outside the repo. |
-| `<repo>/.orchestrator/project.json` | Setup and integration-check commands from the skeleton bootstrap, and the provider of the last plan. |
+| `<repo>/.orchestrator/project.json` | Setup and integration-check commands from the skeleton bootstrap, and the provider of the last plan. It outlives every run, so its commands must fit the base branch: a plan's own commands go in the plan's `settings`. |
 | `<repo>/.orchestrator/state.json` | Per-task status, attempts, cost, session id, summary, notes, error, merged commit. |
 | `<repo>/.orchestrator/progress.md` | Timestamped log of the whole run. |
 | `<repo>/.orchestrator/logs/<id>/<timestamp>/` | Per-run logs: each prompt sent (`*.prompt.md`), each claude JSON result, and command output. |
@@ -716,7 +756,7 @@ implementation or acceptance check needs repair.
 | `Clear-Orchestrator.ps1` | `-RepoPath`, `-All`. Without `-All`: removes task worktrees and `orch/task/*` branches, resets unfinished tasks to pending. With `-All`: also the integration worktree and branch, state, logs and progress, which are deleted, not archived. Refuses while a run is active. Supports `-WhatIf`. |
 | `Complete-Orchestrator.ps1` | `-RepoPath`, `-Keep` (files to leave in `.orchestrator`, by name or full path), `-Force` (archive a run that is not finished). Moves the run record to `<repo>.runs/<timestamp>/.orchestrator`, leaves `project.json`, and removes all worktrees and `orch/*` branches. Refuses while a run is active. Supports `-WhatIf`. |
 | `Install-Orch.ps1` | `-Provider Claude|Copilot` (sets `ORCH_PROVIDER`, the default provider), `-WhatIf`. Installs `orch` on this PC: sets `ORCH_HOME` and adds the line that loads it to `$PROFILE.CurrentUserAllHosts`. Links the skills in `.claude/skills` into `~\.claude\skills` and `~\.copilot\skills` as junctions, and allows this checkout and `~\.claude\skills` in Claude's user settings. Running it again changes nothing unless the checkout has moved or the provider changes. |
-| `orch <command>` | `plan`, `run`, `status`, `wait`, `watch`, `timeline`, `talk`, `stop` run `Plan-Tasks.ps1`, `Invoke-Orchestrator.ps1`, `Show-Tasks.ps1`, `Wait-Orchestrator.ps1`, `Watch-Orchestrator.ps1`, `Watch-AgentTimeline.ps1`, `Watch-Conversations.ps1` and `Request-OrchestratorStop.ps1` for the repo around the current folder; a worktree counts as its repo. The provider comes from `-Provider`, then the plan's `provider`, then `project.json`, then `ORCH_PROVIDER`. Other flags go to the script, and `-RepoPath` overrides the repo. `run -Window` starts the run in a new PowerShell window, which stays open at the end; the window gets your own environment variables, as a new terminal does, not those of the shell that started it. `try` opens the `_integration` worktree with `code -n`. `finish` (`-Yes` skips the question, `-Force` merges although the base branch moved) merges the integration branch into the base branch and runs `Complete-Run`; it never pushes. `orch` alone lists the commands. |
+| `orch <command>` | `plan`, `run`, `status`, `wait`, `watch`, `timeline`, `talk`, `stop` run `Plan-Tasks.ps1`, `Invoke-Orchestrator.ps1`, `Show-Tasks.ps1`, `Wait-Orchestrator.ps1`, `Watch-Orchestrator.ps1`, `Watch-AgentTimeline.ps1`, `Watch-Conversations.ps1` and `Request-OrchestratorStop.ps1` for the repo around the current folder; a worktree counts as its repo. The provider comes from `-Provider`, then the plan's `provider`, then `project.json`, then `ORCH_PROVIDER`. Other flags go to the script, and `-RepoPath` overrides the repo. `run -UserEnvironment` runs the plan in this console, in a new PowerShell process with your own environment variables, as a new terminal has, not this shell's; an agent chat uses it so the run's agents don't inherit the chat's session variables. `run -Window` starts the run in a new PowerShell window (a Windows Terminal tab where that is the default console), started through WMI so that closing the shell, chat or editor it came from doesn't end it; it also has your own environment variables and stays open at the end. `try` opens the `_integration` worktree with `code -n`. `finish` (`-Yes` skips the question, `-Force` merges although the base branch moved) merges the integration branch into the base branch and runs `Complete-Run`; it never pushes. `orch` alone lists the commands. |
 | `tests/Run-SmokeTest.ps1` | `-Provider Claude|Copilot` (required), `-WorkDir`. End-to-end fake-CLI test from an empty folder to merged work. |
 | `tests/New-PracticeRepo.ps1` | `-Stage Run|Planned|Failing|Empty` (`Run`), `-Provider` (`Claude`). Replaces the throwaway repo in `%TEMP%\orch-practice\demo`, made with the fake CLI, for trying commands by hand. |
 
@@ -766,14 +806,23 @@ model arguments or an existing plan specify another model. Claude retains its mo
   `/plan-tasks`, `/auto-develop`), which talk with the user. Claude sessions deny them by name. Copilot
   sessions always get a tool list without the skill tool, or lose that tool
   (`--excluded-tools=skill`); Copilot's `--deny-tool` can't name a single skill.
+- A run started from an agent chat's shell would pass the chat's session variables
+  (`CLAUDECODE`, the session id and more) to every agent of the run, and tested in a practice
+  repo, it does. `/orch` therefore starts runs with `orch run -UserEnvironment`, which gives
+  the run the same environment variables as a new terminal.
 - Nothing is pushed. All merges are local, and merging `orch/integration` into your base
-  branch is left to you.
+  branch is left to you. `/orch` and `/auto-develop` never commit, merge or push in the
+  target repo themselves; `/orch` runs `orch finish` only after your yes in the chat, and
+  `/auto-develop` stops before it.
 
 ## Limits and known gaps
 
 - **Interrupting**: Ctrl+C stops the thread jobs, but agent processes already running
   can keep going until they finish. Check Task Manager. Their tasks restart from scratch
   on the next run.
+- **A run started by a chat belongs to the chat**: closing the chat or VS Code during the run
+  interrupts it in the same way. Keep the chat open, or start the run yourself with
+  `orch run -Window`, which nothing about the chat can end.
 - **Shared machine resources**: parallel tasks share ports, databases and caches. Tests
   that bind fixed ports can collide. Lower `-MaxParallel` or make tests use random ports.
 - **Acceptance exit codes**: the command runs as `pwsh -EncodedCommand`. Chain steps with `&&` so

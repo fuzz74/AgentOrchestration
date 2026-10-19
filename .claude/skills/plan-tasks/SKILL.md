@@ -76,7 +76,11 @@ The headless planner receives the same rules.
    `<orch>\orchestrator\schemas\tasks.schema.json`. Set `provider` to the headless provider
    the user chose; the `orch` command and the dashboard read it. Also set `provider` in
    `.orchestrator/project.json`, keeping its other keys, so the next plan in this repo uses
-   the same one. Minimal example:
+   the same one. Change nothing else in `project.json`: its `setup` and `integrationCheck`
+   fit the base branch, and they outlive this run. When this plan needs other commands, for
+   example an integration check that also runs tests this run adds, put them only in the
+   plan's `settings`. A check in `project.json` that names files the base branch lacks would
+   fail every later plan in the repo if this run is dropped. Minimal example:
 
    ```json
    {
