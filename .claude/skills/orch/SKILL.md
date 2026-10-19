@@ -44,7 +44,11 @@ repo.
   (`ORCH_PROVIDER`, from the environment or the registry), else Claude. Start the run
   yourself, and fix failed tasks and rerun them yourself, at most twice. Stop before
   `orch finish`: report the result and give the user the `orch try` and `orch finish`
-  commands. Access to a repo outside this chat's folder still needs the user's approval.
+  commands. If `<repo>\orch.json` has no `specArchive` key, or there is no such file, add one
+  line: `orch finish` will keep the spec only in `<repo>.runs`, and to save it in the repo,
+  they can first put `{ "specArchive": "docs/specs/{n:3}-{title}.md" }` in `orch.json` at
+  the repo's root. Access to a repo outside this chat's folder still needs the user's
+  approval.
 
 ## Steps
 

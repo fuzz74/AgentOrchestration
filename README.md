@@ -210,7 +210,9 @@ it picks up from there. The steps below describe the same flow one piece at a ti
 `/auto-develop <idea>` is the same flow without the questions: it writes the spec, plans,
 runs, and fixes and reruns failed tasks up to twice by itself. It stops before
 `orch finish`, so merging stays your decision. A failure it can't honestly fix, such as an
-agent that can't do the work, it reports instead of working around the checks.
+agent that can't do the work, it reports instead of working around the checks. It doesn't ask
+where specs go: when the repo has no `specArchive` in `orch.json`, its report says so and shows
+the line to add before `orch finish`.
 
 ### Step 1: Turn the idea into a spec
 
