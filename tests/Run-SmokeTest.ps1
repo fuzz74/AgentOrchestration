@@ -28,6 +28,21 @@ $gitIdentity = @{ GIT_AUTHOR_NAME = 'Smoke Test'; GIT_AUTHOR_EMAIL = 'smoke@exam
                   GIT_COMMITTER_NAME = 'Smoke Test'; GIT_COMMITTER_EMAIL = 'smoke@example.com' }
 $gitIdentity.GetEnumerator() | ForEach-Object { Set-Item "Env:$($_.Key)" $_.Value }
 
+# Compare the independent runtime and fake-agent deny lists, not just their observed CLI behavior.
+$runtimeSkills = [regex]::Match((Get-Content (Join-Path $orch 'Orchestrator.psm1') -Raw),
+    '(?m)^\$script:OrchestratorSkills\s*=\s*@\((?<names>[^\r\n]*)\)')
+$fakeSkills = [regex]::Match((Get-Content $fake -Raw),
+    "(?m)^\s*@\((?<names>'write-spec'[^)]*)\s*\|")
+$skillNames = { param($Match) @([regex]::Matches($Match.Groups['names'].Value, "'([^']+)'") |
+    ForEach-Object { $_.Groups[1].Value }) }
+$expectedSkills = 'write-spec', 'plan-tasks', 'auto-develop', 'orch', 'analyze', 'auto-analyze', 'write-spec-analyze'
+if (-not $runtimeSkills.Success -or -not $fakeSkills.Success -or
+    ((& $skillNames $runtimeSkills) -join ',') -cne ($expectedSkills -join ',') -or
+    ((& $skillNames $fakeSkills) -join ',') -cne ($expectedSkills -join ',')) {
+    throw 'Runtime and fake-agent headless skill deny lists must match all seven orchestrator skills.'
+}
+Write-Host 'Runtime and fake deny lists match all seven skills PASS' -ForegroundColor Green
+
 $env:FAKE_FAIL_ONCE = 'feature-b'
 $env:FAKE_SHARED = '1'
 $env:FAKE_NO_STRUCTURED = 'contracts'
@@ -106,7 +121,6 @@ try {
 }
 finally {
     Remove-Item Env:FAKE_FAIL_ONCE, Env:FAKE_SHARED, Env:FAKE_NO_STRUCTURED, Env:FAKE_REQUIRE_MODEL, Env:FAKE_REQUIRE_ADD_DIR, Env:FAKE_CHECK_SKILL_BLOCK -ErrorAction SilentlyContinue
-    $gitIdentity.Keys | ForEach-Object { Remove-Item "Env:$_" }
 }
 
 $files = git -C $repo ls-tree -r --name-only orch/integration
@@ -556,7 +570,10 @@ try {
     Write-Host ("{0,-38} {1}" -f 'staged-only README remains untouched', ($stagedReadmeOk ? 'PASS' : 'FAIL')) -ForegroundColor ($stagedReadmeOk ? 'Green' : 'Red')
     if (-not $stagedReadmeOk) { throw 'Staged-only README was changed.' }
 }
-finally { Remove-Item Env:FAKE_CHECK_SKILL_BLOCK, Env:FAKE_NO_CHANGE_ONCE -ErrorAction SilentlyContinue }
+finally {
+    Remove-Item Env:FAKE_CHECK_SKILL_BLOCK, Env:FAKE_NO_CHANGE_ONCE -ErrorAction SilentlyContinue
+    $gitIdentity.Keys | ForEach-Object { Remove-Item "Env:$_" }
+}
 & (Join-Path $orch 'Clear-Orchestrator.ps1') -RepoPath $repo -All
 Remove-Item $WorkDir -Recurse -Force
 Write-Host 'Smoke test passed.' -ForegroundColor Green
