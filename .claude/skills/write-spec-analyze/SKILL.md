@@ -23,4 +23,3 @@ does the whole flow).
    with the Skill tool (`skill: write-spec`, `args`: the combined text). In other assistants,
    read [../write-spec/SKILL.md](../write-spec/SKILL.md) and follow it with the combined text
    as the user's request.
-4. From then on, follow write-spec's "Analysis mode" section.
