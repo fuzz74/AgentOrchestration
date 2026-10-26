@@ -30,6 +30,20 @@ if ($env:FAKE_CHECK_SKILL_BLOCK) {
 }
 $prompt = @($input) -join "`n"
 $role = if ($prompt -match 'orchestrator-role: (\w+)') { $Matches[1] } else { 'unknown' }
+if ($env:FAKE_CAPTURE_ARGS) {
+    New-Item -ItemType Directory -Force -Path $env:FAKE_CAPTURE_ARGS | Out-Null
+    @{ role = $role; cwd = (Get-Location).Path; arguments = @($args) } |
+        ConvertTo-Json -Depth 5 | Set-Content (Join-Path $env:FAKE_CAPTURE_ARGS "$([guid]::NewGuid().ToString('N')).json")
+}
+if ($env:FAKE_REJECT_MODEL -and $args -contains $env:FAKE_REJECT_MODEL) {
+    Write-Error "Model '$env:FAKE_REJECT_MODEL' is unavailable for this account." -ErrorAction Continue
+    exit 27
+}
+if ($env:FAKE_REJECT_EFFORT -and ($index = [array]::IndexOf($args, '--reasoning-effort')) -ge 0 -and
+    $args[$index + 1] -eq $env:FAKE_REJECT_EFFORT) {
+    Write-Error "Reasoning effort '$env:FAKE_REJECT_EFFORT' is unsupported for this model." -ErrorAction Continue
+    exit 27
+}
 if ($copilot -and ($toolFilter = @($args) -like '--available-tools=*')) {
     # With --allow-all-tools, this filter is all that keeps the planner and reviewer read-only.
     # Workers and the planner also get sub-agents, which inherit the filter.
@@ -52,7 +66,7 @@ if (-not $copilot -and $role -ne 'unknown') {
     }
 }
 $here = (Get-Location).Path
-$memo =Join-Path ([IO.Path]::GetTempPath()) 'fake-claude'
+$memo = Join-Path ([IO.Path]::GetTempPath()) 'fake-claude'
 New-Item -ItemType Directory -Force -Path $memo | Out-Null
 
 function Out-SubAgent {
