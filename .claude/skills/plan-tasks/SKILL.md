@@ -45,7 +45,13 @@ The headless planner receives the same rules.
    use `--add-dir <repo>` or the session's directory permission flow. Never change access
    settings without the user's approval. Reading `<orch>` from another repo needs no approval
    in Claude Code once `Install-Orch.ps1` has run; in Copilot, approve it when asked.
-   Ask which headless provider (Claude or Copilot) to use for the scripted stages.
+   Use the headless provider (Claude or Copilot) selected by the caller or request.
+   Otherwise ask in interactive mode; under a no-involvement directive, use
+   `.orchestrator/project.json`, then `ORCH_PROVIDER`, then Claude, as `/orch` does.
+   In an interactive plan, ask whether to keep that provider's model and reasoning
+   defaults or use specific model IDs and effort levels. Under a no-involvement directive,
+   use the selected provider's defaults unless the request explicitly chooses otherwise;
+   do not copy the models from an example plan for a different provider.
 2. Determine the selected run type before initializing or changing a plan. Analysis is
    selected by `mode: analysis` from the request/caller or the spec's Summary; otherwise
    new runs default to coding. A request to resume or edit a plan without a new mode
@@ -57,7 +63,10 @@ The headless planner receives the same rules.
    If the target repo doesn't exist or has no commits yet, initialize through the shared
    script, after the required approval:
    `& '<orch>\orchestrator\Initialize-Project.ps1' -Provider <Claude|Copilot> -Spec <spec> -RepoPath <repo> -WorkerType <Coding|Analysis>`.
-   Use the selected type. Coding initialization builds the software skeleton from the
+   Use the selected type; if the user chose worker/bootstrap model or effort, pass
+   `-Model` and `-Effort` here as well. Otherwise bootstrap uses Claude `sonnet`
+   without an effort flag or Copilot `gpt-6.1-sol`/`high`. Coding initialization builds
+   the software skeleton from the
    spec's stack, checks it and records its commands. Analysis initialization makes a
    minimal neutral Git baseline without choosing a stack or invoking software bootstrap;
    new `project.json` setup and integrationCheck default to null. Do not implement Git
@@ -124,6 +133,16 @@ The headless planner receives the same rules.
      ]
    }
    ```
+   That example uses Claude defaults. For Copilot, omit `settings.model`,
+   `settings.reviewModel` and `settings.effort` to inherit `gpt-6.1-sol`/`high`, or
+   set them explicitly to the chosen account model IDs and effort. A task's `model`
+   overrides `settings.model` only for that worker; `settings.reviewModel` controls
+   reviews and conflict resolution. Omitted or `null` effort uses the provider
+   default; explicit `none` disables Copilot reasoning. Supported Copilot levels are
+   `none`, `minimal`, `low`, `medium`, `high`, `xhigh` and `max`. Do not silently
+   translate explicit values when switching provider; the CLI/account decides model
+   availability and rejects unsupported combinations. The scripted planner's
+   `-Model`/`-Effort` select its own call; interactive planning has no planner CLI call.
 7. Validate by running `& '<orch>\orchestrator\Show-Tasks.ps1' -RepoPath <repo>` (it reports
    bad ids, unknown deps and cycles) and
    `& '<orch>\orchestrator\Invoke-Orchestrator.ps1' -Provider <Claude|Copilot> -RepoPath <repo> -DryRun`

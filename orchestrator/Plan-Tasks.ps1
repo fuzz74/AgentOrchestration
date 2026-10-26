@@ -14,7 +14,7 @@
     schemas/plan-output.schema.json, validates the graph (ids, deps, cycles) and writes
     tasks.json with the planner's shared files and default settings. If the graph is invalid the
     planner gets one chance to fix it.
-    -Effort bounds the planner's reasoning (Claude only); -WorkerEffort is written to the plan's
+    -Effort bounds the planner's reasoning; -WorkerEffort is used for bootstrap and written to the plan's
     settings.effort. A model that reasons at length can spend its whole output budget thinking,
     hit the output-token limit and start over; a lower effort prevents that.
     Review and edit the file before running Invoke-Orchestrator.ps1.
@@ -30,11 +30,11 @@ param(
     [Parameter(Mandatory)][ValidateSet('Claude', 'Copilot')][string]$Provider,
     [string]$RepoPath = '.',
     [string]$Out,
-    [string]$Model = 'opus',
-    [string]$WorkerModel = 'sonnet',
+    [string]$Model,
+    [string]$WorkerModel,
     [ValidateSet('Coding', 'Analysis')][string]$WorkerType = 'Coding',
-    [ValidateSet('low', 'medium', 'high', 'xhigh', 'max')][string]$Effort,        # planner reasoning effort (Claude only)
-    [ValidateSet('low', 'medium', 'high', 'xhigh', 'max')][string]$WorkerEffort,  # written to settings.effort
+    [ValidateSet('none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max')][string]$Effort,
+    [ValidateSet('none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max')][string]$WorkerEffort,
     [string]$Setup,
     [string]$IntegrationCheck,
     [string]$AgentPath,
@@ -44,12 +44,16 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'Orchestrator.psm1') -Force
-$Model = Resolve-AgentModel -Provider $Provider -Model $Model
-$WorkerModel = Resolve-AgentModel -Provider $Provider -Model $WorkerModel
+$Model = Resolve-AgentModel -Provider $Provider -Model $(if ($PSBoundParameters.ContainsKey('Model')) { $Model } elseif ($Provider -eq 'Claude') { 'opus' })
+$WorkerModel = Resolve-AgentModel -Provider $Provider -Model $(if ($PSBoundParameters.ContainsKey('WorkerModel')) { $WorkerModel } elseif ($Provider -eq 'Claude') { 'sonnet' })
 
 # Establish a Git baseline before planning; only coding projects get a software skeleton.
-& (Join-Path $PSScriptRoot 'Initialize-Project.ps1') -Spec $Spec -RepoPath $RepoPath -Model $WorkerModel `
-    -Provider $Provider -WorkerType $WorkerType -AgentPath $AgentPath -MaxBudgetUsd $MaxBudgetUsd
+$bootstrap = @{
+    Spec = $Spec; RepoPath = $RepoPath; Model = $WorkerModel; Provider = $Provider
+    WorkerType = $WorkerType; AgentPath = $AgentPath; MaxBudgetUsd = $MaxBudgetUsd
+}
+if ($PSBoundParameters.ContainsKey('WorkerEffort')) { $bootstrap.Effort = $WorkerEffort }
+& (Join-Path $PSScriptRoot 'Initialize-Project.ps1') @bootstrap
 
 $paths = Get-OrchPaths -RepoPath $RepoPath -PlanFile $Out
 if (Test-Path $paths.ProjectFile) {
@@ -89,10 +93,11 @@ Write-OrchLog $paths.ProgressFile "Planning from $specRel with $Model"
 
 $call = @{
     Provider = $Provider; AgentPath = $agent; WorkDir = $paths.Repo; Schema = 'plan-output.schema.json'; Model = $Model
-    Effort = $Effort; PermissionMode = 'dontAsk'; Tools = @('Read', 'Glob', 'Grep'); AllowedTools = @('Read', 'Glob', 'Grep'); SubAgents = $true
+    PermissionMode = 'dontAsk'; Tools = @('Read', 'Glob', 'Grep'); AllowedTools = @('Read', 'Glob', 'Grep'); SubAgents = $true
     MaxBudgetUsd = $MaxBudgetUsd; Name = 'orch:planner'
     ProgressFile = $paths.ProgressFile; ActivityLabel = '[planner]'; Activity = 'each'
 }
+if ($PSBoundParameters.ContainsKey('Effort')) { $call.Effort = $Effort }
 $r = Invoke-Agent @call -Prompt $prompt -LogPath "$logBase-1.json"
 $cost = $r.Cost
 if (-not $r.Ok) { throw "Planner failed: $($r.Error)" }
@@ -132,7 +137,7 @@ function New-PlanDoc($structured) {
 for ($round = 1; $round -le 2; $round++) {
     $doc = New-PlanDoc $r.Structured
     $doc | ConvertTo-Json -Depth 10 | Set-Content -Path $paths.PlanFile -Encoding utf8
-    $problems = Test-Plan (Read-Plan -PlanFile $paths.PlanFile -Repo $paths.Repo)
+    $problems = Test-Plan (Read-Plan -PlanFile $paths.PlanFile -Repo $paths.Repo -Provider $Provider)
     if (-not $problems.Count) { break }
     if ($round -eq 2) {
         Write-Host "The plan still has problems. Fix $($paths.PlanFile) by hand:" -ForegroundColor Red

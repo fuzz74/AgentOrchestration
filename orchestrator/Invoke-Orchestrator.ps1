@@ -35,7 +35,7 @@ $modulePath = Join-Path $PSScriptRoot 'Orchestrator.psm1'
 Import-Module $modulePath -Force
 
 $paths = Get-OrchPaths -RepoPath $RepoPath -PlanFile $Plan
-$planObj = Read-Plan -PlanFile $paths.PlanFile -Repo $paths.Repo
+$planObj = Read-Plan -PlanFile $paths.PlanFile -Repo $paths.Repo -Provider $Provider
 $problems = Test-Plan $planObj
 if ($problems.Count) {
     Write-Host "The plan has problems:" -ForegroundColor Red

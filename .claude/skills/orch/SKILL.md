@@ -80,8 +80,12 @@ repo.
    there is nothing to go on. For analysis, ask what to investigate.
 2. **Spec.** Start `write-spec` with the user's idea and selected mode. When it reaches its hand-off, don't stop:
    go on to step 3 with the spec it wrote.
-3. **Plan.** Start `plan-tasks` with the spec and selected mode. It asks for the provider, agrees the task table
-   with the user, then writes and validates `tasks.json`. For a new project, it first makes the
+3. **Plan.** Start `plan-tasks` with the spec and selected mode. With user involvement it asks
+   for the provider and any model/effort choices, agrees the task table, then writes and
+   validates `tasks.json`. With no involvement, pass through any provider or model/effort
+   choices in the request; otherwise use the selected provider's defaults (Claude: `opus`
+   planner, `sonnet` bootstrap/workers/reviewers, omitted effort; Copilot: `gpt-6.1-sol`
+   and `high`). For a new project, it first makes the
    repo and its initial commit (software skeleton for coding, neutral baseline for analysis):
    say so, and wait for a yes before it does. When it gives the
    command to start the run, don't stop: go on to step 4.

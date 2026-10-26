@@ -5,7 +5,7 @@
 
 $script:PromptDir = Join-Path $PSScriptRoot 'prompts'
 $script:SchemaDir = Join-Path $PSScriptRoot 'schemas'
-$script:CopilotModel = 'gpt-6-sol'
+$script:CopilotModel = 'gpt-6.1-sol'
 # Seconds between the summary lines of Invoke-Agent -Activity heartbeat.
 $script:HeartbeatSeconds = 60
 # claude.ai connectors hidden from every Claude agent. They stay enabled in interactive sessions.
@@ -34,11 +34,20 @@ $script:DefaultSettings = [ordered]@{
     ignore            = @('**/__pycache__/**', '**/*.pyc', '**/.pytest_cache/**', '**/.mypy_cache/**', '**/.venv/**', '**/node_modules/**', '**/.DS_Store')
 }
 
-function Get-DefaultSettings { [ordered]@{} + $script:DefaultSettings }
+function Get-DefaultSettings {
+    param([ValidateSet('Claude', 'Copilot')][string]$Provider = 'Claude')
+    $settings = [ordered]@{} + $script:DefaultSettings
+    if ($Provider -eq 'Copilot') {
+        $settings.model = $script:CopilotModel
+        $settings.reviewModel = $script:CopilotModel
+        $settings.effort = 'high'
+    }
+    $settings
+}
 
 function Resolve-AgentModel {
     param([string]$Provider, [string]$Model)
-    if ($Provider -eq 'Copilot') { return $script:CopilotModel }
+    if ($Provider -eq 'Copilot' -and -not $Model) { return $script:CopilotModel }
     return $Model
 }
 
@@ -144,7 +153,7 @@ function Resolve-AgentPath {
 #region Plan, graph and state
 
 function Read-Plan {
-    param([string]$PlanFile, [string]$Repo)
+    param([string]$PlanFile, [string]$Repo, [ValidateSet('Claude', 'Copilot')][string]$Provider)
     if (-not (Test-Path $PlanFile)) { throw "Plan file not found: $PlanFile. Create one with Plan-Tasks.ps1." }
     $raw = Get-Content $PlanFile -Raw
     $schemaErrors = @()
@@ -159,9 +168,10 @@ function Read-Plan {
     catch { $schemaErrors += "Schema: $($_.Exception.Message)" }
     $doc = $raw | ConvertFrom-Json -AsHashtable
 
-    $settings = [ordered]@{}
-    foreach ($k in $script:DefaultSettings.Keys) { $settings[$k] = $script:DefaultSettings[$k] }
+    $effectiveProvider = if ($Provider) { $Provider } elseif ($doc.provider -in 'Claude', 'Copilot') { $doc.provider } else { 'Claude' }
+    $settings = Get-DefaultSettings -Provider $effectiveProvider
     if ($doc.settings) { foreach ($k in $doc.settings.Keys) { $settings[$k] = $doc.settings[$k] } }
+    if ($null -eq $settings.effort -and $effectiveProvider -eq 'Copilot') { $settings.effort = 'high' }
     $settings.additionalDirectories = @($settings.additionalDirectories | ForEach-Object {
         if (-not $_ -or -not $_.Trim()) { $schemaErrors += 'additionalDirectories cannot contain an empty path'; return }
         $directory = if ([IO.Path]::IsPathRooted($_)) { $_ } else { Join-Path $Repo $_ }
@@ -721,13 +731,19 @@ function Invoke-Agent {
     # events (kept in <LogPath>.events.jsonl); the final result event is logged and parsed.
     # Activity: 'each' logs every tool call, 'heartbeat' logs a summary at most once a minute.
     # -SubAgents adds the sub-agent tool (Task) to the tool lists that are given.
+    # [object] keeps an explicit null effort distinct from the empty string that [string] would produce.
     param(
         [ValidateSet('Claude', 'Copilot')][string]$Provider = 'Claude', [string]$AgentPath, [string]$WorkDir, [string]$Prompt, [string]$Schema,
-        [string]$Model, [string]$Effort, [string]$PermissionMode, [string[]]$AllowedTools, [string[]]$Tools, [switch]$SubAgents,
+        [string]$Model, [object]$Effort, [string]$PermissionMode, [string[]]$AllowedTools, [string[]]$Tools, [switch]$SubAgents,
         [double]$MaxBudgetUsd, [string]$ResumeSessionId, [string]$Name, [string]$LogPath, [string[]]$AdditionalDirectories,
         [string]$ProgressFile, [string]$StopFile, [string]$ActivityLabel, [ValidateSet('none', 'each', 'heartbeat')][string]$Activity = 'none'
     )
+    if ($null -ne $Effort -and ($Effort -isnot [string] -or
+        $Effort -notin 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max')) {
+        throw "Invalid effort '$Effort'. Choose none, minimal, low, medium, high, xhigh or max."
+    }
     $Model = Resolve-AgentModel -Provider $Provider -Model $Model
+    if ($Provider -eq 'Copilot' -and $null -eq $Effort) { $Effort = 'high' }
     if ($SubAgents) {
         # Only a list that is given: an empty one sets no filter, so the tool is there already.
         if ($AllowedTools -and $AllowedTools -notcontains 'Task') { $AllowedTools += 'Task' }
@@ -757,7 +773,7 @@ function Invoke-Agent {
         }
         $cliArgs.AddRange([string[]]@('--output-format', 'json', '--allow-all-tools'))
         $cliArgs.AddRange([string[]]@('--model', $Model))
-        if ($Effort -in 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max') { $cliArgs.AddRange([string[]]@('--reasoning-effort', $Effort)) }
+        $cliArgs.AddRange([string[]]@('--reasoning-effort', $Effort))
         $requested = if ($Tools) { $Tools } else { $AllowedTools }
         if ($requested) {
             $available = foreach ($tool in $requested) {
@@ -943,10 +959,15 @@ function Sync-WithIntegration {
     $resolverTools = if ($Ctx.Provider -eq 'Copilot') { @($Ctx.AllowedTools) + @('Bash') }
                      else { @($Ctx.AllowedTools) + @('Bash(git add *)', 'Bash(git status *)', 'Bash(git diff *)') }
     $r = Invoke-Agent -Provider $Ctx.Provider -AgentPath $Ctx.AgentPath -WorkDir $wt -Prompt $prompt -Model $Ctx.ReviewModel `
+        -Effort $Ctx.Effort `
         -PermissionMode 'acceptEdits' -AllowedTools $resolverTools -AdditionalDirectories $Ctx.AdditionalDirectories `
         -MaxBudgetUsd $Ctx.MaxBudgetUsd -Name "orch:$($Ctx.Id):resolve" -LogPath (Join-Path $Ctx.LogDir "attempt-$Attempt-resolver.json") `
         -ProgressFile $Ctx.ProgressFile -StopFile $Ctx.StopFile -ActivityLabel "[$($Ctx.Id)] resolver:" -Activity 'heartbeat'
     $Cost.Value += $r.Cost
+    if (-not $r.Ok) {
+        [void](Invoke-Git $wt @('merge', '--abort'))
+        return "Conflict resolver agent failed: $($r.Error)"
+    }
     [void](Invoke-Git $wt @('add', '-A'))
     $left = (Invoke-Git $wt @('diff', '--name-only', '--diff-filter=U')).Output
     $markers = (Invoke-Git $wt @('grep', '-l', '-E', '^(<<<<<<<|>>>>>>>) ', '--', '.')).Output
@@ -976,7 +997,7 @@ function Invoke-Review {
     for ($try = 1; $try -le 2; $try++) {
         if ($Ctx.StopFile -and (Test-Path $Ctx.StopFile)) { return @{ paused = $true } }
         $r = Invoke-Agent -Provider $Ctx.Provider -AgentPath $Ctx.AgentPath -WorkDir $wt -Prompt $prompt -Schema 'review-result.schema.json' `
-            -Model $Ctx.ReviewModel -PermissionMode 'dontAsk' -Tools @('Read', 'Glob', 'Grep') -AllowedTools @('Read', 'Glob', 'Grep') -AdditionalDirectories $Ctx.AdditionalDirectories `
+            -Model $Ctx.ReviewModel -Effort $Ctx.Effort -PermissionMode 'dontAsk' -Tools @('Read', 'Glob', 'Grep') -AllowedTools @('Read', 'Glob', 'Grep') -AdditionalDirectories $Ctx.AdditionalDirectories `
             -MaxBudgetUsd $Ctx.MaxBudgetUsd -Name "orch:$($Ctx.Id):review" -LogPath (Join-Path $Ctx.LogDir "attempt-$Attempt-review-$try.json") `
             -ProgressFile $Ctx.ProgressFile -StopFile $Ctx.StopFile -ActivityLabel "[$($Ctx.Id)] review:" -Activity 'heartbeat'
         $Cost.Value += $r.Cost
