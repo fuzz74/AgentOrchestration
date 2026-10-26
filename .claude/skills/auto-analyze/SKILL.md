@@ -22,4 +22,3 @@ mode. It owns the autonomy directive and the stop-before-merge behaviour.
    with the Skill tool (`skill: auto-develop`, `args`: the combined text). In other assistants, read
    [../auto-develop/SKILL.md](../auto-develop/SKILL.md) and follow it with the combined text as the user's
    request.
-4. From then on, follow auto-develop. Do not copy or replace its autonomy rules here.

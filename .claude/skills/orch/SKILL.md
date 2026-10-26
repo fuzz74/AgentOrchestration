@@ -35,16 +35,20 @@ repo.
   `orch finish` merges. Never push; the user does that.
 - **Checkpoints.** Ask, and wait for a yes, before planning a new project, before starting a
   run, before changing `tasks.json` or rerunning failed tasks, and before `orch finish`.
-- **Mode.** The run is either `development` (the default: build software) or `analysis`
-  (investigate and save evidence-backed findings as files). The request sets it with
-  `mode: analysis`, or says plainly that it is an analysis and not a development run. If the
-  request only reads like analysis, ask once at the start; with no involvement, choose analysis
-  only when the request says so plainly. Pass the mode to `write-spec` and `plan-tasks`. After
-  planning it lives in `tasks.json` as `settings.workerType`: when you resume an existing plan,
-  read the mode from there. In analysis mode, the finish (step 7) is about the report and
-  artifacts: offer to open them instead of `orch try`, skip the `project.json` check-copy
-  offer, and in step 6 look at the reviewer's evidence issues and the acceptance validator.
-  See `<orch>\docs\analysis-mode.md`.
+- **Mode.** Development maps to `coding` (the default); analysis maps to `analysis`.
+  `mode: analysis` or an explicit request for an analysis run selects analysis. If the
+  request only sounds like analysis, ask once; with no involvement, choose analysis only
+  when explicitly requested. An unspecified request to resume an existing plan inherits
+  its persisted mode. For a new request, pass its mode through `write-spec` and
+  `plan-tasks`; the spec identifies analysis mode in its Summary. For an existing plan,
+  `.orchestrator\tasks.json` `settings.workerType` is authoritative; absent means coding.
+  Individual tasks may override the run type, including coding tasks in analysis runs.
+  Never change the plan's mode merely to match a new request or resume a paused task under
+  a different role. If the requested mode conflicts with the existing run, explain the
+  conflict before any run/resume/finish action. With user involvement, ask whether to
+  continue the existing run in its original mode or finish/archive it before planning a
+  separate request; without involvement, stop and report the conflict. Do not replace the
+  plan or retag its tasks as a shortcut.
 - **Extra flags.** When the user asks for flags on the run, such as `-AgentPath` or
   `-MaxParallel`, add them to every run command, reruns included.
 - **No involvement.** When the request says the user wants no involvement (the prime directive
@@ -59,11 +63,12 @@ repo.
 ## Steps
 
 1. **Start.** Settle the target repo. If `.orchestrator\tasks.json` exists, an earlier plan is
-   still there. See where it stands with
+   still there. Read `settings.workerType` (missing means coding) and apply the mode-conflict
+   rule above before acting on it. Then see where it stands with
    `& '<orch>\orchestrator\Wait-Orchestrator.ps1' -RepoPath '<repo>' -Once`:
    - **5:** a run is active. Go to step 5. Anything new waits until it has ended.
    - **0:** every task is done, but the run isn't finished. Go to step 7, then on with the
-     user's idea or spec, if they gave one.
+     user's idea or spec, if they gave one and the mode conflict has been resolved.
    - **2:** the last run ended with failed or blocked tasks. Tell the user, and go to step 6,
      unless they want to drop that run: then `plan-tasks` handles it when it plans.
    - **4:** a plan that hasn't run, or a run that was stopped. Without a new idea or spec, that
@@ -72,12 +77,13 @@ repo.
 
    Then, with a spec from the user (a file, or its text), go to step 3. With an idea, go to
    step 2. With neither, and no plan to run, ask what to build, even with no involvement:
-   there is nothing to go on.
-2. **Spec.** Start `write-spec` with the user's idea. When it reaches its hand-off, don't stop:
+   there is nothing to go on. For analysis, ask what to investigate.
+2. **Spec.** Start `write-spec` with the user's idea and selected mode. When it reaches its hand-off, don't stop:
    go on to step 3 with the spec it wrote.
-3. **Plan.** Start `plan-tasks` with the spec. It asks for the provider, agrees the task table
+3. **Plan.** Start `plan-tasks` with the spec and selected mode. It asks for the provider, agrees the task table
    with the user, then writes and validates `tasks.json`. For a new project, it first makes the
-   repo and its skeleton commit: say so, and wait for a yes before it does. When it gives the
+   repo and its initial commit (software skeleton for coding, neutral baseline for analysis):
+   say so, and wait for a yes before it does. When it gives the
    command to start the run, don't stop: go on to step 4.
 4. **Run.**
    - Say how many tasks there are, in which waves, and which provider runs them.
@@ -128,16 +134,20 @@ repo.
    - For a failed integration check: `<repo>\.orchestrator\logs\<task>-integration-check.log`.
 
    Explain it in a few lines: which gate failed, the likely cause, and your proposed fix. A
-   fix might be a clearer prompt, a wrong acceptance command, a missing dependency, owns that
-   are too narrow, or a gap in the spec. Blocked tasks need no fix: they run once the tasks
+   fix might be a clearer prompt, a wrong acceptance command, a missing dependency, owned paths that
+   are too narrow, or a gap in the spec. For analysis, check support for conclusions,
+   inaccessible sources and whether the requested repo deliverable was committed; for coding
+   tasks, check the software tests as applicable. Blocked tasks need no fix: they run once
+   the tasks
    they depend on are done. With the user's yes, edit `tasks.json`, run
    `& '<orch>\orchestrator\Show-Tasks.ps1' -RepoPath '<repo>'` to validate it, and start the
    rerun the way step 4 starts a run, with `-RetryFailed` added. Then go back to step 5.
    If the retry refuses, for example because a worktree has uncommitted changes, report what
    it said. Add `-FreshFailed` only when the user asks for it.
 7. **Finish.**
-   - Tell the user that every task is done and the result is on the integration branch. Offer
-     `orch try`, which opens it in a new VS Code window, and ask them to close that window
+   - Tell the user that every task is done and the requested result is on the integration
+     branch in the target repo. Present its location and outcome. Offer `orch try`, which
+     opens the integration branch in a new VS Code window, and ask them to close that window
      before finishing.
    - Then say what finishing does: merge the integration branch into the base branch, archive
      the run to `<repo>.runs\<timestamp>`, and remove its worktrees and `orch/*` branches. It

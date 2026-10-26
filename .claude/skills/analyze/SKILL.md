@@ -22,5 +22,3 @@ user involved.
    Skill tool (`skill: orch`, `args`: the combined text). In other assistants, read
    [../orch/SKILL.md](../orch/SKILL.md) and follow it with the combined text as the user's
    request.
-4. From then on, follow orch in analysis mode: `write-spec` runs the analysis interview, and
-   every checkpoint in orch applies.
