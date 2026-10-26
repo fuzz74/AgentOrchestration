@@ -147,13 +147,15 @@ needs; coding tasks may support an analysis run.
    guessing.
 10. **User review.** Give the path and ask the user to read the spec. Revise until they
     approve.
-11. **Hand off.** Offer `/plan-tasks`, or give the command
-    `& '<orch>\orchestrator\Plan-Tasks.ps1' -Provider <Claude|Copilot> -Spec <path> -RepoPath <repo>`,
-    or `orch plan <path>` in a terminal inside the repo. Ask which provider to use. For a new project, that
-    command initializes the repo first (software skeleton for coding, neutral baseline for
-    analysis) and uses applicable setup and check commands. For
-    an existing repo without `.orchestrator/project.json`, add
-    `-Setup '<setup command>' -IntegrationCheck '<whole-project check>'`. If the repo holds
+11. **Hand off.** Offer `/plan-tasks` with the selected mode, or give the command
+    `& '<orch>\orchestrator\Plan-Tasks.ps1' -Provider <Claude|Copilot> -Spec <path> -RepoPath <repo> -WorkerType <Coding|Analysis>`,
+    or `orch plan <path> -WorkerType <Coding|Analysis>` in a terminal inside the repo.
+    Specify `Analysis` for an analysis spec in either command; otherwise use `Coding`.
+    Ask which provider to use. For a new project, that command initializes the repo first
+    (software skeleton for coding, neutral baseline for analysis) and uses applicable setup
+    and check commands. For an existing repo without `.orchestrator/project.json`, add
+    `-Setup '<setup command>'` and/or `-IntegrationCheck '<whole-project check>'` only
+    when those commands apply; do not invent them for analysis without software. If the repo holds
     an earlier run, the command archives it to `<repo>.runs` first and keeps the spec; no
     `-Force` is needed. It stops if that run is not finished: tell the user to finish it,
     and leave the choice of `-Force` (archive it unfinished) to them.

@@ -37,7 +37,7 @@ Judgment
 - Testability: could a reviewer decide pass/fail for each criterion from the committed
   result and applicable check output? Flag vague words (fast, robust, user-friendly)
   with no measure. Include software tests if tools or prototypes need them.
-- Analysis: is analysis mode identified in the Summary? Does the spec preserve the user's
+- For analysis specs: is analysis mode identified in the Summary? Does the spec preserve the user's
   requested output representation, or record a suitable choice when unspecified? Are all
   deliverables in the target repo with destinations and suitable acceptance? Are sources
   approved for inspection distinguished from owned paths? Does it require supported
