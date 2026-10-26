@@ -149,7 +149,7 @@ for ($round = 1; $round -le 2; $round++) {
 # project.json outlives the run, so the next `orch plan` in this repo uses the same provider.
 $project = if (Test-Path $paths.ProjectFile) { Get-Content $paths.ProjectFile -Raw | ConvertFrom-Json -AsHashtable } else { [ordered]@{} }
 $project.provider = $doc.provider
-$project | ConvertTo-Json | Set-Content -Path $paths.ProjectFile -Encoding utf8
+$project | ConvertTo-Json -Depth 100 | Set-Content -Path $paths.ProjectFile -Encoding utf8
 
 Write-OrchLog $paths.ProgressFile ("Plan written: {0} tasks, {1:N2} USD" -f $doc.tasks.Count, $cost)
 if ($r.Structured.notes) { Write-Host "`nPlanner notes:`n$($r.Structured.notes)`n" -ForegroundColor Yellow }

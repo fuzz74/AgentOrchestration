@@ -48,6 +48,11 @@ if ($WorkerType -eq 'Analysis') {
     $readme = Join-Path $paths.Repo 'README.md'
     $createdReadme = -not (Test-Path $readme)
     if ($createdReadme) {
+        $stagedReadme = Invoke-Git $paths.Repo @('ls-files', '--stage', '--', 'README.md')
+        if ($stagedReadme.Exit -ne 0) { throw "Could not inspect the Git index: $($stagedReadme.Output)" }
+        $hadStagedReadme = [bool]$stagedReadme.Output
+    }
+    if ($createdReadme) {
         Set-Content -Path $readme -Encoding utf8 -Value "# Project`n`nThis repository holds project deliverables."
     }
 
@@ -67,6 +72,10 @@ if ($WorkerType -eq 'Analysis') {
         $env:GIT_INDEX_FILE = $previousIndex
         if (Test-Path $index) { Remove-Item -LiteralPath $index -Force }
         if (Test-Path "$index.lock") { Remove-Item -LiteralPath "$index.lock" -Force }
+    }
+    if ($createdReadme -and -not $hadStagedReadme) {
+        $restore = Invoke-Git $paths.Repo @('restore', '--staged', '--source=HEAD', '--', 'README.md')
+        if ($restore.Exit -ne 0) { throw "Could not synchronize README.md in the Git index: $($restore.Output)" }
     }
 
     $project = if (Test-Path $paths.ProjectFile) {
