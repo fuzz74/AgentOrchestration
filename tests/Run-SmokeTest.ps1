@@ -34,7 +34,7 @@ $env:FAKE_NO_STRUCTURED = 'contracts'
 if ($Provider -eq 'Copilot') { $env:FAKE_REQUIRE_MODEL = 'gpt-6-sol' }
 $env:FAKE_CHECK_SKILL_BLOCK = '1'
 try {
-    & (Join-Path $orch 'Plan-Tasks.ps1') -Provider $Provider -Spec $spec -RepoPath $repo -AgentPath $fake -WorkerType Analysis
+    & (Join-Path $orch 'Plan-Tasks.ps1') -Provider $Provider -Spec $spec -RepoPath $repo -AgentPath $fake -WorkerType Coding
     # The fake planner lists registry.txt as shared. Every task touches it, so the parallel tasks
     # conflict and the resolver path runs.
     $planFile = Join-Path $repo '.orchestrator/tasks.json'
@@ -153,8 +153,8 @@ $checks = [ordered]@{
     'plan uses skeleton commands'       = $planSettings.setup -like '*skeleton.txt*' -and $planSettings.integrationCheck -like '*tool.txt*'
     'plan uses planner shared files'    = $plannerShared -eq 'registry.txt'
     'planner received shared rules'     = $plannerPrompt.Contains($planningRules) -and -not $plannerPrompt.Contains('{{PLANNING_RULES}}')
-    'analysis default and coding override' = $planSettings.workerType -eq 'analysis' -and $plannerPrompt.Contains('default worker type for this run is `analysis`') -and
-        $workerPrompt.Contains('analysis agents investigating') -and $analysisReview.Contains('review one analysis task') -and
+    'coding bootstrap and default prompts' = $planSettings.workerType -eq 'coding' -and $plannerPrompt.Contains('default worker type for this run is `coding`') -and
+        $workerPrompt.Contains('coding agents building') -and $analysisReview.Contains('You review one task from an automated multi-agent build') -and
         $codingWorker.Contains('coding agents building') -and $codingReview.Contains('You review one task from an automated multi-agent build')
     'legacy coding and unknown role rejected' = $legacyCoding -and $invalidRoleRejected
     'prompts explain sub-agents'        = @($plannerPrompt, $workerPrompt | Where-Object { -not ($_ -replace '\s+', ' ').Contains($foreground) -or $_.Contains('{{SUBAGENTS}}') }).Count -eq 0 -and
@@ -434,6 +434,129 @@ $finishChecks = [ordered]@{
 }
 $finishChecks.GetEnumerator() | ForEach-Object { Write-Host ("{0,-38} {1}" -f $_.Key, ($_.Value ? 'PASS' : 'FAIL')) -ForegroundColor ($_.Value ? 'Green' : 'Red') }
 if ($finishChecks.Values -contains $false) { Write-Host "orch finish test FAILED. Repo left at $repo"; exit 1 }
+
+# A separate analysis run uses the same fake planner, worker, reviewer and integration path.
+$analysisRepo = Join-Path $WorkDir 'analysis-example'
+$analysisSpec = Join-Path $WorkDir 'analysis-spec.md'
+Set-Content $analysisSpec 'Investigate the question and save the evidence in the repository.'
+$bootstrapCalls = @(Get-Content (Join-Path ([IO.Path]::GetTempPath()) 'fake-claude/bootstrap-calls.txt')).Count
+$env:FAKE_CHECK_SKILL_BLOCK = '1'
+$env:FAKE_NO_CHANGE_ONCE = 'contracts'
+try {
+    & (Join-Path $orch 'Plan-Tasks.ps1') -Provider $Provider -Spec $analysisSpec -RepoPath $analysisRepo -AgentPath $fake -WorkerType Analysis
+    $analysisPlanFile = Join-Path $analysisRepo '.orchestrator/tasks.json'
+    $analysisPlan = Get-Content $analysisPlanFile -Raw | ConvertFrom-Json -AsHashtable
+    $analysisProject = Get-Content (Join-Path $analysisRepo '.orchestrator/project.json') -Raw | ConvertFrom-Json -AsHashtable
+    $baselineFiles = @(git -C $analysisRepo ls-tree -r --name-only main)
+    $analysisPlannerPrompt = Get-Content (Get-ChildItem (Join-Path $analysisRepo '.orchestrator/logs') -Filter 'planner-*-1.json.prompt.md' | Select-Object -First 1) -Raw
+    $analysisPlan.settings.shared = @()
+    $analysisPlan | ConvertTo-Json -Depth 10 | Set-Content $analysisPlanFile
+    & (Join-Path $orch 'Invoke-Orchestrator.ps1') -Provider $Provider -RepoPath $analysisRepo -AgentPath $fake -MaxParallel 2 -PollSeconds 1
+    $analysisExit = $LASTEXITCODE
+    $analysisState = Get-Content (Join-Path $analysisRepo '.orchestrator/state.json') -Raw | ConvertFrom-Json -AsHashtable
+    $noChangeRetry = Get-Content (Get-ChildItem (Join-Path $analysisRepo '.orchestrator/logs/contracts') -Recurse -Filter 'attempt-2-worker.json.prompt.md' | Select-Object -First 1) -Raw
+    $analysisWorker = Get-Content (Get-ChildItem (Join-Path $analysisRepo '.orchestrator/logs/contracts') -Recurse -Filter 'attempt-1-worker.json.prompt.md' | Select-Object -First 1) -Raw
+    $analysisReviewer = Get-Content (Get-ChildItem (Join-Path $analysisRepo '.orchestrator/logs/contracts') -Recurse -Filter 'attempt-2-review-1.json.prompt.md' | Select-Object -First 1) -Raw
+    $toolWorker = Get-Content (Get-ChildItem (Join-Path $analysisRepo '.orchestrator/logs/feature-a') -Recurse -Filter 'attempt-1-worker.json.prompt.md' | Select-Object -First 1) -Raw
+    $toolReviewer = Get-Content (Get-ChildItem (Join-Path $analysisRepo '.orchestrator/logs/feature-a') -Recurse -Filter 'attempt-1-review-1.json.prompt.md' | Select-Object -First 1) -Raw
+    $integrationFiles = @(git -C $analysisRepo ls-tree -r --name-only orch/integration)
+    $analysisChecks = [ordered]@{
+        'analysis baseline has only README' = (git -C $analysisRepo rev-list --count main) -eq '1' -and
+            ($baselineFiles -join ',') -eq 'README.md' -and (Get-Content (Join-Path $analysisRepo 'README.md') -Raw) -match 'project deliverables'
+        'analysis skips bootstrap and commands' = @(Get-Content (Join-Path ([IO.Path]::GetTempPath()) 'fake-claude/bootstrap-calls.txt')).Count -eq $bootstrapCalls -and
+            $analysisProject.Contains('setup') -and $null -eq $analysisProject.setup -and
+            $analysisProject.Contains('integrationCheck') -and $null -eq $analysisProject.integrationCheck -and
+            $null -eq $analysisPlan.settings.setup -and $null -eq $analysisPlan.settings.integrationCheck
+        'mixed worker and reviewer routing' = $analysisPlan.settings.workerType -eq 'analysis' -and
+            $analysisPlannerPrompt.Contains('default worker type for this run is `analysis`') -and
+            $analysisWorker.Contains('analysis agents investigating') -and $analysisReviewer.Contains('review one analysis task') -and
+            $toolWorker.Contains('coding agents building') -and $toolReviewer.Contains('You review one task from an automated multi-agent build')
+        'analysis integrates committed result' = $analysisExit -eq 0 -and
+            @($analysisState.tasks.Values | Where-Object { $_.status -ne 'done' }).Count -eq 0 -and
+            @('contracts/contracts.txt', 'a/feature-a.txt', 'b/feature-b.txt', 'app/wire-up.txt' |
+                Where-Object { $_ -notin $integrationFiles }).Count -eq 0 -and
+            @(git -C $analysisRepo log --format=%s orch/integration | Where-Object { $_ -match 'contracts|feature-a' }).Count -gt 0
+        'analysis headless skills denied' = -not (Test-Path (Join-Path ([IO.Path]::GetTempPath()) 'fake-claude/skill-block-missing.txt'))
+        'analysis no-change retry gives repo feedback' = $analysisState.tasks['contracts'].attempts -eq 2 -and
+            $noChangeRetry.Contains('Save the requested result in your owned repo paths') -and
+            -not $noChangeRetry.Contains('Create the project skeleton')
+    }
+    $analysisChecks.GetEnumerator() | ForEach-Object { Write-Host ("{0,-38} {1}" -f $_.Key, ($_.Value ? 'PASS' : 'FAIL')) -ForegroundColor ($_.Value ? 'Green' : 'Red') }
+    if ($analysisChecks.Values -contains $false) { throw "Analysis smoke test FAILED. Repo left at $analysisRepo" }
+    $existingHead = (git -C $analysisRepo rev-parse HEAD).Trim()
+    $existingTree = (git -C $analysisRepo rev-parse 'HEAD^{tree}').Trim()
+    $existingConfig = Get-Content (Join-Path $analysisRepo '.orchestrator/project.json') -Raw
+    & (Join-Path $orch 'Initialize-Project.ps1') -Provider $Provider -Spec $analysisSpec -RepoPath $analysisRepo `
+        -AgentPath (Join-Path $WorkDir 'missing-agent') -WorkerType Analysis
+    $existingNoOp = (git -C $analysisRepo rev-parse HEAD).Trim() -eq $existingHead -and
+        (git -C $analysisRepo rev-parse 'HEAD^{tree}').Trim() -eq $existingTree -and
+        (Get-Content (Join-Path $analysisRepo '.orchestrator/project.json') -Raw) -eq $existingConfig
+    Write-Host ("{0,-38} {1}" -f 'existing committed repo is unchanged', ($existingNoOp ? 'PASS' : 'FAIL')) -ForegroundColor ($existingNoOp ? 'Green' : 'Red')
+    if (-not $existingNoOp) { throw 'Initialization changed an existing committed repo.' }
+    git -C $analysisRepo merge -q --no-ff --no-edit orch/integration
+    if ($LASTEXITCODE -ne 0) { throw 'Analysis integration could not merge into main.' }
+    & (Join-Path $orch 'Complete-Orchestrator.ps1') -RepoPath $analysisRepo
+    $analysisArchived = @(Get-ChildItem "$analysisRepo.runs" -Directory).Count -eq 1 -and
+        -not (Test-Path "$analysisRepo.worktrees") -and @(git -C $analysisRepo for-each-ref refs/heads/orch/).Count -eq 0 -and
+        (git -C $analysisRepo ls-tree -r --name-only main) -contains 'contracts/contracts.txt'
+    Write-Host ("{0,-38} {1}" -f 'analysis uses merge and finish lifecycle', ($analysisArchived ? 'PASS' : 'FAIL')) -ForegroundColor ($analysisArchived ? 'Green' : 'Red')
+    if (-not $analysisArchived) { throw 'Analysis merge or finish lifecycle failed.' }
+
+    $preservedRepo = Join-Path $WorkDir 'existing-example'
+    New-Item -ItemType Directory -Force (Join-Path $preservedRepo '.orchestrator') | Out-Null
+    git -C $preservedRepo init -q -b main
+    Set-Content (Join-Path $preservedRepo 'README.md') 'Original README'
+    Set-Content (Join-Path $preservedRepo 'staged.txt') 'Staged user content'
+    Set-Content (Join-Path $preservedRepo 'untracked.txt') 'Untracked user content'
+    git -C $preservedRepo add -- staged.txt
+    $configFile = Join-Path $preservedRepo '.orchestrator/project.json'
+    $config = '{"setup":"echo existing setup","integrationCheck":"echo existing check","custom":{"keep":true}}'
+    Set-Content $configFile $config
+    $indexBefore = (git -C $preservedRepo ls-files --stage -- staged.txt) -join "`n"
+    & (Join-Path $orch 'Initialize-Project.ps1') -Provider $Provider -Spec $analysisSpec -RepoPath $preservedRepo -AgentPath (Join-Path $WorkDir 'missing-agent') -WorkerType Analysis
+    $baselineTree = @(git -C $preservedRepo ls-tree -r --name-only HEAD)
+    $baselineHead = (git -C $preservedRepo rev-parse HEAD).Trim()
+    $afterConfig = (Get-Content $configFile -Raw).TrimEnd()
+    & (Join-Path $orch 'Initialize-Project.ps1') -Provider $Provider -Spec $analysisSpec -RepoPath $preservedRepo -AgentPath (Join-Path $WorkDir 'missing-agent') -WorkerType Analysis
+    $preservedChecks = [ordered]@{
+        'pre-existing README and index untouched' = (Get-Content (Join-Path $preservedRepo 'README.md') -Raw).Trim() -eq 'Original README' -and
+            $baselineTree.Count -eq 0 -and ((git -C $preservedRepo ls-files --stage -- staged.txt) -join "`n") -eq $indexBefore
+        'staged and untracked files retained' = (Test-Path (Join-Path $preservedRepo 'staged.txt')) -and
+            (Test-Path (Join-Path $preservedRepo 'untracked.txt')) -and
+            @('staged.txt', 'untracked.txt' | Where-Object { $_ -notin (git -C $preservedRepo ls-tree -r --name-only HEAD) }).Count -eq 2
+        'no-commit configuration preserved' = $afterConfig -eq $config -and
+            ((Get-Content $configFile -Raw | ConvertFrom-Json).custom.keep) -and
+            (git -C $preservedRepo rev-parse HEAD).Trim() -eq $baselineHead
+    }
+    $preservedChecks.GetEnumerator() | ForEach-Object { Write-Host ("{0,-38} {1}" -f $_.Key, ($_.Value ? 'PASS' : 'FAIL')) -ForegroundColor ($_.Value ? 'Green' : 'Red') }
+    if ($preservedChecks.Values -contains $false) { throw "Analysis preservation test FAILED. Repo left at $preservedRepo" }
+    & (Join-Path $orch 'Plan-Tasks.ps1') -Provider $Provider -Spec $analysisSpec -RepoPath $preservedRepo -AgentPath $fake -WorkerType Analysis `
+        -Setup 'echo override setup' -IntegrationCheck 'echo override check'
+    $overridePlan = Get-Content (Join-Path $preservedRepo '.orchestrator/tasks.json') -Raw | ConvertFrom-Json
+    $persistedConfig = Get-Content $configFile -Raw | ConvertFrom-Json
+    $callerOk = $overridePlan.settings.workerType -eq 'analysis' -and
+        $overridePlan.settings.setup -eq 'echo override setup' -and $overridePlan.settings.integrationCheck -eq 'echo override check' -and
+        $persistedConfig.setup -eq 'echo existing setup' -and $persistedConfig.integrationCheck -eq 'echo existing check' -and
+        $persistedConfig.custom.keep -and (git -C $preservedRepo rev-parse HEAD).Trim() -eq $baselineHead -and
+        ((git -C $preservedRepo ls-files --stage -- staged.txt) -join "`n") -eq $indexBefore
+    Write-Host ("{0,-38} {1}" -f 'caller forwards role; overrides plan only', ($callerOk ? 'PASS' : 'FAIL')) -ForegroundColor ($callerOk ? 'Green' : 'Red')
+    if (-not $callerOk) { throw 'Analysis planning caller did not preserve project config or baseline.' }
+
+    $stagedReadmeRepo = Join-Path $WorkDir 'staged-readme-example'
+    New-Item -ItemType Directory -Path $stagedReadmeRepo | Out-Null
+    git -C $stagedReadmeRepo init -q -b main
+    Set-Content (Join-Path $stagedReadmeRepo 'README.md') 'Staged README'
+    git -C $stagedReadmeRepo add -- README.md
+    Remove-Item (Join-Path $stagedReadmeRepo 'README.md')
+    $stagedReadmeIndex = (git -C $stagedReadmeRepo ls-files --stage -- README.md) -join "`n"
+    & (Join-Path $orch 'Initialize-Project.ps1') -Provider $Provider -Spec $analysisSpec -RepoPath $stagedReadmeRepo -WorkerType Analysis -AgentPath (Join-Path $WorkDir 'missing-agent')
+    $stagedReadmeOk = -not (Test-Path (Join-Path $stagedReadmeRepo 'README.md')) -and
+        @((git -C $stagedReadmeRepo ls-tree -r --name-only HEAD)).Count -eq 0 -and
+        ((git -C $stagedReadmeRepo ls-files --stage -- README.md) -join "`n") -eq $stagedReadmeIndex
+    Write-Host ("{0,-38} {1}" -f 'staged-only README remains untouched', ($stagedReadmeOk ? 'PASS' : 'FAIL')) -ForegroundColor ($stagedReadmeOk ? 'Green' : 'Red')
+    if (-not $stagedReadmeOk) { throw 'Staged-only README was changed.' }
+}
+finally { Remove-Item Env:FAKE_CHECK_SKILL_BLOCK, Env:FAKE_NO_CHANGE_ONCE -ErrorAction SilentlyContinue }
 & (Join-Path $orch 'Clear-Orchestrator.ps1') -RepoPath $repo -All
 Remove-Item $WorkDir -Recurse -Force
 Write-Host 'Smoke test passed.' -ForegroundColor Green
