@@ -1,7 +1,47 @@
 # Copilot CLI notes
 
-Checked on 2026-10-03 with GitHub Copilot CLI 1.0.91 and model `gpt-6-sol` on Windows. Moved
-here from an assistant's local memory on the same day.
+Tool and sub-agent observations below were checked on 2026-10-03 with GitHub Copilot
+CLI 1.0.91 and model `gpt-6-sol` on Windows (and again on 2026-10-09 where noted).
+Those are historical observations, not the orchestrator's current model setting.
+
+## Current model and reasoning configuration
+
+The orchestrator no longer pins Copilot calls to `gpt-6-sol`. With no explicit
+choice it sends `--model gpt-6.1-sol --reasoning-effort high` for bootstrap, planning,
+workers, reviews and conflict resolution, including retries and resumed sessions.
+`Initialize-Project.ps1 -Model`/`-Effort` set standalone bootstrap choices.
+`Plan-Tasks.ps1 -Model`/`-Effort` select the planner; `-WorkerModel` selects the
+new-project bootstrap model and persists `settings.model` and `settings.reviewModel`;
+`-WorkerEffort` selects bootstrap reasoning and persists `settings.effort` for
+workers, reviews and conflict resolution. For example, from the orchestrator checkout:
+
+```powershell
+.\orchestrator\Plan-Tasks.ps1 -Provider Copilot -Spec C:\src\myapp\.orchestrator\spec.md -RepoPath C:\src\myapp -Model gpt-6.1-sol -Effort medium -WorkerModel gpt-6.1-sol -WorkerEffort none
+```
+
+For standalone initialization of a new coding repo:
+
+```powershell
+.\orchestrator\Initialize-Project.ps1 -Provider Copilot -Spec C:\src\myapp\.orchestrator\spec.md -RepoPath C:\src\myapp -Model gpt-6.1-sol -Effort low
+```
+
+In `tasks.json`, a task's `model` overrides `settings.model` for that worker only;
+`settings.reviewModel` controls reviewers and conflict resolvers. Omitted or JSON
+`null` `settings.effort` means the effective provider's default (Copilot `high`;
+Claude sends no effort flag). `none` is an explicit Copilot level, not a null value.
+Copilot accepts `none`, `minimal`, `low`, `medium`, `high`, `xhigh` and `max` at these
+entry points, forwarding the chosen value as `--reasoning-effort`. Claude keeps its
+`opus` planner, `sonnet` bootstrap/workers/reviewers, and omitted-effort defaults.
+
+The orchestrator does not keep a model allowlist or discover account models: it passes
+explicit IDs unchanged as `--model`. The installed CLI and the signed-in account
+decide availability and compatible model/effort pairs. Invalid effort is rejected;
+a CLI rejection is surfaced as an agent failure with its diagnostic, with no fallback
+model or dropped effort. CLI 1.0.103 advertises `--model` and all seven
+`--reasoning-effort` values; support for any particular model depends on the account.
+Changing providers for a run changes defaults only where a value is omitted: an
+explicit Claude model in a plan is still sent unchanged when running with Copilot,
+and may fail. Review or edit explicit values before overriding `-Provider`.
 
 ## What Copilot reads from this repo
 
@@ -34,7 +74,7 @@ read-only.
 
 - Until 2026-10-03: Read, Glob and Grep mapped to `view`; Edit and Write to `apply_patch`;
   Bash and PowerShell to `powershell`. Workers had three tools, reviewers and the planner
-  only `view`. The TextKit bootstrap and planner logs were captured with this mapping.
+  only `view`. Earlier bootstrap and planner logs were captured with this mapping.
 - Since 2026-10-03: Read to `view`, Glob to `glob`, Grep to `rg`, Edit and Write to
   `apply_patch`, Bash and PowerShell to `powershell` plus `read_powershell`,
   `stop_powershell` and `list_powershell`.
@@ -55,10 +95,10 @@ Checked on 2026-10-09 with CLI 1.0.91, and again with 1.0.95.
   stay read-only, and both workers and the planner get sub-agents.
 - Nesting stops at depth 4 ("Maximum sub-agent depth of 4 reached").
 - The `task` tool takes `description`, `prompt`, `agent_type`, `name` and `mode`. Calls
-  without `mode` ran `sync`. A `general-purpose` sub-agent runs on the session's model
-  (`gpt-6-sol`); `task` and `explore` sub-agents run on `gpt-5.6-luna`, set by their agent
-  definition, although the orchestrator pins `--model gpt-6-sol`. In a real worker test the
-  model chose `explore` by itself.
+  without `mode` ran `sync`. In those historical sessions, a `general-purpose`
+  sub-agent used the session model (`gpt-6-sol`); `task` and `explore` sub-agents
+  used `gpt-5.6-luna`, set by their agent definition. These observations do not
+  imply a current orchestrator model pin. A worker also chose `explore` by itself.
 - Copilot's own instructions tell the model to delegate only work that needs a separate
   context, not work it can finish in five or fewer tool calls, and to use background mode only
   while it does independent work. The worker and planner prompts ask for `mode: "sync"`.
