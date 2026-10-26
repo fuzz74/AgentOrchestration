@@ -12,7 +12,7 @@ $script:HeartbeatSeconds = 60
 $script:ClaudeDeniedMcpServers = @('mcp__claude_ai_Spotify', 'mcp__claude_ai_Strava', 'mcp__claude_ai_Claude_Docs')
 # The orchestrator's own skills, which Install-Orch.ps1 makes personal. They talk with the user, so
 # no headless agent may start one.
-$script:OrchestratorSkills = @('write-spec', 'plan-tasks', 'auto-develop', 'orch')
+$script:OrchestratorSkills = @('write-spec', 'plan-tasks', 'auto-develop', 'orch', 'analyze', 'auto-analyze', 'write-spec-analyze')
 
 $script:DefaultSettings = [ordered]@{
     model             = 'sonnet'
