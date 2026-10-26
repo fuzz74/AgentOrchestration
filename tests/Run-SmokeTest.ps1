@@ -499,11 +499,17 @@ try {
     if ($analysisChecks.Values -contains $false) { throw "Analysis smoke test FAILED. Repo left at $analysisRepo" }
     $existingHead = (git -C $analysisRepo rev-parse HEAD).Trim()
     $existingTree = (git -C $analysisRepo rev-parse 'HEAD^{tree}').Trim()
+    $existingStatus = @(git -C $analysisRepo status --porcelain=v1 --untracked-files=all) -join "`n"
+    $existingIndex = @(git -C $analysisRepo ls-files --stage) -join "`n"
+    $existingReadme = Get-Content (Join-Path $analysisRepo 'README.md') -Raw
     $existingConfig = Get-Content (Join-Path $analysisRepo '.orchestrator/project.json') -Raw
     & (Join-Path $orch 'Initialize-Project.ps1') -Provider $Provider -Spec $analysisSpec -RepoPath $analysisRepo `
         -AgentPath (Join-Path $WorkDir 'missing-agent') -WorkerType Analysis
     $existingNoOp = (git -C $analysisRepo rev-parse HEAD).Trim() -eq $existingHead -and
         (git -C $analysisRepo rev-parse 'HEAD^{tree}').Trim() -eq $existingTree -and
+        (@(git -C $analysisRepo status --porcelain=v1 --untracked-files=all) -join "`n") -ceq $existingStatus -and
+        (@(git -C $analysisRepo ls-files --stage) -join "`n") -ceq $existingIndex -and
+        (Get-Content (Join-Path $analysisRepo 'README.md') -Raw) -ceq $existingReadme -and
         (Get-Content (Join-Path $analysisRepo '.orchestrator/project.json') -Raw) -eq $existingConfig
     Write-Host ("{0,-38} {1}" -f 'existing committed repo is unchanged', ($existingNoOp ? 'PASS' : 'FAIL')) -ForegroundColor ($existingNoOp ? 'Green' : 'Red')
     if (-not $existingNoOp) { throw 'Initialization changed an existing committed repo.' }
