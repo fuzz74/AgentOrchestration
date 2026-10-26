@@ -46,7 +46,7 @@ Write-Host 'Runtime and fake deny lists match all seven skills PASS' -Foreground
 $env:FAKE_FAIL_ONCE = 'feature-b'
 $env:FAKE_SHARED = '1'
 $env:FAKE_NO_STRUCTURED = 'contracts'
-if ($Provider -eq 'Copilot') { $env:FAKE_REQUIRE_MODEL = 'gpt-6-sol' }
+$env:FAKE_CAPTURE_ARGS = Join-Path $WorkDir 'agent-arguments'
 $env:FAKE_CHECK_SKILL_BLOCK = '1'
 try {
     & (Join-Path $orch 'Plan-Tasks.ps1') -Provider $Provider -Spec $spec -RepoPath $repo -AgentPath $fake -WorkerType Coding
@@ -59,7 +59,7 @@ try {
     New-Item -ItemType Directory -Path $reference | Out-Null
     $planDoc.settings.additionalDirectories = @('../reference library')
     if ($Provider -eq 'Copilot') {
-        if ($planDoc.settings.model -ne 'gpt-6-sol' -or $planDoc.settings.reviewModel -ne 'gpt-6-sol') { throw 'Copilot plan did not pin GPT-6 Sol.' }
+        if ($planDoc.settings.model -ne 'gpt-6.1-sol' -or $planDoc.settings.reviewModel -ne 'gpt-6.1-sol') { throw 'Copilot plan did not use GPT-6.1 Sol defaults.' }
         $planDoc.settings.model = 'sonnet'
         $planDoc.settings.reviewModel = 'haiku'
         $planDoc.tasks[0].model = 'opus'
@@ -88,14 +88,14 @@ try {
     $longPromptOk = $true
     Import-Module (Join-Path $orch 'Orchestrator.psm1') -Force
     if ($Provider -eq 'Copilot') {
-        $review = Invoke-Agent -Provider Copilot -AgentPath $fake -WorkDir $repo -Model 'gpt-6-sol' `
+        $review = Invoke-Agent -Provider Copilot -AgentPath $fake -WorkDir $repo -Model 'gpt-6.1-sol' `
             -Prompt ("orchestrator-role: reviewer`n" + ('x' * 50000))
         $longPromptOk = $review.Finished -and $review.Exit -eq 0
     }
     # With no wait between heartbeat lines, the tool calls of the fake planner's sub-agent call give one at once.
     & (Get-Module Orchestrator) { $script:HeartbeatSeconds = 0 }
     $heartbeatLog = Join-Path $WorkDir 'heartbeat.md'
-    $null = Invoke-Agent -Provider $Provider -AgentPath $fake -WorkDir $repo -Model 'gpt-6-sol' -Tools Read, Glob, Grep `
+    $null = Invoke-Agent -Provider $Provider -AgentPath $fake -WorkDir $repo -Model 'gpt-6.1-sol' -Tools Read, Glob, Grep `
         -AllowedTools Read, Glob, Grep -SubAgents -Prompt '<!-- orchestrator-role: planner -->' `
         -ProgressFile $heartbeatLog -ActivityLabel '[heartbeat]' -Activity 'heartbeat'
     $heartbeatOk = (Get-Content $heartbeatLog -Raw -ErrorAction SilentlyContinue) -match '\[heartbeat\] \d+ tool calls, last: '
@@ -125,6 +125,29 @@ finally {
 
 $files = git -C $repo ls-tree -r --name-only orch/integration
 $state = Get-Content (Join-Path $repo '.orchestrator/state.json') -Raw | ConvertFrom-Json -AsHashtable
+$agentCalls = @(Get-ChildItem (Join-Path $WorkDir 'agent-arguments') -Filter '*.json' | ForEach-Object { Get-Content $_.FullName -Raw | ConvertFrom-Json })
+function Get-AgentFlag($Call, $Flag) {
+    $index = [array]::IndexOf([object[]]$Call.arguments, $Flag)
+    if ($index -ge 0) { return $Call.arguments[$index + 1] }
+    $null
+}
+$roleCalls = { param($Role) @($agentCalls | Where-Object role -eq $Role) }
+$modelFlagsOk = if ($Provider -eq 'Copilot') {
+    @(& $roleCalls 'bootstrap' | Where-Object { (Get-AgentFlag $_ '--model') -ne 'gpt-6.1-sol' -or (Get-AgentFlag $_ '--reasoning-effort') -ne 'high' }).Count -eq 0 -and
+    @(& $roleCalls 'planner' | Where-Object { (Get-AgentFlag $_ '--name') -eq 'orch:planner' -and
+        ((Get-AgentFlag $_ '--model') -ne 'gpt-6.1-sol' -or (Get-AgentFlag $_ '--reasoning-effort') -ne 'high') }).Count -eq 0 -and
+    @(& $roleCalls 'worker' | Where-Object { (Get-AgentFlag $_ '--model') -notin 'sonnet', 'opus' -or (Get-AgentFlag $_ '--reasoning-effort') -ne 'high' }).Count -eq 0 -and
+    @(& $roleCalls 'reviewer' | Where-Object { (Get-AgentFlag $_ '--name') -like 'orch:*:review' -and
+        ((Get-AgentFlag $_ '--model') -ne 'haiku' -or (Get-AgentFlag $_ '--reasoning-effort') -ne 'high') }).Count -eq 0 -and
+    @(& $roleCalls 'resolver' | Where-Object { (Get-AgentFlag $_ '--model') -ne 'haiku' -or (Get-AgentFlag $_ '--reasoning-effort') -ne 'high' }).Count -eq 0
+} else {
+    @(& $roleCalls 'bootstrap' | Where-Object { (Get-AgentFlag $_ '--model') -ne 'sonnet' -or $null -ne (Get-AgentFlag $_ '--effort') }).Count -eq 0 -and
+    @(& $roleCalls 'planner' | Where-Object { (Get-AgentFlag $_ '--name') -eq 'orch:planner' -and
+        ((Get-AgentFlag $_ '--model') -ne 'opus' -or $null -ne (Get-AgentFlag $_ '--effort')) }).Count -eq 0 -and
+    @(& $roleCalls 'worker' | Where-Object { (Get-AgentFlag $_ '--model') -ne 'sonnet' -or $null -ne (Get-AgentFlag $_ '--effort') }).Count -eq 0 -and
+    @(& $roleCalls 'reviewer' | Where-Object { (Get-AgentFlag $_ '--model') -ne 'sonnet' -or $null -ne (Get-AgentFlag $_ '--effort') }).Count -eq 0 -and
+    @(& $roleCalls 'resolver' | Where-Object { (Get-AgentFlag $_ '--model') -ne 'sonnet' -or $null -ne (Get-AgentFlag $_ '--effort') }).Count -eq 0
+}
 $planSettings = (Get-Content $planFile -Raw | ConvertFrom-Json).settings
 $plannerPrompt = Get-Content (Get-ChildItem (Join-Path $repo '.orchestrator/logs') -Filter 'planner-*-1.json.prompt.md' | Select-Object -First 1) -Raw
 $planningRules = (Get-Content (Join-Path $orch 'prompts/planning-rules.md') -Raw).TrimEnd()
@@ -182,6 +205,11 @@ $checks = [ordered]@{
     'integration worktree on its branch' = (git -C (Join-Path $WorkDir 'demo.worktrees/_integration') symbolic-ref --short HEAD) -eq 'orch/integration'
     # Bootstrap, planner, workers, reviewers, resolver and nudge all ran in this first part.
     'headless agents cannot start skills' = -not (Test-Path (Join-Path ([IO.Path]::GetTempPath()) 'fake-claude/skill-block-missing.txt'))
+    'agent roles receive configured flags' = $modelFlagsOk -and @(& $roleCalls 'bootstrap').Count -gt 0 -and
+        @(& $roleCalls 'planner' | Where-Object { (Get-AgentFlag $_ '--name') -eq 'orch:planner' }).Count -gt 0 -and
+        @(& $roleCalls 'worker').Count -gt 0 -and
+        @(& $roleCalls 'reviewer' | Where-Object { (Get-AgentFlag $_ '--name') -like 'orch:*:review' }).Count -gt 0 -and
+        @(& $roleCalls 'resolver').Count -gt 0
     'orch status from a worktree'       = $orchOutput -match 'orch: repo .*[\\/]demo\r?\n' -and $orchOutput -match 'wire-up\s+done'
     'orch watch uses the plan provider' = $planDoc.provider -ceq $Provider -and $orchOutput -match "provider $Provider \(from the plan\)" -and
         $orchOutput -match "Live $Provider CLI processes"
@@ -206,6 +234,7 @@ $checks.GetEnumerator() | ForEach-Object { Write-Host ("{0,-38} {1}" -f $_.Key, 
 if ($checks.Values -contains $false) { Write-Host "Smoke test FAILED. Repo left at $repo"; exit 1 }
 
 $retryPlan = Get-Content $planFile -Raw | ConvertFrom-Json -AsHashtable
+if ($Provider -eq 'Copilot') { $retryPlan.settings.effort = 'xhigh' }
 foreach ($id in 'quality-only', 'spec-only') {
     $retryPlan.tasks += @{
         id = $id; title = "Check $id retry policy"; deps = @('contracts'); owns = @("$id/**")
@@ -320,6 +349,23 @@ $reviewResumeState = Get-Content (Join-Path $repo '.orchestrator/state.json') -R
 $reviewResumed = $reviewResumeState.tasks['pause-retry'].status -eq 'done' -and $reviewResumeState.tasks['pause-retry'].attempts -eq 2
 Write-Host ("{0,-38} {1}" -f 'review retry resumes same branch', ($reviewResumed ? 'PASS' : 'FAIL')) -ForegroundColor ($reviewResumed ? 'Green' : 'Red')
 if (-not $reviewResumed) { Write-Host "Review resume test FAILED. Repo left at $repo"; exit 1 }
+if ($Provider -eq 'Copilot') {
+    $laterCalls = @(Get-ChildItem (Join-Path $WorkDir 'agent-arguments') -Filter '*.json' | ForEach-Object { Get-Content $_.FullName -Raw | ConvertFrom-Json })
+    foreach ($role in 'worker', 'reviewer') {
+        $retryCalls = @($laterCalls | Where-Object {
+            $_.role -eq $role -and (Get-AgentFlag $_ '--name') -match '^orch:(quality-only|spec-only|pause-retry)(:review)?$'
+        })
+        if ($retryCalls.Count -lt 2 -or @($retryCalls | Where-Object { (Get-AgentFlag $_ '--reasoning-effort') -ne 'xhigh' }).Count) {
+            throw "$role retries did not preserve settings.effort xhigh."
+        }
+    }
+    $resumedWorker = @($laterCalls | Where-Object {
+        $_.role -eq 'worker' -and $_.cwd -like '*pause-retry' -and
+        (Get-AgentFlag $_ '--resume') -and (Get-AgentFlag $_ '--reasoning-effort') -eq 'xhigh'
+    })
+    if (-not $resumedWorker.Count) { throw 'Resumed worker did not retain xhigh effort.' }
+    Write-Host 'Copilot retries and resume retain effort PASS' -ForegroundColor Green
+}
 & (Join-Path $orch 'Request-OrchestratorStop.ps1') -RepoPath $repo
 & (Join-Path $orch 'Request-OrchestratorStop.ps1') -RepoPath $repo -Cancel
 $cancelled = -not (Test-Path (Join-Path $repo '.orchestrator/stop-requested'))

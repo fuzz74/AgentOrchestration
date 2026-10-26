@@ -18,7 +18,8 @@ param(
     [Parameter(Mandatory)][string]$Spec,
     [Parameter(Mandatory)][string]$RepoPath,
     [Parameter(Mandatory)][ValidateSet('Claude', 'Copilot')][string]$Provider,
-    [string]$Model = 'sonnet',
+    [string]$Model,
+    [ValidateSet('none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max')][string]$Effort,
     [ValidateSet('Coding', 'Analysis')][string]$WorkerType = 'Coding',
     [string]$AgentPath,
     [double]$MaxBudgetUsd = 0,   # 0 = no cap
@@ -27,7 +28,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'Orchestrator.psm1') -Force
-$Model = Resolve-AgentModel -Provider $Provider -Model $Model
+$Model = Resolve-AgentModel -Provider $Provider -Model $(if ($PSBoundParameters.ContainsKey('Model')) { $Model } elseif ($Provider -eq 'Claude') { 'sonnet' })
 
 $specText = Get-Content (Resolve-Path $Spec).Path -Raw
 if (-not (Test-Path $RepoPath)) { New-Item -ItemType Directory -Path $RepoPath | Out-Null }
@@ -101,6 +102,7 @@ $call = @{
     MaxBudgetUsd = $MaxBudgetUsd; Name = 'orch:bootstrap'
     ProgressFile = $paths.ProgressFile; ActivityLabel = '[bootstrap]'; Activity = 'each'
 }
+if ($PSBoundParameters.ContainsKey('Effort')) { $call.Effort = $Effort }
 $pathspec = @('--', '.') + @($defaults.ignore | ForEach-Object { ":(exclude,glob)$_" })
 $checkDir = Join-Path $paths.WorktreeRoot '_bootstrap-check'
 $cost = 0.0

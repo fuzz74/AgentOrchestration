@@ -26,10 +26,10 @@
       "type": "object",
       "description": "Overrides for the orchestrator defaults. Every key is optional.",
       "properties": {
-        "model": { "type": "string", "description": "Worker model (alias or full id). Default: sonnet." },
-        "reviewModel": { "type": "string", "description": "Reviewer and conflict-resolver model. Default: sonnet." },
+        "model": { "type": "string", "description": "Worker model (alias or full id). Default: sonnet for Claude, gpt-6.1-sol for Copilot." },
+        "reviewModel": { "type": "string", "description": "Reviewer and conflict-resolver model. Default: sonnet for Claude, gpt-6.1-sol for Copilot." },
         "workerType": { "type": "string", "enum": ["coding", "analysis"], "description": "Default worker and reviewer role. Default: coding." },
-        "effort": { "type": ["string", "null"], "enum": ["low", "medium", "high", "xhigh", "max", null] },
+        "effort": { "type": ["string", "null"], "enum": ["none", "minimal", "low", "medium", "high", "xhigh", "max", null], "description": "Reasoning effort for workers, reviewers and resolvers. Omitted/null: no effort flag for Claude, high for Copilot." },
         "permissionMode": {
           "type": "string",
           "enum": ["acceptEdits", "auto", "dontAsk", "bypassPermissions"],
