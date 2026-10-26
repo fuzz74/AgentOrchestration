@@ -1,7 +1,7 @@
 #requires -Version 7.2
 <#
 .SYNOPSIS
-    Installs the short `orch` command on this PC. Run it once per PC.
+    Installs the short `orch` command and skills on this PC. Rerun after adding skills.
 .DESCRIPTION
     Sets the user environment variable ORCH_HOME to this checkout, and adds one line to the
     PowerShell profile that every PowerShell 7 host reads ($PROFILE.CurrentUserAllHosts), so it
@@ -13,11 +13,13 @@
     into the terminal it runs in.
     -Provider sets this PC's default provider, the user environment variable ORCH_PROVIDER.
     `orch` uses it when neither -Provider nor the plan names one.
-    It also links the skills in .claude\skills (/orch, /write-spec, /plan-tasks, /auto-develop) into
-    the personal skill folders, ~\.claude\skills for Claude Code and ~\.copilot\skills for
+    It also links every skill directory in .claude\skills, including /orch, /auto-develop,
+    /write-spec, /plan-tasks, /analyze, /auto-analyze and /write-spec-analyze, into the
+    personal skill folders, ~\.claude\skills for Claude Code and ~\.copilot\skills for
     Copilot, so they work in every repo. The links are junctions into this checkout: they need
-    no admin rights, and a git pull updates the skills. A real folder with a skill's name is
-    left alone. Last, it allows this checkout and ~\.claude\skills in
+    no admin rights, and a git pull updates existing skills. Rerun the installer on each PC
+    after a pull that adds new skill directories to link them. A real folder with a skill's
+    name is left alone. Last, it allows this checkout and ~\.claude\skills in
     permissions.additionalDirectories of ~\.claude\settings.json, after a backup of that file,
     so Claude reads the orchestrator's files from another repo without asking.
 .EXAMPLE
