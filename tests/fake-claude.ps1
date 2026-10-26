@@ -18,7 +18,11 @@ if ($env:FAKE_REQUIRE_ADD_DIR) {
 # fake-claude/skill-block-missing.txt. Claude must deny them; Copilot must get a tool list or lose the skill tool.
 if ($env:FAKE_CHECK_SKILL_BLOCK) {
     $blocked = if ($copilot) { [bool](@($args) -like '--available-tools=*') -or $args -contains '--excluded-tools=skill' }
-               else { $all = $args -join ' '; @('write-spec', 'plan-tasks', 'auto-develop', 'orch' | Where-Object { $all -notlike "*Skill($_)*" }).Count -eq 0 }
+               else {
+                   $all = $args -join ' '
+                   @('write-spec', 'plan-tasks', 'auto-develop', 'orch', 'analyze', 'auto-analyze', 'write-spec-analyze' |
+                       Where-Object { $all -notlike "*Skill($_)*" }).Count -eq 0
+               }
     if (-not $blocked) {
         $noteDir = New-Item -ItemType Directory -Force -Path (Join-Path ([IO.Path]::GetTempPath()) 'fake-claude')
         Add-Content (Join-Path $noteDir 'skill-block-missing.txt') ($args -join ' ')
@@ -104,6 +108,7 @@ if ($prompt -match 'Your previous JSON did not match the schema') {
 
 switch ($role) {
     'bootstrap' {
+        Add-Content (Join-Path $memo 'bootstrap-calls.txt') $here
         # First attempt forgets tool.txt, so the clean-checkout check fails and the fix is amended.
         Set-Content (Join-Path $here 'skeleton.txt') 'skeleton'
         if ($prompt -match 'clean checkout') { Set-Content (Join-Path $here 'tool.txt') 'tool' }
@@ -140,7 +145,11 @@ switch ($role) {
         else { Write-Error 'fake-claude: cannot find task id'; exit 1 }
 
         $failMarker = Join-Path $memo "$id.failed-once"
-        if ($env:FAKE_FAIL_ONCE -eq $id -and -not (Test-Path $failMarker)) {
+        $noChangeMarker = Join-Path $memo "$id.no-change-once"
+        if ($env:FAKE_NO_CHANGE_ONCE -eq $id -and -not (Test-Path $noChangeMarker)) {
+            Set-Content $noChangeMarker 'x'
+        }
+        elseif ($env:FAKE_FAIL_ONCE -eq $id -and -not (Test-Path $failMarker)) {
             Set-Content $failMarker 'x'
             Set-Content (Join-Path $here 'outside-owns.txt') 'oops'
         }
