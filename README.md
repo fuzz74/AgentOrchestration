@@ -211,7 +211,7 @@ place the provider is taken from, so you can pick another one at any time:
 | `/orch` or `/analyze` in a chat | When it plans, it asks which provider to use: answer Copilot. |
 | `/auto-develop` or `/auto-analyze` in a chat | It asks nothing, so name Copilot in the request, e.g. `/auto-analyze investigate Example Project A. Use Copilot.` |
 | A terminal, for a new plan | `orch plan <spec> -Provider Copilot`, then plain `orch run`: the plan records Copilot, and `orch run` takes it from there. |
-| A terminal, for one run | `orch run -Provider Copilot` uses Copilot whatever the plan says. A plan made for Claude names Claude models, but Copilot runs always use their own model, so that works. |
+| A terminal, for one run | `orch run -Provider Copilot` uses Copilot whatever the plan says, without rewriting the plan's models. Check explicit models and effort in a plan made for Claude before switching. |
 | The default for the PC | `.\Install-Orch.ps1 -Provider Copilot`. |
 
 The checkout remembers the choice: once a plan in a repo has used Copilot, the repo's
@@ -222,6 +222,15 @@ that PC's default. In full, the
 provider comes from `-Provider` (or what you tell the chat), then the current plan, then the
 repo's `project.json`, then your default. The first line of every `orch` command shows which
 one it took and why, for example `orch: repo C:\src\myapp, provider Copilot (from project.json)`.
+
+Model and effort defaults follow the **effective provider** (the provider actually running
+the call), not the provider recorded when the plan was written. Switching providers changes
+only omitted/default values: explicit `settings.model`, `settings.reviewModel`, task `model`
+and `settings.effort` stay as written. For example, `orch run -Provider Copilot` on a
+Claude plan that explicitly says `sonnet` still sends `sonnet` to Copilot; the CLI may reject
+it. Edit those values to models available to the chosen account, omit them to use the
+new provider's defaults, or make a new plan for that provider. The existing provider
+selection choices above do not change.
 
 ### The short way: /orch
 
@@ -364,10 +373,11 @@ the base branch then has the files they check.
 Pick one:
 
 - **Interactive** (**agent chat**, same conversation): accept the hand-off, or type
-  `/plan-tasks`. For a new project, Claude first runs `Initialize-Project.ps1` for you. Then
+  `/plan-tasks`. For a new project, the assistant first runs `Initialize-Project.ps1` for you. Then
   it proposes the task table and lets you adjust it. Finally it writes
   `C:\src\myapp\.orchestrator\tasks.json` and validates it.
-- **Scripted** (**terminal**): one planner agent (Opus by default) plans without questions.
+- **Scripted** (**terminal**): one planner agent (Claude `opus` or Copilot `gpt-6.1-sol`
+  by default) plans without questions.
   ```powershell
   .\orchestrator\Plan-Tasks.ps1 -Provider Copilot -Spec C:\src\myapp\.orchestrator\spec.md -RepoPath C:\src\myapp
   ```
@@ -385,6 +395,16 @@ Pick one:
   The planner may override individual tasks with `workerType: coding` when the
   spec requires substantial software implementation; supporting validation scripts
   alone do not change an analysis task's type.
+  For Copilot the planner and new-project bootstrap default to `gpt-6.1-sol` with `high`
+  reasoning. Use `-Model` and `-Effort` for the planner; `-WorkerModel` sets the
+  bootstrap model and persists both `settings.model` and `settings.reviewModel`, while
+  `-WorkerEffort` sets bootstrap reasoning and persists `settings.effort` for workers,
+  reviewers and conflict resolvers. For example:
+  ```powershell
+  .\orchestrator\Plan-Tasks.ps1 -Provider Copilot -Spec C:\src\myapp\.orchestrator\spec.md -RepoPath C:\src\myapp -Model gpt-6.1-sol -Effort medium -WorkerModel gpt-6.1-sol -WorkerEffort none
+  ```
+  For standalone bootstrap, `Initialize-Project.ps1 -Model` and `-Effort` choose its
+  model and reasoning (only when initializing a new coding repo).
   Set the type before a task starts. Changing it in a stopped run does not replace
   the prompt already held by a paused worker session; plan a new run for a full
   change of role.
@@ -598,6 +618,8 @@ spec next to the old one under a new name, such as `.orchestrator\spec-<topic>.m
 Run state lives in a separate file (`state.json`), keyed by task id, so editing the plan
 never loses progress. The JSON Schema is
 [orchestrator/schemas/tasks.schema.json](orchestrator/schemas/tasks.schema.json).
+This example is a Claude plan; for a Copilot plan set `provider` to `Copilot` and
+omit or replace the explicit Claude model values:
 
 ```json
 {
@@ -634,16 +656,16 @@ it.
 | `owns` | no | Repo-relative globs the task may edit (`**`, `*`, `?`; a plain path covers a file or a folder). Tasks with overlapping `owns` never run together. Empty = whole repo, so the task runs alone. |
 | `acceptance` | no | Command run with `pwsh` in the worktree root. Exit code 0 = pass. Write it as plain PowerShell; do not wrap it in `pwsh -Command "..."` (see [Limits and known gaps](#limits-and-known-gaps)). |
 | `workerType` | no | `coding` or `analysis`; overrides `settings.workerType` for this task. Select before workers start. |
-| `model` | no | Worker model for this task only (Claude; Copilot is pinned to GPT-6 Sol). |
+| `model` | no | Worker model for this task only; overrides `settings.model` for either provider. |
 
 **Settings** (all optional; the defaults are in `Orchestrator.psm1`)
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `model` | `sonnet` | Worker model (alias or full id). |
-| `reviewModel` | `sonnet` | Model for the reviewer and the conflict resolver. |
+| `model` | Claude: `sonnet`; Copilot: `gpt-6.1-sol` | Worker model (alias or full id). An explicit task `model` takes precedence. |
+| `reviewModel` | Claude: `sonnet`; Copilot: `gpt-6.1-sol` | Model for the reviewer and conflict resolver; task `model` does not override it. |
 | `workerType` | `coding` | Run-wide worker and reviewer role: `coding` or `analysis`. `/analyze` and `/auto-analyze` carry analysis mode into the plan; scripted planning uses `-WorkerType Analysis`. An existing plan's effective mode controls resumes; do not retag a paused run. |
-| `effort` | none | `--effort` for workers: `low` … `max`. |
+| `effort` | Claude: omitted; Copilot: `high` | Reasoning for workers, reviewers and conflict resolvers (including retries/resumes). Claude uses `--effort`; Copilot uses `--reasoning-effort`. Omitted or JSON `null` means the provider default; explicit `none` is a Copilot reasoning level, not omission. |
 | `permissionMode` | `acceptEdits` | Worker permission mode: `acceptEdits`, `auto`, `dontAsk`, `bypassPermissions`. |
 | `allowedTools` | `Read, Edit, Write, Glob, Grep, Bash, PowerShell` | Tools the worker may use without a prompt, in permission-rule syntax (e.g. `Bash(npm *)`). |
 | `maxBudgetUsd` | `0` | `--max-budget-usd` for Claude calls; `0` means no cap. Copilot does not support this USD limit. |
@@ -656,6 +678,18 @@ it.
 | `shared` | `[]` | Globs any task may edit (lock files, registries). Not used for scheduling, so edits to them can conflict. The resolver handles those conflicts. `Plan-Tasks.ps1` fills it from the planner's `shared` list. |
 | `additionalDirectories` | `[]` | Existing folders agents must access outside their worktree, e.g. `"additionalDirectories": ["C:\\src\\reference", "../shared-source"]`. Relative paths resolve from the project root; missing folders fail plan validation. Passed as `--add-dir` to worker, reviewer and resolver CLI sessions (including retries). Grants file access, not read-only enforcement; only list trusted folders and do not rely on `owns` to protect files outside the worktree. |
 | `ignore` | `__pycache__`, `*.pyc`, `.pytest_cache`, `.mypy_cache`, `.venv`, `node_modules`, `.DS_Store` | Globs never committed from a worktree, even when the repo's `.gitignore` misses them. Setting this replaces the whole default list. |
+
+Copilot accepts `none`, `minimal`, `low`, `medium`, `high`, `xhigh` and `max` for
+`-Effort`, `-WorkerEffort`, bootstrap `-Effort` and `settings.effort`; the orchestrator
+passes the selected value through unchanged. When `-WorkerEffort` is omitted, scripted
+plans persist `settings.effort: null`, which resolves to Copilot `high` at run time;
+Claude still sends no effort flag by default. To select a worker model for just one
+task, set that task's `"model": "gpt-6.1-sol"` (or another account-available ID) in
+`tasks.json`; reviews and conflict resolution still use `settings.reviewModel`.
+Model IDs are not restricted by an orchestrator allowlist. The installed CLI and your
+account determine which models and model/effort combinations work. Invalid effort values
+are rejected; if the CLI rejects a model or combination, its agent failure/diagnostic is
+reported rather than silently selecting a different model or dropping effort.
 
 ## Writing a spec
 
@@ -721,11 +755,13 @@ does not call the bootstrap agent, choose a stack or install dependencies. New
 `project.json` setup and integrationCheck defaults are null; existing configuration
 is preserved. A repo with commits is left unchanged by initialization.
 
-Then `Plan-Tasks.ps1` runs one planner agent (`--model opus` by default) in the target repo.
+Then `Plan-Tasks.ps1` runs one planner agent (`--model opus` for Claude or
+`--model gpt-6.1-sol --reasoning-effort high` for Copilot by default) in the target repo.
 The planner has only `Read`, `Glob` and `Grep`, plus sub-agents with the same tools, so it
 can explore the code but not change it. Its prompt is
 [prompts/planner.md](orchestrator/prompts/planner.md). The output must match
-[plan-output.schema.json](orchestrator/schemas/plan-output.schema.json) (`--json-schema`).
+[plan-output.schema.json](orchestrator/schemas/plan-output.schema.json) (Claude uses
+`--json-schema`; Copilot's output is validated locally).
 
 Before the planner runs, `Plan-Tasks.ps1` looks for an earlier run (`state.json`) in
 `.orchestrator`. A finished one is archived to `<repo>.runs` (see
@@ -736,7 +772,7 @@ an old id would count as done.
 The script then:
 
 1. Copies the spec to `.orchestrator/spec.md` if the spec lives outside the repo.
-2. Writes `tasks.json` with the planner's tasks, its shared files (`settings.shared`) and your settings (`-WorkerModel`, `-Setup`, `-IntegrationCheck`).
+2. Writes `tasks.json` with the planner's tasks, its shared files (`settings.shared`) and your settings (`-WorkerModel`, `-WorkerEffort`, `-Setup`, `-IntegrationCheck`).
 3. Validates the graph: schema, ids, unknown deps, self-deps, cycles. If the graph is
    invalid, the planner session is resumed once with the list of problems.
 4. Prints the planner's notes (assumptions and open questions) and the waves (`-DryRun`).
@@ -859,8 +895,8 @@ implementation or acceptance check needs repair.
 
 | Script | Parameters |
 | --- | --- |
-| `Initialize-Project.ps1` | `-Provider Claude|Copilot`, `-Spec` and `-RepoPath` (required), `-WorkerType Coding|Analysis` (`Coding`), `-Model` (`sonnet`), `-AgentPath`, `-MaxBudgetUsd` (`0` = no cap, Claude only), `-MaxAttempts` (`3`). Creates a coding skeleton or a minimal analysis baseline in a new repo; does nothing if the repo has commits. Both planners use it. |
-| `Plan-Tasks.ps1` | `-Provider Claude|Copilot`, `-Spec` (required), `-RepoPath` (`.`), `-Out` (plan path), `-WorkerType Coding|Analysis` (`Coding`), `-Model` (planner, `opus`), `-WorkerModel` (`sonnet`), `-Effort` (planner reasoning effort, Claude only), `-WorkerEffort` (becomes `settings.effort`), `-Setup`, `-IntegrationCheck` (both default to `project.json`), `-AgentPath`, `-MaxBudgetUsd` (`0` = no cap, Claude only), `-Force` (overwrite a plan that never ran; archive an earlier run that is not finished). Archives a finished earlier run by itself. Records the provider in the plan and in `project.json`. |
+| `Initialize-Project.ps1` | `-Provider Claude|Copilot`, `-Spec` and `-RepoPath` (required), `-WorkerType Coding|Analysis` (`Coding`), `-Model` (bootstrap: Claude `sonnet`, Copilot `gpt-6.1-sol`), `-Effort` (bootstrap: Claude omitted, Copilot `high`), `-AgentPath`, `-MaxBudgetUsd` (`0` = no cap, Claude only), `-MaxAttempts` (`3`). Creates a coding skeleton or a minimal analysis baseline in a new repo; does nothing if the repo has commits. Both planners use it. |
+| `Plan-Tasks.ps1` | `-Provider Claude|Copilot`, `-Spec` (required), `-RepoPath` (`.`), `-Out` (plan path), `-WorkerType Coding|Analysis` (`Coding`), `-Model` (planner: Claude `opus`, Copilot `gpt-6.1-sol`), `-WorkerModel` (bootstrap and plan workers/reviewers: Claude `sonnet`, Copilot `gpt-6.1-sol`), `-Effort` (planner: Claude omitted, Copilot `high`), `-WorkerEffort` (bootstrap and `settings.effort`: Claude omitted, Copilot `high` when omitted/null), `-Setup`, `-IntegrationCheck` (both default to `project.json`), `-AgentPath`, `-MaxBudgetUsd` (`0` = no cap, Claude only), `-Force` (overwrite a plan that never ran; archive an earlier run that is not finished). Archives a finished earlier run by itself. Records the provider in the plan and in `project.json`. |
 | `Invoke-Orchestrator.ps1` | `-Provider Claude|Copilot` (required, even for `-DryRun`), `-RepoPath` (`.`), `-Plan`, `-MaxParallel` (`3`), `-AgentPath`, `-DryRun` (print waves and exit), `-RetryFailed` (preserve committed work), `-FreshFailed` (with `-RetryFailed`, archive and start over), `-PollSeconds` (`5`). Exit code 0 = all done, 2 = some failed or blocked, 1 = invalid plan. |
 | `Request-OrchestratorStop.ps1` | `-RepoPath` (`.`), `-Cancel` (remove a pending stop request). Graceful stop exits the runner with code 0 even if tasks are still pending. |
 | `Show-Tasks.ps1` | `-RepoPath`, `-Plan`. Validates the plan and prints wave, status, deps, attempts, cost and detail per task. |
@@ -896,9 +932,9 @@ connectors, so agents never see those tools (the list is `$script:ClaudeDeniedMc
 planner and reviewer read-only; its
 CLI has no equivalent to Claude's USD cap or command-scoped `Bash(...)` rules (those rules
 are rejected for Copilot). Copilot's JSON results are checked against the local schemas;
-Claude uses its native `--json-schema` output. Every Copilot run (bootstrap, planner,
-worker, reviewer, and resolver) uses `--model gpt-6-sol`, including when command-line
-model arguments or an existing plan specify another model. Claude retains its model settings.
+Claude uses its native `--json-schema` output. Copilot calls forward the selected
+`--model` and `--reasoning-effort` (default `gpt-6.1-sol`/`high`); Claude retains its
+provider-specific defaults and `--effort` behavior.
 
 - Workers run with `Bash`/`PowerShell` allowed by default, so they can run any command as
   you. Run the orchestrator only on repos you trust, or narrow `allowedTools` (for example
@@ -977,9 +1013,9 @@ model arguments or an existing plan specify another model. Claude retains its mo
   likely to skip the structured result, and the nudge covers that. Use Sonnet or better for
   real work and for the reviewer.
 - **Tested**: on Windows 11 with PowerShell 7.6, git 2.49 and Claude Code 2.1.283. Tests:
-  the smoke test, plus a real run. In the real run, a Sonnet planner split a 3-part Python
-  spec into a chain of 3 tasks, and Haiku workers and reviewers built it. All 3 passed on
-  the first attempt: 24 tests, 0.50 USD for the build, 0.27 USD for planning. The paths are
+  the smoke test, plus a run of Example Project A. A Sonnet planner made a chain of 3 tasks;
+  Haiku workers and reviewers completed all 3 on the first attempt: 24 checks passed,
+  0.50 USD for the build, 0.27 USD for planning. The paths are
   cross-platform, but macOS and Linux are untested.
 
 ## Where the design comes from
