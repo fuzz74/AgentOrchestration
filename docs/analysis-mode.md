@@ -155,3 +155,7 @@ Steps 1 and 2 are skill text only and can ship without touching PowerShell.
 - Where do your analysis sources usually live: inside the repo, in sibling folders, or in a
   database or service? That decides how much of `additionalDirectories` and the safety block
   must be built.
+
+## Status
+
+Steps 1 and 2 (skill text) are done in a first form: orch, plan-tasks, write-spec and auto-develop know the mode. Still open: the analysis spec template and reviewer branch, engine polish, finish choice, README, smoke tests.

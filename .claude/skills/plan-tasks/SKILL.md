@@ -76,7 +76,14 @@ The headless planner receives the same rules.
    `<orch>\orchestrator\schemas\tasks.schema.json`. Set `provider` to the headless provider
    the user chose; the `orch` command and the dashboard read it. Also set `provider` in
    `.orchestrator/project.json`, keeping its other keys, so the next plan in this repo uses
-   the same one. Change nothing else in `project.json`: its `setup` and `integrationCheck`
+   the same one. **Mode:** in analysis mode (the request says `mode: analysis`, or the caller
+   passes it), set `settings.workerType` to `"analysis"`; otherwise leave it out (coding). For
+   analysis, plan by source or slice, with a contract task for the artifact format first and
+   one synthesis task depending on all slices; `owns` are artifact folders and `acceptance` is
+   a validator of the artifacts (exist, agreed headings or columns, every slice covered,
+   evidence cited), not unit tests. Ask before adding `settings.additionalDirectories` for
+   sources outside the repo. For a new analysis repo, don't run `Initialize-Project.ps1` (it
+   builds a code skeleton): `git init` and make one commit with a README instead. Change nothing else in `project.json`: its `setup` and `integrationCheck`
    fit the base branch, and they outlive this run. When this plan needs other commands, for
    example an integration check that also runs tests this run adds, put them only in the
    plan's `settings`. A check in `project.json` that names files the base branch lacks would

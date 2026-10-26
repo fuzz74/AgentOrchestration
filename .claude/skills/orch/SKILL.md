@@ -35,6 +35,16 @@ repo.
   `orch finish` merges. Never push; the user does that.
 - **Checkpoints.** Ask, and wait for a yes, before planning a new project, before starting a
   run, before changing `tasks.json` or rerunning failed tasks, and before `orch finish`.
+- **Mode.** The run is either `development` (the default: build software) or `analysis`
+  (investigate and save evidence-backed findings as files). The request sets it with
+  `mode: analysis`, or says plainly that it is an analysis and not a development run. If the
+  request only reads like analysis, ask once at the start; with no involvement, choose analysis
+  only when the request says so plainly. Pass the mode to `write-spec` and `plan-tasks`. After
+  planning it lives in `tasks.json` as `settings.workerType`: when you resume an existing plan,
+  read the mode from there. In analysis mode, the finish (step 7) is about the report and
+  artifacts: offer to open them instead of `orch try`, skip the `project.json` check-copy
+  offer, and in step 6 look at the reviewer's evidence issues and the acceptance validator.
+  See `<orch>\docs\analysis-mode.md`.
 - **Extra flags.** When the user asks for flags on the run, such as `-AgentPath` or
   `-MaxParallel`, add them to every run command, reruns included.
 - **No involvement.** When the request says the user wants no involvement (the prime directive

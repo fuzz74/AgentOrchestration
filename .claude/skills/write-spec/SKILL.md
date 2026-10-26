@@ -53,6 +53,18 @@ instead, without presenting the earlier choice as the default. If you think anot
 would help, say which one and why, and wait for a yes.
 </HARD-GATE>
 
+## Analysis mode
+
+When the request says `mode: analysis` (or that this is an analysis, not a development run),
+the spec describes an investigation, not software. Skip EARS requirements, modules, contracts
+and test runners. Interview for: the question and the decision it feeds; the sources, where
+they are and how to reach them; what counts as evidence; what to do when a source is
+inaccessible; safety rules (read-only, no credentials or sensitive data in artifacts); the
+deliverables and their paths (they become `owns`); the artifact format shared between tasks,
+written out; how coverage is checked by a runnable validator; and the slices and their order
+(parallel slices, then one synthesis). Keep the section layout of the template where it
+fits, and keep the hard gates. Hand off with the mode, so planning sets `workerType`.
+
 ## Steps
 
 1. **Target.** Settle the target repo (see above) and ask for the topic, unless already

@@ -23,6 +23,7 @@ asking, and stops before the merge.
    Skill tool (`skill: orch`, `args`: the combined text). In other assistants, read
    [../orch/SKILL.md](../orch/SKILL.md) and follow it with the combined text as the user's
    request.
+   If the request contains `mode: analysis`, keep it word for word: orch passes the mode on.
 4. From then on, follow orch and the prime directive. Always append the directive, even when
    the request is empty or already asks for autonomy. The finished result is the checked run
    on the integration branch: merging it stays the user's decision, as orch says.
