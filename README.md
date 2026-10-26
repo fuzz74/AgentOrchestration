@@ -4,7 +4,7 @@
 
 # Agent Orchestrator: Design & Usage
 
-A small PowerShell harness that runs a dependency graph of coding tasks with parallel
+A small PowerShell harness that runs a dependency graph of coding or analysis tasks with parallel
 Claude Code or GitHub Copilot CLI headless agents. Each agent works in its own git worktree,
 and only work that passes tests and a review agent is merged. Requires PowerShell 7, git,
 and the selected provider's CLI. Use `-Provider Claude` or `-Provider Copilot` on every
@@ -12,11 +12,12 @@ agent-running script; the same task plan works with either provider.
 
 ```
 /write-spec ──► spec.md ──► Plan-Tasks.ps1 ─────────────────────► .orchestrator/tasks.json ──► (you review) ──► Invoke-Orchestrator.ps1 ──► orch/integration ──► (you merge) ──► Complete-Orchestrator.ps1
- interview                  skeleton (new repo) + planner agent    task graph                                    parallel workers + gates                                         archive the run
+ interview                  baseline (new repo) + planner agent    task graph                                    parallel workers + gates                                         archive the run
 ```
 
 - [At a glance](#at-a-glance)
 - [From idea to finished application](#from-idea-to-finished-application)
+- [Analysis in a target repo](#analysis-in-a-target-repo)
 - [The task file](#the-task-file)
 - [Writing a spec](#writing-a-spec)
 - [Planning](#planning)
@@ -64,7 +65,7 @@ result. Creating the repo, the project skeleton, the plan and the code is automa
 | Place | What it is | How to open it |
 | --- | --- | --- |
 | **Terminal** | PowerShell 7 (`pwsh`), not Windows PowerShell 5.1 | Windows Terminal with the *PowerShell* profile, or in VS Code **Terminal → New Terminal**. Check with `$PSVersionTable.PSVersion` (7.2 or later). |
-| **Agent chat** | Claude Code or Copilot, interactive. After `Install-Orch.ps1` (setup item 6), the shared `/orch`, `/write-spec`, `/plan-tasks` and `/auto-develop` skills work in any repo, and the repo the chat is open in is the target. Without it, start the chat in the `AgentOrchestration` folder, where both find the skills in `.claude/skills`. | Open the target repo, or this folder, in VS Code and use Claude Code or GitHub Copilot chat; or start `claude` or `copilot` in a terminal there. |
+| **Agent chat** | Claude Code or Copilot, interactive. After `Install-Orch.ps1` (setup item 6), `/orch`, `/auto-develop`, `/write-spec`, `/plan-tasks` and their analysis entry points (`/analyze`, `/auto-analyze`, `/write-spec-analyze`) work in any repo, and the repo the chat is open in is the target. Without it, start the chat in the `AgentOrchestration` folder, where both find the skills in `.claude/skills`. | Open the target repo, or this folder, in VS Code and use Claude Code or GitHub Copilot chat; or start `claude` or `copilot` in a terminal there. |
 | **Editor** | VS Code, for reading and editing files | **File → Open File…** or **File → Open Folder…** |
 
 Orchestrator commands in the terminal steps assume the current folder is
@@ -83,7 +84,8 @@ Orchestrator commands in the terminal steps assume the current folder is
    cd C:\Data\AgentOrchestration
    ```
 4. **Check that it works, without spending tokens** (terminal): run `.\tests\Run-SmokeTest.ps1 -Provider Claude` and `.\tests\Run-SmokeTest.ps1 -Provider Copilot`. Each runs the whole flow with a fake provider, from a folder that doesn't exist yet to merged work. It covers:
-   - creating the project skeleton, with one failed attempt that gets fixed
+   - creating the coding project skeleton, with one failed attempt that gets fixed; minimal analysis initialization without software bootstrap
+   - analysis roles, a coding task within an analysis run, committed-result integration and legacy coding defaults
    - a 4-task diamond
    - a forced edit outside `owns`, with a retry
    - a run with no structured result
@@ -123,7 +125,8 @@ Orchestrator commands in the terminal steps assume the current folder is
    terminal. The line holds no path, so a profile shared between PCs, for example through
    OneDrive, works on each PC that has run the install.
 
-   It also links `/orch`, `/write-spec`, `/plan-tasks` and `/auto-develop` into your personal skill
+   It also links `/orch`, `/write-spec`, `/plan-tasks`, `/auto-develop`, `/analyze`,
+   `/auto-analyze` and `/write-spec-analyze` into your personal skill
    folders, `~\.claude\skills` (Claude Code) and `~\.copilot\skills` (Copilot). The links are
    junctions into this checkout, so a `git pull` updates the skills, and they need no admin
    rights. It leaves alone a real folder that has one of those names. Last, it allows this
@@ -205,8 +208,8 @@ place the provider is taken from, so you can pick another one at any time:
 
 | Where | How to pick Copilot |
 | --- | --- |
-| `/orch` in a chat | When it plans, it asks which provider to use: answer Copilot. |
-| `/auto-develop` in a chat | It asks nothing, so name it in the request: `/auto-develop add export. Use Copilot.` |
+| `/orch` or `/analyze` in a chat | When it plans, it asks which provider to use: answer Copilot. |
+| `/auto-develop` or `/auto-analyze` in a chat | It asks nothing, so name Copilot in the request, e.g. `/auto-analyze investigate Example Project A. Use Copilot.` |
 | A terminal, for a new plan | `orch plan <spec> -Provider Copilot`, then plain `orch run`: the plan records Copilot, and `orch run` takes it from there. |
 | A terminal, for one run | `orch run -Provider Copilot` uses Copilot whatever the plan says. A plan made for Claude names Claude models, but Copilot runs always use their own model, so that works. |
 | The default for the PC | `.\Install-Orch.ps1 -Provider Copilot`. |
@@ -262,6 +265,44 @@ runs, and fixes and reruns failed tasks up to twice by itself. It takes the prov
 in the request (`/auto-develop add export. Use Copilot.`), else the repo's, else your default. It stops before
 `orch finish`, so merging stays your decision. A failure it can't honestly fix, such as an
 agent that can't do the work, it reports instead of working around the checks.
+
+## Analysis in a target repo
+
+Analysis uses the same spec, plan, worktrees, acceptance and review gates, integration
+branch, and `orch try` / `orch finish` lifecycle as development. Open the target repo in
+an agent chat (or name a new target folder) and choose:
+
+| Entry point | What it does |
+| --- | --- |
+| `/analyze <question>` | Interviews you, reviews the spec and plan with you, runs the investigation and asks before finishing. It delegates to `/orch` in analysis mode. |
+| `/auto-analyze <question>` | Delegates to `/auto-develop` in analysis mode: specifies, plans, runs and handles fixable failures without your involvement. Stops before merging; you decide whether to use `orch finish`. Access outside the chat's folder still needs approval. |
+| `/write-spec-analyze <question>` | Interviews you and writes/reviews the analysis spec only; stops at the planning hand-off. |
+
+The prompt defines the result. If it names a representation, the spec retains it; if
+not, the AI chooses a suitable format and records the choice and repo-relative
+destinations in the spec for review (autonomous runs do not ask). The interview resolves
+the question, sources, access limits, scope, success criteria and requested outputs.
+Every deliverable belongs in the target Git repo and must be committed within the task's
+`owns` paths; an answer only in chat or only outside the repo cannot pass the existing
+completion gate. Source directories approved for inspection are not paths a task owns
+or may change. If a source is inaccessible, the result must say so rather than invent findings.
+
+Planning chooses tasks, dependencies and checks to fit the deliverables, not a fixed task
+shape. A substantial tool or prototype can be a `workerType: "coding"` task in an
+analysis run; dependent analysis tasks wait for its committed files. A new analysis repo
+gets a neutral README and minimal Git baseline, with no invented software stack, setup
+or integration check. Existing repos with commits keep their files and configuration.
+Scripted planning is also available with `orch plan <spec> -WorkerType Analysis` (and
+`-Provider Claude` or `-Provider Copilot` as needed). Plans persist the analysis default
+as `settings.workerType: "analysis"`; task overrides take precedence. Resuming uses the
+existing plan's mode, and a conflicting new request does not silently change it.
+
+Once tasks finish, `orch try` opens the integration worktree for inspecting the result;
+`orch finish` merges into the base branch and archives the run, subject to the usual
+checks. Finishing does not push. Repo-local databases can be deliverables only when
+their commits, validation and concurrent edits fit ordinary Git integration and `owns`
+constraints; this flow adds no binary merge mechanism or external-directory API.
+See [the analysis reference](docs/analysis-mode.md) for the mode and safety boundaries.
 
 ### Step 1: Turn the idea into a spec
 
@@ -338,8 +379,8 @@ Pick one:
   and the waves of parallel tasks.
   For an existing repo without `project.json`, add `-Setup 'npm ci'` and
   `-IntegrationCheck 'npm run build && npm test'` (your own commands).
-  For an analysis-only run, add `-WorkerType Analysis`. This sets the default
-  worker and reviewer prompts to investigate and verify evidence-backed artifacts
+  For an analysis run, add `-WorkerType Analysis`. This sets the default
+  worker and reviewer prompts to investigate and verify evidence-backed results
   instead of building code. The provider (`Claude` or `Copilot`) is a separate choice.
   The planner may override individual tasks with `workerType: coding` when the
   spec requires substantial software implementation; supporting validation scripts
@@ -358,9 +399,9 @@ Where: **editor**, then **terminal**.
    - `prompt` makes sense on its own.
    - `settings.workerType` matches the run, and any task-level `workerType`
      overrides are intentional. Plans without either field still use coding.
-   - `settings.setup` installs dependencies in a fresh checkout, and
-     `settings.integrationCheck` builds and runs all tests. After each merge the
-     orchestrator runs both, in that order.
+   - `settings.setup` and `settings.integrationCheck`, when applicable, work in a fresh
+     checkout and after each merge respectively. New analysis repos default both to
+     null; software tasks can supply applicable commands in the plan.
 
    See [The task file](#the-task-file) for every field.
 2. Validate and preview the run with `.\orchestrator\Show-Tasks.ps1 -RepoPath C:\src\myapp` and `.\orchestrator\Invoke-Orchestrator.ps1 -Provider Copilot -RepoPath C:\src\myapp -DryRun`.
@@ -601,7 +642,7 @@ it.
 | --- | --- | --- |
 | `model` | `sonnet` | Worker model (alias or full id). |
 | `reviewModel` | `sonnet` | Model for the reviewer and the conflict resolver. |
-| `workerType` | `coding` | Run-wide worker and reviewer role: `coding` or `analysis`. Use `Plan-Tasks.ps1 -WorkerType Analysis` when planning a discovery run; edit the plan before starting if necessary. |
+| `workerType` | `coding` | Run-wide worker and reviewer role: `coding` or `analysis`. `/analyze` and `/auto-analyze` carry analysis mode into the plan; scripted planning uses `-WorkerType Analysis`. An existing plan's effective mode controls resumes; do not retag a paused run. |
 | `effort` | none | `--effort` for workers: `low` … `max`. |
 | `permissionMode` | `acceptEdits` | Worker permission mode: `acceptEdits`, `auto`, `dontAsk`, `bypassPermissions`. |
 | `allowedTools` | `Read, Edit, Write, Glob, Grep, Bash, PowerShell` | Tools the worker may use without a prompt, in permission-rule syntax (e.g. `Bash(npm *)`). |
@@ -619,14 +660,14 @@ it.
 ## Writing a spec
 
 The planner, every worker and every reviewer get the whole spec in their prompt, and none of
-them can ask questions. A spec that splits well is short, and it names things precisely.
-It gives:
+them can ask questions. A spec that splits well is short, names things precisely and gives
+deliverables with repo-relative paths, dependencies, applicable verification and testable
+requirements. For software work this also includes:
 
 - module boundaries as file paths (they become `owns`)
-- shared interfaces written out as code (they become the contracts-first task)
-- a build order (it becomes `deps`)
+- shared interfaces written out when needed (they guide ownership and dependencies)
+- a build order where tasks depend on others (it becomes `deps`)
 - runnable test commands (they become `acceptance`)
-- testable requirements with ids that task prompts and reviewers can cite
 
 The `/write-spec` skill ([.claude/skills/write-spec](.claude/skills/write-spec/SKILL.md))
 writes such a spec with you:
@@ -637,6 +678,12 @@ writes such a spec with you:
   acceptance criteria.
 - It has the spec checked by a fresh [reviewer subagent](.claude/skills/write-spec/reviewer-prompt.md).
 - It saves the result to `.orchestrator/spec.md` and hands off to `/plan-tasks`.
+
+For analysis, `/write-spec-analyze` uses the same skill in analysis mode and stops at
+the spec hand-off. It establishes the question, approved sources and access limits,
+the requested result and its repo destination; if the output format is unspecified,
+it chooses one and records it in the spec. Software design, contracts, setup and tests
+are included only when the requested work needs them.
 
 The method adapts [Superpowers' brainstorming skill](https://github.com/obra/superpowers/blob/main/skills/brainstorming/SKILL.md)
 and [cc-sdd](https://github.com/gotalab/cc-sdd)'s requirements and design rules. Copies of
@@ -650,11 +697,13 @@ The `/auto-develop` skill ([.claude/skills/auto-develop](.claude/skills/auto-dev
 runs `/orch` with your request plus a fixed prime directive: work fully autonomously from
 spec to finished result, and report only when done. It skips the questions, fixes and reruns
 failed tasks up to twice, and stops before the merge: merging stays your decision.
+`/analyze` delegates to `/orch` in analysis mode; `/auto-analyze` delegates to
+`/auto-develop` in that mode, without copying its autonomy rules.
 
 ## Planning
 
-If the target repo is new (no folder, no git repo, or no commits), `Plan-Tasks.ps1` first
-calls `Initialize-Project.ps1`:
+If the target repo is new (no folder, no git repo, or no commits), both the interactive
+and scripted planners use `Initialize-Project.ps1`. For coding runs it:
 
 1. `git init -b main`, then a bootstrap agent ([prompts/bootstrap.md](orchestrator/prompts/bootstrap.md),
    the worker model and tools) creates the skeleton for the stack in the spec: manifest, lock
@@ -665,6 +714,12 @@ calls `Initialize-Project.ps1`:
    is amended into the one commit, up to 3 attempts.
 3. The two commands go to `.orchestrator/project.json`. They become the default `-Setup`
    and `-IntegrationCheck`.
+
+For analysis runs it creates the Git repo and a minimal baseline commit with a neutral
+README (without overwriting a pre-existing README or staging unrelated files). It
+does not call the bootstrap agent, choose a stack or install dependencies. New
+`project.json` setup and integrationCheck defaults are null; existing configuration
+is preserved. A repo with commits is left unchanged by initialization.
 
 Then `Plan-Tasks.ps1` runs one planner agent (`--model opus` by default) in the target repo.
 The planner has only `Read`, `Glob` and `Grep`, plus sub-agents with the same tools, so it
@@ -804,8 +859,8 @@ implementation or acceptance check needs repair.
 
 | Script | Parameters |
 | --- | --- |
-| `Initialize-Project.ps1` | `-Provider Claude|Copilot`, `-Spec` and `-RepoPath` (required), `-Model` (`sonnet`), `-AgentPath`, `-MaxBudgetUsd` (`0` = no cap, Claude only), `-MaxAttempts` (`3`). Creates and checks the skeleton of a new repo; does nothing if the repo has commits. `Plan-Tasks.ps1` calls it. |
-| `Plan-Tasks.ps1` | `-Provider Claude|Copilot`, `-Spec` (required), `-RepoPath` (`.`), `-Out` (plan path), `-Model` (planner, `opus`), `-WorkerModel` (`sonnet`), `-Effort` (planner reasoning effort, Claude only), `-WorkerEffort` (becomes `settings.effort`), `-Setup`, `-IntegrationCheck` (both default to `project.json`), `-AgentPath`, `-MaxBudgetUsd` (`0` = no cap, Claude only), `-Force` (overwrite a plan that never ran; archive an earlier run that is not finished). Archives a finished earlier run by itself. Records the provider in the plan and in `project.json`. |
+| `Initialize-Project.ps1` | `-Provider Claude|Copilot`, `-Spec` and `-RepoPath` (required), `-WorkerType Coding|Analysis` (`Coding`), `-Model` (`sonnet`), `-AgentPath`, `-MaxBudgetUsd` (`0` = no cap, Claude only), `-MaxAttempts` (`3`). Creates a coding skeleton or a minimal analysis baseline in a new repo; does nothing if the repo has commits. Both planners use it. |
+| `Plan-Tasks.ps1` | `-Provider Claude|Copilot`, `-Spec` (required), `-RepoPath` (`.`), `-Out` (plan path), `-WorkerType Coding|Analysis` (`Coding`), `-Model` (planner, `opus`), `-WorkerModel` (`sonnet`), `-Effort` (planner reasoning effort, Claude only), `-WorkerEffort` (becomes `settings.effort`), `-Setup`, `-IntegrationCheck` (both default to `project.json`), `-AgentPath`, `-MaxBudgetUsd` (`0` = no cap, Claude only), `-Force` (overwrite a plan that never ran; archive an earlier run that is not finished). Archives a finished earlier run by itself. Records the provider in the plan and in `project.json`. |
 | `Invoke-Orchestrator.ps1` | `-Provider Claude|Copilot` (required, even for `-DryRun`), `-RepoPath` (`.`), `-Plan`, `-MaxParallel` (`3`), `-AgentPath`, `-DryRun` (print waves and exit), `-RetryFailed` (preserve committed work), `-FreshFailed` (with `-RetryFailed`, archive and start over), `-PollSeconds` (`5`). Exit code 0 = all done, 2 = some failed or blocked, 1 = invalid plan. |
 | `Request-OrchestratorStop.ps1` | `-RepoPath` (`.`), `-Cancel` (remove a pending stop request). Graceful stop exits the runner with code 0 even if tasks are still pending. |
 | `Show-Tasks.ps1` | `-RepoPath`, `-Plan`. Validates the plan and prints wave, status, deps, attempts, cost and detail per task. |
@@ -825,9 +880,9 @@ implementation or acceptance check needs repair.
 | --- | --- | --- |
 | Bootstrap | worker defaults | `acceptEdits` |
 | Planner | `Read`, `Glob`, `Grep` and `Task` (sub-agents) only (`--tools`) | `dontAsk` |
-| Worker | `allowedTools` setting, plus `Task` (sub-agents) | `permissionMode` setting (default `acceptEdits`) |
+| Coding or analysis worker (per task) | `allowedTools` setting, plus `Task` (sub-agents) | `permissionMode` setting (default `acceptEdits`) |
 | Resolver | worker tools + `git add/status/diff` | `acceptEdits` |
-| Reviewer | `Read`, `Glob`, `Grep` only | `dontAsk` |
+| Coding or analysis reviewer (per task) | `Read`, `Glob`, `Grep` only | `dontAsk` |
 
 Claude calls use `--permission-prompts none`, plus `--max-budget-usd` when a cap is set. They also
 pass `--settings '{"autoMemoryEnabled":false}'`, so agents never read or write Claude Code's
@@ -848,6 +903,10 @@ model arguments or an existing plan specify another model. Claude retains its mo
 - Workers run with `Bash`/`PowerShell` allowed by default, so they can run any command as
   you. Run the orchestrator only on repos you trust, or narrow `allowedTools` (for example
   `Bash(npm *)`) or use `permissionMode: auto`.
+- For analysis, `settings.additionalDirectories` can grant approved source access but
+  is not a read-only safeguard and does not extend `owns` outside the repo. Specify
+  source access limits and keep committed results in the target repo. A database that
+  writes outside the repo is not a repo deliverable under this contract.
 - Workers and the planner can hand independent questions that need a lot of reading to
   sub-agents ([prompts/subagents.md](orchestrator/prompts/subagents.md)), started in the
   foreground. A sub-agent has no more tools than its agent: `dontAsk` binds Claude's
@@ -862,7 +921,8 @@ model arguments or an existing plan specify another model. Claude retains its mo
   worktree and shows no trust prompt. That is useful for conventions, and a reason to
   run only trusted repos.
 - No headless agent can start the orchestrator's own skills (`/orch`, `/write-spec`,
-  `/plan-tasks`, `/auto-develop`), which talk with the user. Claude sessions deny them by name. Copilot
+  `/plan-tasks`, `/auto-develop`, `/analyze`, `/auto-analyze`, `/write-spec-analyze`),
+  which talk with the user. Claude sessions deny them by name. Copilot
   sessions always get a tool list without the skill tool, or lose that tool
   (`--excluded-tools=skill`); Copilot's `--deny-tool` can't name a single skill.
 - A run started from an agent chat's shell would pass the chat's session variables
@@ -870,9 +930,9 @@ model arguments or an existing plan specify another model. Claude retains its mo
   repo, it does. `/orch` therefore starts runs with `orch run -UserEnvironment`, which gives
   the run the same environment variables as a new terminal.
 - Nothing is pushed. All merges are local, and merging `orch/integration` into your base
-  branch is left to you. `/orch` and `/auto-develop` never commit, merge or push in the
-  target repo themselves; `/orch` runs `orch finish` only after your yes in the chat, and
-  `/auto-develop` stops before it.
+  branch is left to you. `/orch`, `/analyze`, `/auto-develop` and `/auto-analyze` never
+  commit, merge or push in the target repo themselves; `/orch` and `/analyze` run
+  `orch finish` only after your yes in the chat, and the autonomous entries stop before it.
 
 ## Limits and known gaps
 
