@@ -5,8 +5,8 @@
 
 .DESCRIPTION
     A new project (the folder does not exist, is not a git repo, or has no commits) first gets
-    its skeleton from Initialize-Project.ps1, which also supplies the default -Setup and
-    -IntegrationCheck commands.
+    its baseline from Initialize-Project.ps1. Coding projects get a checked software skeleton;
+    analysis projects get a neutral README and no assumed project commands.
     A repo that still holds an earlier run (state.json) has that run archived first, the way
     Complete-Orchestrator.ps1 does it. If that run is not finished the script stops; -Force
     archives it anyway. A plan that never ran is only overwritten with -Force.
@@ -47,9 +47,9 @@ Import-Module (Join-Path $PSScriptRoot 'Orchestrator.psm1') -Force
 $Model = Resolve-AgentModel -Provider $Provider -Model $Model
 $WorkerModel = Resolve-AgentModel -Provider $Provider -Model $WorkerModel
 
-# A new project gets its skeleton (git repo, manifest, test runner) before planning.
+# Establish a Git baseline before planning; only coding projects get a software skeleton.
 & (Join-Path $PSScriptRoot 'Initialize-Project.ps1') -Spec $Spec -RepoPath $RepoPath -Model $WorkerModel `
-    -Provider $Provider -AgentPath $AgentPath -MaxBudgetUsd $MaxBudgetUsd
+    -Provider $Provider -WorkerType $WorkerType -AgentPath $AgentPath -MaxBudgetUsd $MaxBudgetUsd
 
 $paths = Get-OrchPaths -RepoPath $RepoPath -PlanFile $Out
 if (Test-Path $paths.ProjectFile) {
@@ -149,7 +149,7 @@ for ($round = 1; $round -le 2; $round++) {
 # project.json outlives the run, so the next `orch plan` in this repo uses the same provider.
 $project = if (Test-Path $paths.ProjectFile) { Get-Content $paths.ProjectFile -Raw | ConvertFrom-Json -AsHashtable } else { [ordered]@{} }
 $project.provider = $doc.provider
-$project | ConvertTo-Json | Set-Content -Path $paths.ProjectFile -Encoding utf8
+$project | ConvertTo-Json -Depth 100 | Set-Content -Path $paths.ProjectFile -Encoding utf8
 
 Write-OrchLog $paths.ProgressFile ("Plan written: {0} tasks, {1:N2} USD" -f $doc.tasks.Count, $cost)
 if ($r.Structured.notes) { Write-Host "`nPlanner notes:`n$($r.Structured.notes)`n" -ForegroundColor Yellow }

@@ -34,8 +34,10 @@ The headless planner receives the same rules.
 
 1. Settle the target repo (see above) and ask for the spec (a file, or the user's
    description). If the spec is only in the conversation, save it as `.orchestrator/spec.md`
-   in the target repo. If there is no real spec yet (only an idea), suggest writing one first
-   with `/write-spec`.
+   in the target repo; if that file belongs to an earlier run, use a new name such as
+   `.orchestrator/spec-<topic>.md` instead. If there is no real spec yet (only an idea),
+   suggest writing one first
+   with `/write-spec` (or `/write-spec-analyze` for analysis).
 
    **Access.** If the target repo lies outside the folder this chat is open in, ask for
    approval to access it using the active assistant's directory permissions. In Claude Code,
@@ -44,12 +46,23 @@ The headless planner receives the same rules.
    settings without the user's approval. Reading `<orch>` from another repo needs no approval
    in Claude Code once `Install-Orch.ps1` has run; in Copilot, approve it when asked.
    Ask which headless provider (Claude or Copilot) to use for the scripted stages.
-2. If the target repo doesn't exist or has no commits yet, create its skeleton first:
-   run `& '<orch>\orchestrator\Initialize-Project.ps1' -Provider <Claude|Copilot> -Spec <spec> -RepoPath <repo>`.
-   It needs a spec that names the stack. It runs `git init`, lets
-   a bootstrap agent create the manifest, test runner and one smoke test, commits them, and
-   checks them in a clean checkout. It writes `setup` and `integrationCheck` to
-   `.orchestrator/project.json`. Use those two commands in the plan's settings.
+2. Determine the selected run type before initializing or changing a plan. Analysis is
+   selected by `mode: analysis` from the request/caller or the spec's Summary; otherwise
+   new runs default to coding. A request to resume or edit a plan without a new mode
+   inherits the plan's mode. An existing `.orchestrator/tasks.json` has the authoritative
+   run type in `settings.workerType` (missing means coding). If the requested type conflicts
+   with that plan, do not rewrite its mode or retag tasks. Tell the user and ask whether to
+   keep the existing run in its original mode or finish/archive it before making a new plan.
+   Under a no-involvement directive, stop and explain the conflict instead.
+   If the target repo doesn't exist or has no commits yet, initialize through the shared
+   script, after the required approval:
+   `& '<orch>\orchestrator\Initialize-Project.ps1' -Provider <Claude|Copilot> -Spec <spec> -RepoPath <repo> -WorkerType <Coding|Analysis>`.
+   Use the selected type. Coding initialization builds the software skeleton from the
+   spec's stack, checks it and records its commands. Analysis initialization makes a
+   minimal neutral Git baseline without choosing a stack or invoking software bootstrap;
+   new `project.json` setup and integrationCheck default to null. Do not implement Git
+   setup separately. Keep any pre-existing README, tracked files, staged unrelated files
+   and existing project configuration intact. Use applicable project commands in the plan.
 3. If `.orchestrator` in the target repo holds an earlier run (`state.json` exists) and
    the user wants a plan for a new feature, finish that run before you write the new plan.
    A new `tasks.json` must never sit next to an old `state.json`: a task that reuses an old
@@ -68,23 +81,31 @@ The headless planner receives the same rules.
      change `tasks.json` in place. State is keyed by task id, so done tasks stay done.
    - If `tasks.json` exists without `state.json`, it is a plan that never ran. Ask before
      you replace it.
-4. Explore the target repo (layout, language, test runner, conventions) so tasks fit it.
+4. Explore the target repo (layout, deliverables, relevant sources, and software conventions
+   or tests if applicable) so tasks fit it. Inspect outside sources only with the required
+   access approval; task
+   `owns` only names paths it may change in the target repo. All deliverables belong there.
 5. Propose the task list as a short table first: id, title, deps, owns, acceptance.
    Point out which tasks run in parallel (same wave) and any owns overlaps. Adjust with
-   the user.
+   the user. Follow the shared planning rules and the spec's deliverables: do not impose a
+   fixed graph shape or add contract/synthesis tasks unless the work needs them. For
+   analysis, use checks suited to each deliverable and runnable from the repo; include
+   software tests where tools or prototypes are built. Substantial implementation may
+   need one or more tasks with `workerType: "coding"` even when the run default is
+   analysis. Make consumers depend on tasks whose committed files they need.
 6. Write `.orchestrator/tasks.json` in the target repo. Format: see
    `<orch>\orchestrator\schemas\tasks.schema.json`. Set `provider` to the headless provider
    the user chose; the `orch` command and the dashboard read it. Also set `provider` in
    `.orchestrator/project.json`, keeping its other keys, so the next plan in this repo uses
-   the same one. **Mode:** in analysis mode (the request says `mode: analysis`, or the caller
-   passes it), set `settings.workerType` to `"analysis"`; otherwise leave it out (coding). For
-   analysis, plan by source or slice, with a contract task for the artifact format first and
-   one synthesis task depending on all slices; `owns` are artifact folders and `acceptance` is
-   a validator of the artifacts (exist, agreed headings or columns, every slice covered,
-   evidence cited), not unit tests. Ask before adding `settings.additionalDirectories` for
-   sources outside the repo. For a new analysis repo, don't run `Initialize-Project.ps1` (it
-   builds a code skeleton): `git init` and make one commit with a README instead. Change nothing else in `project.json`: its `setup` and `integrationCheck`
-   fit the base branch, and they outlive this run. When this plan needs other commands, for
+   the same one. **Mode:** for a new analysis plan, set `settings.workerType` to
+   `"analysis"`; for a new coding plan, leave it out. When editing an existing plan,
+   preserve its effective mode. For
+   analysis, choose dependencies, task roles, owned repo paths and acceptance from the spec,
+   not from a prescribed artifact format. Ask before adding
+   `settings.additionalDirectories` for approved sources outside the repo. Change nothing
+   else in `project.json`: preserve its existing `setup`, `integrationCheck` and unrelated
+   keys. Existing explicit project commands take precedence over suggested defaults.
+   When this plan needs other commands, for
    example an integration check that also runs tests this run adds, put them only in the
    plan's `settings`. A check in `project.json` that names files the base branch lacks would
    fail every later plan in the repo if this run is dropped. Minimal example:

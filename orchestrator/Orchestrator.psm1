@@ -1070,7 +1070,11 @@ function Invoke-TaskPipeline {
 
             $changed = Get-TaskChanges $Ctx.Worktree $Ctx.IntegrationBranch
             if ($changed.Count -eq 0) {
-                $feedback = 'No file changes were found on your branch. Implement the task in the worktree.'
+                $feedback = if ($Ctx.WorkerType -eq 'analysis') {
+                    'No committed file changes were found on your branch. Save the requested result in your owned repo paths so it can be committed and reviewed.'
+                } else {
+                    'No file changes were found on your branch. Implement the task in the worktree.'
+                }
                 & $log 'no changes'; continue
             }
             if ($Ctx.EnforceOwns -and $Ctx.Owns.Count -gt 0) {

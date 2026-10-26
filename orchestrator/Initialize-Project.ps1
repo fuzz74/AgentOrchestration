@@ -1,16 +1,14 @@
 #requires -Version 7.2
 <#
 .SYNOPSIS
-    Creates the skeleton of a new project from its spec, so the orchestrator can build on it.
+    Establishes a new project's Git baseline from its spec.
 
 .DESCRIPTION
-    Does nothing if the repo already has commits. Otherwise (no folder, no git repo, or no
-    commits yet) it runs `git init`, lets a bootstrap agent create the manifest, dependencies,
-    test runner and one smoke test for the stack the spec names, and commits the result. It
-    then checks in a clean checkout that the setup command and the whole-project check pass.
-    Failures go back to the same agent session and the fix is amended into the commit.
-    The two commands are saved in .orchestrator/project.json, where Plan-Tasks.ps1 picks them
-    up. Plan-Tasks.ps1 calls this script itself, so you rarely need to run it directly.
+    Does nothing if the repo already has commits. For a new coding project, runs the existing
+    bootstrap agent and checks its setup and integration commands in a clean checkout.
+    For analysis, creates a neutral README baseline (or an empty commit if README.md already
+    exists), without scaffolding software or disturbing existing files or the Git index.
+    Plan-Tasks.ps1 calls this script itself, so you rarely need to run it directly.
 
 .EXAMPLE
     ./Initialize-Project.ps1 -Provider Copilot -Spec C:\src\myapp\.orchestrator\spec.md -RepoPath C:\src\myapp
@@ -21,6 +19,7 @@ param(
     [Parameter(Mandatory)][string]$RepoPath,
     [Parameter(Mandatory)][ValidateSet('Claude', 'Copilot')][string]$Provider,
     [string]$Model = 'sonnet',
+    [ValidateSet('Coding', 'Analysis')][string]$WorkerType = 'Coding',
     [string]$AgentPath,
     [double]$MaxBudgetUsd = 0,   # 0 = no cap
     [int]$MaxAttempts = 3
@@ -45,6 +44,50 @@ if ((Invoke-Git $RepoPath @('rev-parse', '--verify', '--quiet', 'HEAD')).Exit -e
 
 $paths = Get-OrchPaths -RepoPath $RepoPath
 Initialize-RunDir $paths   # excludes .orchestrator/ before anything is committed
+if ($WorkerType -eq 'Analysis') {
+    $readme = Join-Path $paths.Repo 'README.md'
+    $stagedReadme = Invoke-Git $paths.Repo @('ls-files', '--stage', '--', 'README.md')
+    if ($stagedReadme.Exit -ne 0) { throw "Could not inspect the Git index: $($stagedReadme.Output)" }
+    $createdReadme = -not (Test-Path $readme) -and -not $stagedReadme.Output
+    if ($createdReadme) {
+        Set-Content -Path $readme -Encoding utf8 -Value "# Project`n`nThis repository holds project deliverables."
+    }
+
+    # Commit through an isolated index: a pre-populated user index must not enter the baseline.
+    $index = Join-Path $paths.LogDir ("baseline-{0}.index" -f [guid]::NewGuid().ToString('N'))
+    $previousIndex = $env:GIT_INDEX_FILE
+    try {
+        $env:GIT_INDEX_FILE = $index
+        if ($createdReadme) {
+            $add = Invoke-Git $paths.Repo @('add', '--', 'README.md')
+            if ($add.Exit -ne 0) { throw "git add README.md failed: $($add.Output)" }
+        }
+        $commit = Invoke-Git $paths.Repo @('commit', '-q', '--allow-empty', '-m', 'Project baseline')
+        if ($commit.Exit -ne 0) { throw "git commit failed: $($commit.Output)" }
+    }
+    finally {
+        $env:GIT_INDEX_FILE = $previousIndex
+        if (Test-Path $index) { Remove-Item -LiteralPath $index -Force }
+        if (Test-Path "$index.lock") { Remove-Item -LiteralPath "$index.lock" -Force }
+    }
+    if ($createdReadme) {
+        $restore = Invoke-Git $paths.Repo @('restore', '--staged', '--source=HEAD', '--', 'README.md')
+        if ($restore.Exit -ne 0) { throw "Could not synchronize README.md in the Git index: $($restore.Output)" }
+    }
+
+    $project = if (Test-Path $paths.ProjectFile) {
+        Get-Content $paths.ProjectFile -Raw | ConvertFrom-Json -AsHashtable
+    } else { [ordered]@{} }
+    $needsDefaults = -not ($project.Contains('setup') -and $project.Contains('integrationCheck'))
+    if (-not $project.Contains('setup')) { $project.setup = $null }
+    if (-not $project.Contains('integrationCheck')) { $project.integrationCheck = $null }
+    if ($needsDefaults) {
+        $project | ConvertTo-Json -Depth 100 | Set-Content -Path $paths.ProjectFile -Encoding utf8
+    }
+    Write-OrchLog $paths.ProgressFile 'Analysis baseline committed; no software bootstrap or project commands assumed.'
+    return
+}
+
 $agent = Resolve-AgentPath -Provider $Provider -AgentPath $AgentPath
 $defaults = Get-DefaultSettings
 $logBase = Join-Path $paths.LogDir ("bootstrap-{0}" -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
