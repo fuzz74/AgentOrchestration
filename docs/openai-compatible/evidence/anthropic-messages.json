@@ -1,0 +1,37 @@
+{
+  "test": "anthropic-messages",
+  "request": {
+    "model": "huihui_ai/gemma-4-abliterated:26b",
+    "max_tokens": 1024,
+    "messages": [
+      {
+        "content": "Say hello in five words.",
+        "role": "user"
+      }
+    ]
+  },
+  "response": {
+    "id": "msg_34fbd9ccecffd69241ad9921",
+    "type": "message",
+    "role": "assistant",
+    "model": "huihui_ai/gemma-4-abliterated:26b",
+    "content": [
+      {
+        "type": "thinking",
+        "thinking": "*   Input: \"Say hello in five words.\"\n    *   Constraint: Exactly five words.\n    *   Goal: Say \"hello\" (or a greeting) using exactly five words.\n\n    *   \"Hello, how are you doing?\" (5 words) - Good.\n    *   \"Hello, nice to meet you.\" (5 words) - Good.\n    *   \"Hello, I am a bot.\" (5 words) - Good....[trimmed]"
+      },
+      {
+        "type": "text",
+        "text": "Hello, nice to meet you."
+      }
+    ],
+    "stop_reason": "end_turn",
+    "usage": {
+      "input_tokens": 22,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 431
+    }
+  },
+  "seconds": 6.5,
+  "date": "2026-10-28"
+}
