@@ -1,0 +1,23 @@
+{
+  "test": "models",
+  "request": null,
+  "response": {
+    "object": "list",
+    "data": [
+      {
+        "id": "huihui_ai/gemma-4-abliterated:31b-v2",
+        "object": "model",
+        "created": 1792874320,
+        "owned_by": "huihui_ai"
+      },
+      {
+        "id": "huihui_ai/gemma-4-abliterated:26b",
+        "object": "model",
+        "created": 1792874317,
+        "owned_by": "huihui_ai"
+      }
+    ]
+  },
+  "seconds": 2.1,
+  "date": "2026-10-28"
+}

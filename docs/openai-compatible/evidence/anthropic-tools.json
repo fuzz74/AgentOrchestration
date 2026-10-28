@@ -1,0 +1,58 @@
+{
+  "test": "anthropic-tools",
+  "request": {
+    "model": "huihui_ai/gemma-4-abliterated:26b",
+    "max_tokens": 2048,
+    "tools": [
+      {
+        "name": "read_file",
+        "description": "Read a text file",
+        "input_schema": {
+          "required": [
+            "path"
+          ],
+          "properties": {
+            "path": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      }
+    ],
+    "messages": [
+      {
+        "content": "Use the read_file tool to read notes.txt.",
+        "role": "user"
+      }
+    ]
+  },
+  "response": {
+    "id": "msg_fe13e7190e45458995a2c233",
+    "type": "message",
+    "role": "assistant",
+    "model": "huihui_ai/gemma-4-abliterated:26b",
+    "content": [
+      {
+        "type": "thinking",
+        "thinking": "The user wants to read the contents of a file named `notes.txt`.\nI should use the `read_file` tool with the argument `path='notes.txt'`."
+      },
+      {
+        "type": "tool_use",
+        "id": "call_j8najs4s",
+        "name": "read_file",
+        "input": {
+          "path": "notes.txt"
+        }
+      }
+    ],
+    "stop_reason": "tool_use",
+    "usage": {
+      "input_tokens": 6,
+      "cache_read_input_tokens": 63,
+      "output_tokens": 59
+    }
+  },
+  "seconds": 2.7,
+  "date": "2026-10-28"
+}

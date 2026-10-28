@@ -1,0 +1,64 @@
+{
+  "test": "json-schema",
+  "request": {
+    "model": "huihui_ai/gemma-4-abliterated:26b",
+    "max_tokens": 2048,
+    "messages": [
+      {
+        "content": "Give the capital of Norway and its population in millions.",
+        "role": "user"
+      }
+    ],
+    "response_format": {
+      "type": "json_schema",
+      "json_schema": {
+        "name": "city",
+        "strict": true,
+        "schema": {
+          "required": [
+            "city",
+            "population_millions"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "city": {
+              "type": "string"
+            },
+            "population_millions": {
+              "type": "number"
+            }
+          },
+          "type": "object"
+        }
+      }
+    }
+  },
+  "response": {
+    "id": "chatcmpl-827",
+    "object": "chat.completion",
+    "created": 1793208574,
+    "model": "huihui_ai/gemma-4-abliterated:26b",
+    "system_fingerprint": "fp_ollama",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\n  \"city\": \"Oslo\",\n  \"population_millions\": 5.5\n}",
+          "reasoning": "*   Target: Capital of Norway and its population (in millions).\n    *   Constraint/Format: \"population in millions\".\n\n    *   Capital of Norway: Oslo.\n    *   Population of Norway: (Quick mental check or look up) or (Population of Oslo? The prompt asks for \"the capital... and its population\", which ...[trimmed]"
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 27,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "completion_tokens": 706,
+      "total_tokens": 733
+    }
+  },
+  "seconds": 9.4,
+  "date": "2026-10-28"
+}

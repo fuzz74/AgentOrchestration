@@ -1,0 +1,44 @@
+{
+  "test": "json-object",
+  "request": {
+    "model": "huihui_ai/gemma-4-abliterated:26b",
+    "max_tokens": 2048,
+    "messages": [
+      {
+        "content": "Reply as JSON with keys city and population_millions for the capital of Norway.",
+        "role": "user"
+      }
+    ],
+    "response_format": {
+      "type": "json_object"
+    }
+  },
+  "response": {
+    "id": "chatcmpl-289",
+    "object": "chat.completion",
+    "created": 1793208580,
+    "model": "huihui_ai/gemma-4-abliterated:26b",
+    "system_fingerprint": "fp_ollama",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\n  \"city\": \"Oslo\",\n  \"population_millions\": 0.7\n}",
+          "reasoning": "*   Target: Capital of Norway.\n    *   Output format: JSON.\n    *   Keys: `city`, `population_millions`.\n    *   Specific requirement: Provide the population in millions.\n\n    *   Capital of Norway: Oslo.\n    *   Population of Oslo (municipality or urban area? usually, in these types of prompts, the...[trimmed]"
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 33,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "completion_tokens": 382,
+      "total_tokens": 415
+    }
+  },
+  "seconds": 6.1,
+  "date": "2026-10-28"
+}
