@@ -1,0 +1,41 @@
+{
+  "test": "chat",
+  "request": {
+    "model": "huihui_ai/gemma-4-abliterated:26b",
+    "max_tokens": 1024,
+    "messages": [
+      {
+        "content": "Say hello in five words.",
+        "role": "user"
+      }
+    ]
+  },
+  "response": {
+    "id": "chatcmpl-861",
+    "object": "chat.completion",
+    "created": 1793208559,
+    "model": "huihui_ai/gemma-4-abliterated:26b",
+    "system_fingerprint": "fp_ollama",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "Hello, how are you today?",
+          "reasoning": "*   Task: Say \"hello\" (a greeting).\n    *   Constraint: Use exactly five words.\n\n    *   \"Hello, how are you doing?\" (5 words) - *Good.*\n    *   \"Hello, nice to meet you.\" (5 words) - *Good.*\n    *   \"Hello, I am your assistant.\" (5 words) - *Good.*\n    *   \"Hello, hope you are well.\" (5 words) - *G...[trimmed]"
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 22,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "completion_tokens": 617,
+      "total_tokens": 639
+    }
+  },
+  "seconds": 9.3,
+  "date": "2026-10-28"
+}
