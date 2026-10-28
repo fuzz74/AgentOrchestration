@@ -57,7 +57,7 @@ its evidence are in `docs/openai-compatible/analysis.md`.
 2.9 When `tests/Run-SmokeTest.ps1 -Provider Claude`, `-Provider Copilot` and `tests/Test-CopilotModelSettings.ps1` run, they shall pass.
 2.10 The `Run-SmokeTest.ps1` script shall take provider-specific setup and checks from `tests/providers/<Provider>.ps1` (4.3), and run checks that need sub-agents only while the provider's `SubAgents` flag is true.
 2.11 When `Plan-Tasks.ps1` or `Invoke-Orchestrator.ps1` starts, it shall call the provider's `TestReady` with the models it will use and stop before any agent call if problems come back, printing each one.
-2.12 The test `tests/Test-ProviderRegistry.ps1` shall have one named check each for 1.2, 1.3, 1.4, 1.5, 1.7, 1.8, 2.5 and 4.4, using a provider file in a temporary `ORCH_PROVIDER_PATH` folder.
+2.12 The test `tests/Test-ProviderRegistry.ps1` shall have one named check each for 1.2, 1.3, 1.4, 1.5, 1.7, 1.8, 2.5, 4.4, 4.5 and 4.13, using a provider file in a temporary `ORCH_PROVIDER_PATH` folder; the 4.5 and 4.13 checks run `Install-Orch.ps1 -WhatIf` and assert that no user environment variable changed.
 
 ### 3. Canonical events
 **Objective:** As a user of the watch views, I want one event format, so that every provider shows up the same way.
@@ -77,7 +77,7 @@ its evidence are in `docs/openai-compatible/analysis.md`.
 4.2 For `orch plan` and `orch run`, the `orch` command shall resolve the endpoint in the order `-Endpoint`, `tasks.json` `endpoint`, `project.json` `endpoint`, `ORCH_ENDPOINT` (process, then User scope), pass it on, and print it in its header.
 4.3 When `Plan-Tasks.ps1` plans for a provider with `UsesEndpoint`, it shall record the endpoint name in `tasks.json` `endpoint` and `project.json` `endpoint`.
 4.4 If `-Endpoint` is given for a provider whose `UsesEndpoint` is false, the scripts shall stop with `Provider <name> does not use endpoint profiles.`
-4.5 When `Install-Orch.ps1 -Endpoint <name>` runs, it shall set the user environment variable `ORCH_ENDPOINT`.
+4.5 When `Install-Orch.ps1 -Endpoint <name>` runs and no provider's `InitializeUser` reports a `problem`, it shall set the user environment variable `ORCH_ENDPOINT`.
 4.6 The OpenAICompatible provider shall read profiles from the file named by `ORCH_ENDPOINTS_FILE`, else from `<ApplicationData>/AgentOrchestration/endpoints.json` (`[Environment]::GetFolderPath('ApplicationData')`).
 4.7 If the profiles file is missing, fails `orchestrator/schemas/endpoints.schema.json`, or lacks the requested profile, the provider shall stop with an error that names the file and the problem and lists the profile names.
 4.8 When no endpoint name is given or recorded, the OpenAICompatible provider shall use the file's `default`.
@@ -85,6 +85,12 @@ its evidence are in `docs/openai-compatible/analysis.md`.
 4.10 The OpenAICompatible provider and agent loop shall write no key value to any file, prompt, command line, event or error text.
 4.11 When the agent loop runs a `PowerShell` tool command, it shall remove the profile's `apiKeyEnv` and `headersFromEnv` variables from that command's environment.
 4.12 The OpenAICompatible provider code shall contain no branch on the names `OpenAI`, `Anthropic` or `Ollama`; endpoint differences shall come only from profile fields.
+4.13 When `Install-Orch.ps1` runs, it shall accept `-Endpoint` and `-EndpointsFile`, call the `InitializeUser` operation (4.3) of every registered provider that has one, print each returned message with its status, set each returned `UserVariables` entry as a user environment variable through `ShouldProcess`, and exit with code 1 if any message has status `problem`.
+4.14 When `InitializeUser` runs and the profiles file (`-EndpointsFile`, else 4.6) does not exist, the OpenAICompatible provider shall copy `orchestrator/providers/OpenAICompatible/endpoints.example.json` there, creating the folder, and report `changed`; it shall never overwrite an existing file, and under `WhatIf` it shall create nothing, report the file it would create and validate against the example's content.
+4.15 When `InitializeUser` is given an `EndpointsFile`, the OpenAICompatible provider shall return its full path in `UserVariables` as `ORCH_ENDPOINTS_FILE`, so that one secret-free profiles file, for example in a synced folder, can serve several PCs.
+4.16 If the profiles file fails `endpoints.schema.json` or lacks the profile named by `Endpoint`, `InitializeUser` shall report a `problem` that names the file and lists the profile names.
+4.17 For each `apiKeyEnv` and `headersFromEnv` variable in the profiles, `InitializeUser` shall report `info` `<VAR> is set` or `warning` `<VAR> is missing (used by profile <name>)`, checking process scope, then User scope, and shall never report a value.
+4.18 The file `endpoints.example.json` shall pass `endpoints.schema.json` and hold the Ollama, OpenAI and Anthropic worked examples of `docs/openai-compatible/analysis.md` (Configuration), with the Ollama profile as `default` and keys only as variable names.
 
 ### 5. Agent loop
 **Objective:** As the orchestrator, I want a headless agent for Chat Completions endpoints that keeps every gate.
@@ -118,12 +124,13 @@ its evidence are in `docs/openai-compatible/analysis.md`.
 6.6 When `tests/Run-SmokeTest.ps1 -Provider OpenAICompatible` runs with the fixture `tests/providers/OpenAICompatible.ps1`, it shall pass every check that applies to a provider without sub-agents.
 6.7 The automated tests shall use no network beyond `127.0.0.1`, no real key and no model.
 6.8 The live check `tests/Test-LiveOllama.ps1` shall run only when started by hand, and no other script shall call it.
+6.9 The test `tests/Test-OpenAICompatible.ps1` shall have one named check each for 4.14, 4.15, 4.16, 4.17 and 4.18, calling `InitializeUser` with an `EndpointsFile` in a temporary folder and dummy key variables in process scope only, and one check that `Install-Orch.ps1 -WhatIf -Endpoint <name> -EndpointsFile <temp path>` reports the file it would create and changes no user environment variable.
 
 ### 7. Docs and skills
 **Objective:** As a user, I want to find how to choose and configure a provider.
 
-7.1 The README shall describe `orch providers`, `-Provider OpenAICompatible`, `-Endpoint`, the profiles file, key handling and capability gaps, and its script parameter table shall list `-Endpoint`.
-7.2 The note `docs/openai-compatible-notes.md` shall give the profile field reference, Ollama, OpenAI and Anthropic example profiles with keys only as variable names, the steps to add a further endpoint by configuration alone, the capability gaps and the limitations, and link `docs/openai-compatible/analysis.md`.
+7.1 The README shall describe `orch providers`, `-Provider OpenAICompatible`, `-Endpoint`, the profiles file, key handling and capability gaps, and its script parameter table shall list `-Endpoint`; its setup item 6 and "Another PC, and after a pull" steps shall cover `Install-Orch.ps1 -Endpoint` and `-EndpointsFile`, the starter profiles file, sharing one profiles file between PCs, and setting the key variables on each PC.
+7.2 The note `docs/openai-compatible-notes.md` shall give the profile field reference, Ollama, OpenAI and Anthropic example profiles with keys only as variable names (pointing to `endpoints.example.json`), the steps to add a further endpoint by configuration alone, the capability gaps and the limitations, and link `docs/openai-compatible/analysis.md`.
 7.3 The skills `orch`, `plan-tasks` and `write-spec` shall tell the agent to list the choices with `orch providers` and to pass `-Endpoint` with `-Provider OpenAICompatible`, instead of offering a fixed list of two providers.
 7.4 The skills `auto-develop`, `analyze`, `auto-analyze` and `write-spec-analyze` shall name no provider and leave provider choice to `orch`.
 7.5 The note `docs/analysis-mode.md` shall state that OpenAICompatible agents have no skill tool, so they cannot start the analysis entry skills.
@@ -147,13 +154,13 @@ an Anthropic-dialect URL (not OpenAI-compatible, invented cost); see the analysi
 
 | Module | Responsibility | Paths | Uses | Requirements |
 | --- | --- | --- | --- | --- |
-| provider-core | Registry, Claude and Copilot modules, canonical events, endpoint plumbing, refactored scripts and their tests | `orchestrator/Orchestrator.psm1`, `orchestrator/providers/Claude.psm1`, `orchestrator/providers/Copilot.psm1`, `orchestrator/Invoke-Orchestrator.ps1`, `orchestrator/Plan-Tasks.ps1`, `orchestrator/Initialize-Project.ps1`, `orchestrator/Orch.psm1`, `orchestrator/Watch-Orchestrator.ps1`, `orchestrator/Watch-Conversations.ps1`, `orchestrator/Watch-AgentTimeline.ps1`, `orchestrator/schemas/tasks.schema.json`, `Install-Orch.ps1`, `tests/fake-claude.ps1`, `tests/Run-SmokeTest.ps1`, `tests/Test-CopilotModelSettings.ps1`, `tests/New-PracticeRepo.ps1`, `tests/Test-ProviderRegistry.ps1`, `tests/providers/Claude.ps1`, `tests/providers/Copilot.ps1` | none | 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 2.9, 2.10, 2.11, 2.12, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 4.1, 4.2, 4.3, 4.4, 4.5 |
-| openai-compatible | The provider, profiles, agent loop, fake endpoint, tests, live check | `orchestrator/providers/OpenAICompatible.psm1`, `orchestrator/providers/OpenAICompatible/**`, `orchestrator/schemas/endpoints.schema.json`, `tests/fake-openai-endpoint.ps1`, `tests/Test-OpenAICompatible.ps1`, `tests/Test-LiveOllama.ps1`, `tests/providers/OpenAICompatible.ps1` | provider-core | 4.6, 4.7, 4.8, 4.9, 4.10, 4.11, 4.12, 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7, 5.8, 5.9, 5.10, 5.11, 5.12, 5.13, 5.14, 5.15, 5.16, 5.17, 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 6.7, 6.8 |
+| provider-core | Registry, Claude and Copilot modules, canonical events, endpoint plumbing, refactored scripts and their tests | `orchestrator/Orchestrator.psm1`, `orchestrator/providers/Claude.psm1`, `orchestrator/providers/Copilot.psm1`, `orchestrator/Invoke-Orchestrator.ps1`, `orchestrator/Plan-Tasks.ps1`, `orchestrator/Initialize-Project.ps1`, `orchestrator/Orch.psm1`, `orchestrator/Watch-Orchestrator.ps1`, `orchestrator/Watch-Conversations.ps1`, `orchestrator/Watch-AgentTimeline.ps1`, `orchestrator/schemas/tasks.schema.json`, `Install-Orch.ps1`, `tests/fake-claude.ps1`, `tests/Run-SmokeTest.ps1`, `tests/Test-CopilotModelSettings.ps1`, `tests/New-PracticeRepo.ps1`, `tests/Test-ProviderRegistry.ps1`, `tests/providers/Claude.ps1`, `tests/providers/Copilot.ps1` | none | 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 2.9, 2.10, 2.11, 2.12, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 4.1, 4.2, 4.3, 4.4, 4.5, 4.13 |
+| openai-compatible | The provider, profiles, agent loop, fake endpoint, tests, live check | `orchestrator/providers/OpenAICompatible.psm1`, `orchestrator/providers/OpenAICompatible/**`, `orchestrator/schemas/endpoints.schema.json`, `tests/fake-openai-endpoint.ps1`, `tests/Test-OpenAICompatible.ps1`, `tests/Test-LiveOllama.ps1`, `tests/providers/OpenAICompatible.ps1` | provider-core | 4.6, 4.7, 4.8, 4.9, 4.10, 4.11, 4.12, 4.14, 4.15, 4.16, 4.17, 4.18, 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7, 5.8, 5.9, 5.10, 5.11, 5.12, 5.13, 5.14, 5.15, 5.16, 5.17, 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 6.7, 6.8, 6.9 |
 | docs-and-skills | README, docs note, skills and their test | `README.md`, `docs/openai-compatible-notes.md`, `docs/analysis-mode.md`, `.claude/skills/orch/SKILL.md`, `.claude/skills/plan-tasks/SKILL.md`, `.claude/skills/write-spec/SKILL.md`, `.claude/skills/auto-develop/SKILL.md`, `.claude/skills/analyze/SKILL.md`, `.claude/skills/auto-analyze/SKILL.md`, `.claude/skills/write-spec-analyze/SKILL.md`, `tests/Test-AnalysisSkills.ps1` | provider-core | 7.1, 7.2, 7.3, 7.4, 7.5, 7.6 |
 
 **Existing files changed:**
 - `orchestrator/Orchestrator.psm1` – registry; `Get-DefaultSettings`, `Resolve-AgentModel`, `Read-Plan`, `Format-SubAgents`, `Format-ToolUse`, `Get-SubAgentName`, `Invoke-Agent`, `Sync-WithIntegration` lose provider branches; `Resolve-AgentPath` becomes `Resolve-AgentCommand`; `$script:CopilotModel`, `$script:ClaudeDeniedMcpServers` and `$script:OrchestratorSkills` move into the provider modules (the smoke test's deny-list check, `tests/Run-SmokeTest.ps1:31-44`, reads them there).
-- `Invoke-Orchestrator.ps1`, `Plan-Tasks.ps1`, `Initialize-Project.ps1`, `Watch-Orchestrator.ps1`, `Install-Orch.ps1` – no `ValidateSet` of providers; registry validation; `-Endpoint` (not on the dashboard); `TestReady`; defaults from `GetDefaults`.
+- `Invoke-Orchestrator.ps1`, `Plan-Tasks.ps1`, `Initialize-Project.ps1`, `Watch-Orchestrator.ps1`, `Install-Orch.ps1` – no `ValidateSet` of providers; registry validation; `-Endpoint` (not on the dashboard); `TestReady`; defaults from `GetDefaults`. `Install-Orch.ps1` also gets `-EndpointsFile` and calls `InitializeUser` (4.13).
 - `Watch-Conversations.ps1`, `Watch-AgentTimeline.ps1` – canonical events only.
 - `Orch.psm1` – `providers` command, validated provider, endpoint resolution, error text `Add -Provider <name> (orch providers lists them)`.
 - `tasks.schema.json` – 4.3.
@@ -178,7 +185,12 @@ $script:Definition = @{
     GetSubAgentText = { param([ValidateSet('worker', 'planner')][string]$Role) }           # -> @{ TOOL; FOREGROUND } or $null
     TestReady       = { param([string]$Endpoint, [string[]]$Models) }  # -> [string[]] problems; @() when ready
     GetEndpoints    = { param() }                                      # -> [pscustomobject[]] Name, BaseUrl, Model, IsDefault; @() if not UsesEndpoint
+    InitializeUser  = $null   # or { param([hashtable]$Options) }: per-user setup run by Install-Orch.ps1 (4.13)
 }
+# InitializeUser $Options: @{ Endpoint = [string] or $null; EndpointsFile = [string] or $null; WhatIf = [bool] }
+# -> [pscustomobject]@{ Messages = @([pscustomobject]@{ Status = 'changed'|'unchanged'|'info'|'warning'|'problem'; Text = [string] });
+#                       UserVariables = @{ <name> = <value> } }   # applied by Install-Orch.ps1, never by the provider
+# Claude and Copilot: InitializeUser = $null. OpenAICompatible: 4.14-4.17.
 # $Request keys: Prompt, Schema (file name in orchestrator/schemas), SchemaJson (compact), Model, Effort,
 # PermissionMode, Tools, AllowedTools, SubAgents ([bool]), MaxBudgetUsd, ResumeSessionId, Name,
 # AdditionalDirectories, Endpoint, WorkDir. Tool names use the orchestrator vocabulary:
