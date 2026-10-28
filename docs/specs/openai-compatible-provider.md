@@ -26,6 +26,10 @@ its evidence are in `docs/openai-compatible/analysis.md`.
 - Other API dialects (Responses API, Anthropic Messages); streaming; sub-agents for
   `OpenAICompatible`; cost tracking or pricing tables.
 - Calls to paid APIs in any test; installing software or Ollama models.
+- Live testing against OpenAI or Anthropic. Local Ollama is the only real endpoint used during
+  development. The OpenAI and Anthropic profiles are built only from their documentation, as
+  cited in `docs/openai-compatible/endpoint-findings.md`. Their documented differences are
+  exercised offline through the fake endpoint (6.3).
 - Changing prompts other than through `{{SUBAGENTS}}`; changing the task pipeline's gates.
 - Historical docs: `docs/orchestrator-from-any-repo*.md`, `docs/claude-fable-notes.md`.
 
@@ -130,7 +134,7 @@ its evidence are in `docs/openai-compatible/analysis.md`.
 **Objective:** As a user, I want to find how to choose and configure a provider.
 
 7.1 The README shall describe `orch providers`, `-Provider OpenAICompatible`, `-Endpoint`, the profiles file, key handling and capability gaps, and its script parameter table shall list `-Endpoint`; its setup item 6 and "Another PC, and after a pull" steps shall cover `Install-Orch.ps1 -Endpoint` and `-EndpointsFile`, the starter profiles file, sharing one profiles file between PCs, and setting the key variables on each PC.
-7.2 The note `docs/openai-compatible-notes.md` shall give the profile field reference, Ollama, OpenAI and Anthropic example profiles with keys only as variable names (pointing to `endpoints.example.json`), the steps to add a further endpoint by configuration alone, the capability gaps and the limitations, and link `docs/openai-compatible/analysis.md`.
+7.2 The note `docs/openai-compatible-notes.md` shall give the profile field reference, Ollama, OpenAI and Anthropic example profiles with keys only as variable names (pointing to `endpoints.example.json`; the OpenAI and Anthropic profiles marked as built from documentation and not tested live), the steps to add a further endpoint by configuration alone, the capability gaps and the limitations, and link `docs/openai-compatible/analysis.md`.
 7.3 The skills `orch`, `plan-tasks` and `write-spec` shall tell the agent to list the choices with `orch providers` and to pass `-Endpoint` with `-Provider OpenAICompatible`, instead of offering a fixed list of two providers.
 7.4 The skills `auto-develop`, `analyze`, `auto-analyze` and `write-spec-analyze` shall name no provider and leave provider choice to `orch`.
 7.5 The note `docs/analysis-mode.md` shall state that OpenAICompatible agents have no skill tool, so they cannot start the analysis entry skills.
@@ -430,6 +434,8 @@ in USD, for providers that enforce one. Default: 0 (no cap).`; `settings.effort`
 - Read or print a real API key, `~/.claude`, `~/.copilot` or credential stores.
 - Branch on `OpenAI`, `Anthropic` or `Ollama` in code, or list provider names in a script.
 - Run `tests/Test-LiveOllama.ps1` from another test or check.
+- Send any request to `api.openai.com` or `api.anthropic.com`, with or without a key. Settle
+  their behaviour from the documentation and mark it untested.
 - Edit files outside the module's paths.
 
 ## 8. Open questions
