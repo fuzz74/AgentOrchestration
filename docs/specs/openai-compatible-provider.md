@@ -43,7 +43,7 @@ its evidence are in `docs/openai-compatible/analysis.md`.
 1.2 If a provider file sets no `$script:Definition` or its `Name` differs from the file's base name, the registry shall throw an error that names the file.
 1.3 When a script or `orch` receives a provider name, the registry shall match it case-insensitively and return the registered name, which is what `tasks.json`, `project.json` and `ORCH_PROVIDER` store.
 1.4 If a provider name is not registered, `Plan-Tasks.ps1`, `Initialize-Project.ps1`, `Invoke-Orchestrator.ps1`, `Watch-Orchestrator.ps1`, `Install-Orch.ps1`, `Read-Plan` and `orch` shall stop with `Unknown provider '<name>'. Installed providers: <names>.`
-1.5 The code under `orchestrator/` outside `orchestrator/providers/`, and `Install-Orch.ps1`, shall contain no `ValidateSet` of provider names, no comparison with a provider-name literal and no provider-name list; the only provider-name literal shall be the default `'Claude'`, used where no provider is given.
+1.5 The `*.ps1` and `*.psm1` files under `orchestrator/` outside `orchestrator/providers/`, and `Install-Orch.ps1`, shall contain no match of `['"](Claude|Copilot)['"]` (case-sensitive) except `$script:DefaultProvider = 'Claude'` in `Orchestrator.psm1`, which every place that needs a default provider uses.
 1.6 The `Invoke-Agent` function shall build, run and interpret an agent call only through the operations and capability flags of section 4.3.
 1.7 When a provider file is placed in a folder of `ORCH_PROVIDER_PATH`, every script shall accept its name with no other change.
 1.8 When the user runs `orch providers`, the `orch` command shall list each provider with its default models and, for providers with `UsesEndpoint`, each profile's name, base URL, model and default mark, and no key value. If a provider's `GetEndpoints` or `GetDefaults` throws, for example because the profiles file is missing, it shall print the error text under that provider and continue.
@@ -60,9 +60,10 @@ its evidence are in `docs/openai-compatible/analysis.md`.
 2.7 The `Install-Orch.ps1` script shall link the skills into each provider's `Install.SkillFolder` and allow the checkout in each provider's `Install.SettingsFile`, skipping `$null` values.
 2.8 The `Watch-Orchestrator.ps1` dashboard shall find agent processes by the provider's `ProcessName` and `--name orch:<task>`, and by `--resume <session id>` only where `ResumeOmitsName` is true.
 2.9 When `tests/Run-SmokeTest.ps1 -Provider Claude`, `-Provider Copilot` and `tests/Test-CopilotModelSettings.ps1` run, they shall pass.
-2.10 The `Run-SmokeTest.ps1` script shall take provider-specific setup and checks from `tests/providers/<Provider>.ps1` (section 4.3). It shall run every generic check except those the fixture lists in `Skip`, and run checks that need sub-agents only while the provider's `SubAgents` flag is true. The CLI-argument checks `agent roles receive configured flags`, `headless agents cannot start skills`, `long Copilot prompt uses stdin` and `reference directory passed to agents` may be skipped by a fixture whose `Checks` adds an equivalent.
-2.11 When `Plan-Tasks.ps1` or `Invoke-Orchestrator.ps1` starts, it shall call the provider's `TestReady` with the models it will use and stop before any agent call if problems come back, printing each one.
-2.12 The test `tests/Test-ProviderRegistry.ps1` shall have one named check each for 1.2, 1.3, 1.4, 1.5, 1.7, 1.8, 2.5, 4.4, 4.5 and 4.13, using a provider file in a temporary `ORCH_PROVIDER_PATH` folder; the 4.5 and 4.13 checks run `Install-Orch.ps1 -WhatIf` and assert that no user environment variable changed. The test shall write a temporary profiles file that is valid against the endpoints schema of section 4.3 and holds the profile name it passes to `-Endpoint`, set `ORCH_ENDPOINTS_FILE` to it in process scope and pass it as `-EndpointsFile`, so that its result does not depend on the providers registered or on files of the user.
+2.10 The `Run-SmokeTest.ps1` script shall take provider-specific setup and checks from `tests/providers/<Provider>.ps1` (section 4.3). It shall run every generic check except those the fixture lists in `Skip`, and run checks that need sub-agents only while the provider's `SubAgents` flag is true. The CLI-argument checks `agent roles receive configured flags`, `headless agents cannot start skills`, `long Copilot prompt uses stdin` and `reference directory passed to agents` and `analysis headless skills denied` may be skipped by a fixture whose `Checks` adds an equivalent; `Skip` may name only these five. `Run-SmokeTest.ps1` shall set `ORCH_ENDPOINTS_FILE` in process scope to a temporary file and gain a `-KeepArtifacts` switch that keeps `$WorkDir` and the fake agent's capture files.
+2.11 When `Plan-Tasks.ps1` or `Invoke-Orchestrator.ps1` starts, it shall call the provider's `TestReady` with the models it will use and stop before any agent call if problems come back, printing each one; Claude's and Copilot's `TestReady` shall return `@()`.
+2.12 The test `tests/Test-ProviderRegistry.ps1` shall have one named check each for 1.2, 1.3, 1.4, 1.5, 1.7, 1.8, 2.5, 3.3, 4.4, 4.5, 4.13 and 4.20 (3.3 as a scan of `orchestrator/**` outside `providers/Copilot.psm1` for `assistant.message`, `tool.execution_start` and `subagent.started`), using a provider file in a temporary `ORCH_PROVIDER_PATH` folder; the 4.5 and 4.13 checks run `Install-Orch.ps1 -WhatIf` and assert that no user environment variable changed. The test shall write a temporary profiles file that is valid against the endpoints schema of section 4.3 and holds the profile name it passes to `-Endpoint`, set `ORCH_ENDPOINTS_FILE` to it in process scope and pass it as `-EndpointsFile`, so that its result does not depend on the providers registered or on files of the user.
+2.13 The test `tests/Test-ProviderBaseline.ps1` shall run both smoke tests with `-KeepArtifacts`, normalise the captured calls (arguments and prompt text, matched by role and `--name`, temporary paths, GUIDs and session ids replaced by placeholders, compared as sets, resolver calls ignored) and compare them with `tests/baseline/<Provider>.json` in a check named `CLI arguments match baseline`; its `-Update` switch writes the baseline, which core-registry does before it changes any production file.
 
 ### 3. Canonical events
 **Objective:** As a user of the watch views, I want one event format, so that every provider shows up the same way.
@@ -95,8 +96,9 @@ its evidence are in `docs/openai-compatible/analysis.md`.
 4.15 When `InitializeUser` is given an `EndpointsFile`, the OpenAICompatible provider shall return its full path in `UserVariables` as `ORCH_ENDPOINTS_FILE`, so that one secret-free profiles file, for example in a synced folder, can serve several PCs.
 4.16 If the profiles file fails `endpoints.schema.json` or lacks the profile named by `Endpoint`, `InitializeUser` shall report a `problem` that names the file and lists the profile names.
 4.17 For each `apiKeyEnv` and `headersFromEnv` variable in the profiles, `InitializeUser` shall report `info` `<VAR> is set` or `warning` `<VAR> is missing (used by profile <name>)`, checking process scope, then User scope, and shall never report a value.
-4.18 The file `endpoints.example.json` shall pass `endpoints.schema.json` and hold the profiles `ollama-local` (default, model `gpt-oss:20b`), `ollama-coder` (model `qwen3-coder:30b`), `openai` and `anthropic-compat`. It shall fill every field that the documentation or the live check settles, starting from the worked examples in `docs/openai-compatible/analysis.md` (Configuration), and give keys only as variable names. The OpenAI and Anthropic model ids shall come from those vendors' current model documentation, with the URLs in `docs/openai-compatible-notes.md`, and not from a request to their APIs.
-4.19 While the provider's `UsesEndpoint` is true, `Plan-Tasks.ps1` shall write `settings.model` and `settings.reviewModel` to `tasks.json` only when `-WorkerModel` is given, and `settings.effort` only when `-WorkerEffort` is given. Otherwise the endpoint profile used by each run supplies them through `GetDefaults`. While `UsesEndpoint` is false, it shall write them as before.
+4.18 The file `endpoints.example.json` shall pass `endpoints.schema.json` and hold the profiles `ollama-local` (model `gpt-oss:20b`), `ollama-coder` (model `qwen3-coder:30b`), `openai` and `anthropic-compat`, with one Ollama profile as `default` (`ollama-local` unless 8.4 changes it). It shall fill every field the documentation settles, starting from the worked examples in `docs/openai-compatible/analysis.md` (Configuration), and give keys only as variable names; ollama-setup adds what the live check settles (8.4). The OpenAI and Anthropic model ids shall come from those vendors' current model documentation, with the URLs in `docs/openai-compatible-notes.md`, and not from a request to their APIs.
+4.19 While the provider's `UsesEndpoint` is true, `Plan-Tasks.ps1` shall write `settings.model` and `settings.reviewModel` to `tasks.json` only when `-WorkerModel` is given, and `settings.effort` only when `-WorkerEffort` is given. Otherwise the endpoint profile used by each run supplies them through `GetDefaults`. While `UsesEndpoint` is false, it shall write them as before.
+4.20 If a provider's `GetDefaults` throws, `Read-Plan` shall leave the model and effort defaults `$null` instead of failing, so that `Show-Tasks.ps1` and `Wait-Orchestrator.ps1` keep working without a profiles file.
 
 ### 5. Agent loop
 **Objective:** As the orchestrator, I want a headless agent for Chat Completions endpoints that keeps every gate.
@@ -122,16 +124,17 @@ its evidence are in `docs/openai-compatible/analysis.md`.
 ### 6. Tests
 **Objective:** As the maintainer, I want offline proof of the provider and of configuration-only endpoints.
 
-6.1 The fake endpoint `tests/fake-openai-endpoint.ps1` shall serve `GET /<profile>/v1/models` and `POST /<profile>/v1/chat/completions` on `http://127.0.0.1:<free port>` from a background runspace of the test process, script replies by the `orchestrator-role` marker like `tests/fake-claude.ps1`, and honour those `FAKE_*` variables of `tests/fake-claude.ps1` whose effect is visible in a request body or a reply (such as `FAKE_CAPTURE_ARGS` and `FAKE_NO_STRUCTURED`); variables that inspect CLI arguments (such as `FAKE_REQUIRE_ADD_DIR`, `FAKE_CHECK_SKILL_BLOCK`, `FAKE_REJECT_MODEL`) are covered by the fixture's equivalent checks instead.
+6.1 The fake endpoint `tests/fake-openai-endpoint.ps1` shall serve `GET /<profile>/v1/models` and `POST /<profile>/v1/chat/completions` on `http://127.0.0.1:<free port>` from a background runspace of the test process and script replies by the `orchestrator-role` marker like `tests/fake-claude.ps1`. It shall reproduce fake-claude's effects for `FAKE_FAIL_ONCE`, `FAKE_NO_CHANGE_ONCE`, `FAKE_NO_STRUCTURED`, `FAKE_SHARED`, `FAKE_STOP_REPO`, `FAKE_STOP_TASK`, `FAKE_REQUIRE_MODEL`, `FAKE_REJECT_MODEL` and `FAKE_CAPTURE_ARGS` by replying with `Write`, `Edit` and `PowerShell` tool calls that the agent loop executes, by reading the request body, and by writing its memo files where fake-claude writes them. `FAKE_REQUIRE_ADD_DIR`, `FAKE_CHECK_SKILL_BLOCK` and `FAKE_REJECT_EFFORT` inspect CLI arguments; the fixture's equivalent checks cover them (2.10).
 6.2 If a request lacks a field or header that its profile path expects, the fake endpoint shall answer HTTP 400 with the reason; while `FAKE_CAPTURE_ARGS` is set, it shall save each request body with `role` and profile, without header values.
 6.3 The test `tests/Test-OpenAICompatible.ps1` shall run every role through `Invoke-Agent -Provider OpenAICompatible` against two profiles that differ in `structuredOutput`, auth, `maxTokensParameter`, `headers` and `extraBody`, and pass.
 6.4 The test `tests/Test-OpenAICompatible.ps1` shall run a third profile that exists only in the test's endpoints file, with no other change.
 6.5 The test `tests/Test-OpenAICompatible.ps1` shall have one named check each for the behaviours of 4.7, 4.9, 4.10, 4.11, 4.12, 5.5, 5.6, 5.7, 5.8, 5.11, 5.12, 5.13 and 5.17, where 4.12 is a scan of `orchestrator/**/*.ps1` and `orchestrator/**/*.psm1` (data files such as `endpoints.example.json` excluded) for `['"](OpenAI|Anthropic|Ollama)['"]` (case-insensitive).
 6.6 When `tests/Run-SmokeTest.ps1 -Provider OpenAICompatible` runs with the fixture `tests/providers/OpenAICompatible.ps1`, it shall pass every check that applies to a provider without sub-agents.
-6.7 The automated tests shall use no network beyond `127.0.0.1`, no real key and no model, and every test script, including `Run-SmokeTest.ps1` for every provider, shall set `ORCH_ENDPOINTS_FILE` in process scope to a temporary file, so that no test reads the user's profiles file.
-6.8 The live check `tests/Test-LiveOllama.ps1` shall take `-Endpoint <profile>` and run only when started by hand or by the ollama-setup acceptance check; no other test or check shall call it.
+6.7 The automated tests shall use no network beyond `127.0.0.1`, no real key and no model; `Test-OpenAICompatible.ps1`, `Test-LiveOllama.ps1` and `tests/providers/OpenAICompatible.ps1` shall set `ORCH_ENDPOINTS_FILE` in process scope to a temporary file, so that no test reads the user's profiles file.
+6.8 The live check `tests/Test-LiveOllama.ps1` shall take `-Endpoint <profile>`, copy that profile from `endpoints.example.json` into a temporary profiles file, stop with exit code 1 after 12 minutes in total, and print one PASS or FAIL line per step. Only a person, the openai-compatible and ollama-setup workers, and the ollama-setup acceptance may run it; no automated test or other check shall call it.
 6.9 The test `tests/Test-OpenAICompatible.ps1` shall have one named check each for 4.14, 4.15, 4.16, 4.17 and 4.18, calling `InitializeUser` with an `EndpointsFile` in a temporary folder and dummy key variables with test-specific names (not `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`) in process scope only, and one check that `Install-Orch.ps1 -WhatIf -Endpoint <name> -EndpointsFile <temp path>` reports the file it would create and changes no user environment variable.
-6.10 The test `tests/Test-OpenAICompatible.ps1` shall have a named check for 4.19. It plans with `Plan-Tasks.ps1 -Provider OpenAICompatible` against the fake endpoint, without `-WorkerModel`, and asserts that `tasks.json` has no `settings.model`, `settings.reviewModel` or `settings.effort`. It then runs one task with `-Endpoint` set to a second profile and asserts that the captured request used that profile's `model`. A second plan with `-WorkerModel` must persist that model.
+6.10 The test `tests/Test-OpenAICompatible.ps1` shall have a named check for 4.19. It plans with `Plan-Tasks.ps1 -Provider OpenAICompatible` against the fake endpoint, without `-WorkerModel`, and asserts that `tasks.json` has no `settings.model`, `settings.reviewModel` or `settings.effort`. It then runs one task with `-Endpoint` set to a second profile and asserts that the captured request used that profile's `model`. A second plan with `-WorkerModel` must persist that model.
+6.11 When `tests/Test-LiveOllama.ps1` runs with `-EffortProbe`, it shall send one short request each with `reasoning_effort` `low`, `medium` and `high` and print `effort <value> accepted PASS` when the reply is HTTP 200 with non-empty content, else `effort <value> accepted FAIL`.
 
 ### 7. Docs and skills
 **Objective:** As a user, I want to find how to choose and configure a provider.
@@ -148,11 +151,12 @@ its evidence are in `docs/openai-compatible/analysis.md`.
 **Objective:** As the user, I want the build to leave this PC ready to run the provider against Ollama.
 
 8.1 If `ollama list` lacks `gpt-oss:20b` or `qwen3-coder:30b`, the ollama-setup module shall pull it with `ollama pull`; it shall pull no other model and remove none.
-8.2 If the user's profiles file (4.6, with `ORCH_ENDPOINTS_FILE` unset) does not exist, the ollama-setup module shall create it through the OpenAICompatible `InitializeUser` operation (4.14); if it exists, it shall leave it unchanged and record in its results which example profiles it lacks.
-8.3 If `GET /api/ps` shows a loaded context below 32768 tokens, or the user variable `OLLAMA_CONTEXT_LENGTH` is unset, the ollama-setup module shall set the user variable to `65536`, quit the Ollama app and start `ollama serve` as a detached process that outlives the run, and record this in its results.
-8.4 The ollama-setup module shall run `tests/Test-LiveOllama.ps1` against `ollama-local` and `ollama-coder` and record each result in `docs/openai-compatible/live-check.md`: date, Ollama version, model, context, elapsed time, and every PASS or FAIL line.
-8.5 If a model accepts `reasoning_effort` in the live check, the ollama-setup module shall set that profile's `capabilities.reasoningEffort` and `effortMap` in `endpoints.example.json` to the values that worked; if `ollama-local` fails the live check and `ollama-coder` passes, it shall make `ollama-coder` the `default`.
-8.6 The ollama-setup module shall send no request to `api.openai.com` or `api.anthropic.com`, and set no environment variable other than `OLLAMA_CONTEXT_LENGTH`.
+8.2 If the user variable `OLLAMA_CONTEXT_LENGTH` is unset or below 65536, or `GET /api/ps` shows a loaded context below 32768, the ollama-setup module shall record the old value, set the user variable to `65536` (overwriting a value the user set), stop the processes `ollama app` and `ollama`, start `ollama serve` detached with `OLLAMA_CONTEXT_LENGTH=65536` in its own environment, and wait at most 60 seconds for `GET /api/version` to answer.
+8.3 The ollama-setup module shall run `tests/Test-LiveOllama.ps1 -EffortProbe` against `ollama-local` and `ollama-coder` and record each run in `docs/openai-compatible/live-check.md`: date, Ollama version, model, context, the old `OLLAMA_CONTEXT_LENGTH`, elapsed time and every PASS or FAIL line.
+8.4 When a profile's effort probe passes for some values, the ollama-setup module shall set that profile's `capabilities.reasoningEffort` to true and map every orchestrator level in `effortMap` onto the nearest value that passed; if `ollama-local` fails the live check and `ollama-coder` passes, it shall make `ollama-coder` the `default`. It shall change no other field of `endpoints.example.json`, and shall update the example profiles in `docs/openai-compatible-notes.md` to match.
+8.5 After 8.4, if the user's profiles file (4.6, with `ORCH_ENDPOINTS_FILE` unset) does not exist, the ollama-setup module shall create it by calling the OpenAICompatible `InitializeUser` operation through `Get-OrchProvider`; if it exists, it shall leave it unchanged and record in `live-check.md` how it differs from the example.
+8.6 The ollama-setup module shall change the PC only as 8.1, 8.2 and 8.5 describe: it shall send no request to `api.openai.com` or `api.anthropic.com`, set no user or machine environment variable other than `OLLAMA_CONTEXT_LENGTH`, and never run `Install-Orch.ps1` without `-WhatIf`.
+8.7 If Ollama does not answer at the start, a pull fails, or the server does not answer within 60 seconds after 8.2, the ollama-setup module shall record the failure in `live-check.md`, start the Ollama app again if it stopped it, and report blocked.
 
 ## 4. Design
 
@@ -172,9 +176,9 @@ an Anthropic-dialect URL (not OpenAI-compatible, invented cost); see the analysi
 
 | Module | Responsibility | Paths | Uses | Requirements |
 | --- | --- | --- | --- | --- |
-| provider-core | Registry, Claude and Copilot modules, canonical events, endpoint plumbing, refactored scripts and their tests | `orchestrator/Orchestrator.psm1`, `orchestrator/providers/Claude.psm1`, `orchestrator/providers/Copilot.psm1`, `orchestrator/Invoke-Orchestrator.ps1`, `orchestrator/Plan-Tasks.ps1`, `orchestrator/Initialize-Project.ps1`, `orchestrator/Orch.psm1`, `orchestrator/Watch-Orchestrator.ps1`, `orchestrator/Watch-Conversations.ps1`, `orchestrator/Watch-AgentTimeline.ps1`, `orchestrator/schemas/tasks.schema.json`, `Install-Orch.ps1`, `tests/fake-claude.ps1`, `tests/Run-SmokeTest.ps1`, `tests/Test-CopilotModelSettings.ps1`, `tests/New-PracticeRepo.ps1`, `tests/Test-ProviderRegistry.ps1`, `tests/providers/Claude.ps1`, `tests/providers/Copilot.ps1`, `tests/baseline/**` | none | 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 2.9, 2.10, 2.11, 2.12, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 4.1, 4.2, 4.3, 4.4, 4.5, 4.13, 4.19 |
-| openai-compatible | The provider, profiles, agent loop, fake endpoint, tests, live check | `orchestrator/providers/OpenAICompatible.psm1`, `orchestrator/providers/OpenAICompatible/**`, `orchestrator/schemas/endpoints.schema.json`, `tests/fake-openai-endpoint.ps1`, `tests/Test-OpenAICompatible.ps1`, `tests/Test-LiveOllama.ps1`, `tests/providers/OpenAICompatible.ps1`; after provider-core, also `tests/Run-SmokeTest.ps1` and `orchestrator/Orchestrator.psm1` for fixes the new provider exposes | provider-core | 4.6, 4.7, 4.8, 4.9, 4.10, 4.11, 4.12, 4.14, 4.15, 4.16, 4.17, 4.18, 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7, 5.8, 5.9, 5.10, 5.11, 5.12, 5.13, 5.14, 5.15, 5.16, 5.17, 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 6.7, 6.8, 6.9, 6.10 |
-| ollama-setup | Pull models, create the user's profiles file, run the live check on this PC (`workerType: coding`) | `docs/openai-compatible/live-check.md`; after openai-compatible, also `orchestrator/providers/OpenAICompatible/endpoints.example.json` | openai-compatible | 8.1, 8.2, 8.3, 8.4, 8.5, 8.6 |
+| provider-core | Registry, Claude and Copilot modules, canonical events, endpoint plumbing, refactored scripts and their tests | `orchestrator/Orchestrator.psm1`, `orchestrator/providers/Claude.psm1`, `orchestrator/providers/Copilot.psm1`, `orchestrator/Invoke-Orchestrator.ps1`, `orchestrator/Plan-Tasks.ps1`, `orchestrator/Initialize-Project.ps1`, `orchestrator/Orch.psm1`, `orchestrator/Watch-Orchestrator.ps1`, `orchestrator/Watch-Conversations.ps1`, `orchestrator/Watch-AgentTimeline.ps1`, `orchestrator/schemas/tasks.schema.json`, `Install-Orch.ps1`, `tests/fake-claude.ps1`, `tests/Run-SmokeTest.ps1`, `tests/Test-CopilotModelSettings.ps1`, `tests/New-PracticeRepo.ps1`, `tests/Test-ProviderRegistry.ps1`, `tests/providers/Claude.ps1`, `tests/providers/Copilot.ps1`, `tests/baseline/**`, `tests/Test-ProviderBaseline.ps1` | none | 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 2.9, 2.10, 2.11, 2.12, 2.13, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 4.1, 4.2, 4.3, 4.4, 4.5, 4.13, 4.19, 4.20 |
+| openai-compatible | The provider, profiles, agent loop, fake endpoint, tests, live check | `orchestrator/providers/OpenAICompatible.psm1`, `orchestrator/providers/OpenAICompatible/**`, `orchestrator/schemas/endpoints.schema.json`, `tests/fake-openai-endpoint.ps1`, `tests/Test-OpenAICompatible.ps1`, `tests/Test-LiveOllama.ps1`, `tests/providers/OpenAICompatible.ps1`; after provider-core, also `tests/Run-SmokeTest.ps1` and `orchestrator/Orchestrator.psm1` for fixes the new provider exposes | provider-core | 4.6, 4.7, 4.8, 4.9, 4.10, 4.11, 4.12, 4.14, 4.15, 4.16, 4.17, 4.18, 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7, 5.8, 5.9, 5.10, 5.11, 5.12, 5.13, 5.14, 5.15, 5.16, 5.17, 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 6.7, 6.8, 6.9, 6.10, 6.11 |
+| ollama-setup | Pull models, create the user's profiles file, run the live check on this PC (`workerType: coding`) | `docs/openai-compatible/live-check.md`; after the modules it uses, also `orchestrator/providers/OpenAICompatible/endpoints.example.json` and `docs/openai-compatible-notes.md` | openai-compatible, docs-and-skills | 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7 |
 | docs-and-skills | README, docs note, skills and their test | `README.md`, `docs/openai-compatible-notes.md`, `docs/analysis-mode.md`, `.claude/skills/orch/SKILL.md`, `.claude/skills/plan-tasks/SKILL.md`, `.claude/skills/write-spec/SKILL.md`, `.claude/skills/auto-develop/SKILL.md`, `.claude/skills/analyze/SKILL.md`, `.claude/skills/auto-analyze/SKILL.md`, `.claude/skills/write-spec-analyze/SKILL.md`, `tests/Test-AnalysisSkills.ps1`, `docs/copilot-cli-notes.md` | provider-core | 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7 |
 
 **Existing files changed:**
@@ -395,27 +399,36 @@ in USD, for providers that enforce one. Default: 0 (no cap).`; `settings.effort`
 
 ## 5. Build order
 
-1. provider-core first, as a serial chain of tasks, because every link edits
+1. provider-core first, as a serial chain, because every link edits
    `orchestrator/Orchestrator.psm1`. Each link owns provider-core's paths, depends on the link
-   before it, and has the acceptance check "both smoke tests, `Test-CopilotModelSettings.ps1`
-   and `Test-ProviderRegistry.ps1` pass". The links follow the steps of the refactoring plan in
-   `docs/openai-compatible/analysis.md`:
+   before it, and has the provider-core check of section 6 as its acceptance. The links follow
+   the refactoring plan in `docs/openai-compatible/analysis.md`:
 
    | Link | Plan steps | Requirements |
    | --- | --- | --- |
-   | core-registry | 1-4 | 1.1, 1.2, 1.3, 1.6, 2.1, 2.2, 2.3 |
+   | core-registry | 1-4 | 1.1, 1.2, 1.3, 2.1, 2.2, 2.3, 2.13 |
    | core-events | 5 | 3.1, 3.2, 3.3, 3.4, 3.7 |
-   | core-capabilities | 6-9 | 2.4, 2.5, 2.6, 2.8, 3.5, 3.6 |
-   | core-names-endpoints | 10-11 | 1.4, 1.5, 1.7, 1.8, 2.7, 2.11, 4.1, 4.2, 4.3, 4.4, 4.5, 4.13, 4.19 |
-   | core-fixtures | 12 | 2.9, 2.10 |
+   | core-capabilities | 6-9 | 1.6, 2.4, 2.5, 2.6, 2.8, 3.5, 3.6 |
+   | core-names | 10 | 1.4, 1.5, 1.7, 1.8, 2.11 |
+   | core-endpoints | 10 | 4.1, 4.2, 4.3, 4.4, 4.19, 4.20 |
+   | core-install | 11 | 2.7, 4.5, 4.13 |
+   | core-fixtures | 12 | 2.9, 2.10, 2.12 |
 
-   core-registry creates `tests/Test-ProviderRegistry.ps1`. Each later link adds the named
-   checks of 2.12 for its own requirements, so the list is complete after
-   core-names-endpoints. Before changing any code, core-registry saves the captured CLI
-   arguments (`FAKE_CAPTURE_ARGS`) and prompt files of both smoke tests under `tests/baseline/`, with temporary paths replaced by placeholders, and commits them. Every link
-   compares against them for 2.1.
-2. openai-compatible and docs-and-skills in parallel, after the last provider-core link is merged.
-3. ollama-setup after openai-compatible. It changes this PC (models, user profiles file, Ollama server), so it runs alone and last.
+   core-registry first adds `-KeepArtifacts` and `tests/Test-ProviderBaseline.ps1` and writes
+   the baseline (2.13) before it changes any production file. It also creates
+   `tests/Test-ProviderRegistry.ps1`. Each link adds the 2.12 checks for its own requirements.
+2. openai-compatible, after the last provider-core link, as a serial chain, because every link
+   extends `tests/Test-OpenAICompatible.ps1` with the checks for its own requirements. Its
+   acceptance is `Test-OpenAICompatible.ps1`, plus the smoke run for oc-smoke. A link that
+   edits `Run-SmokeTest.ps1` or `Orchestrator.psm1` also runs the provider-core check.
+
+   | Link | Requirements |
+   | --- | --- |
+   | oc-profiles | 4.6, 4.7, 4.8, 4.12, 4.14, 4.15, 4.16, 4.17, 4.18, 5.15, 6.1, 6.2, 6.9 |
+   | oc-loop | 4.9, 4.10, 4.11, 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7, 5.8, 5.9, 5.10, 5.11, 5.12, 5.13, 5.14, 5.16, 5.17, 6.3, 6.4, 6.5, 6.8, 6.11 |
+   | oc-smoke | 6.6, 6.7, 6.10 |
+3. docs-and-skills in parallel with the openai-compatible chain, after the last provider-core link.
+4. ollama-setup last, after oc-smoke and docs-and-skills. It changes this PC, so it runs alone.
 
 ## 6. Verification
 
@@ -423,11 +436,11 @@ in USD, for providers that enforce one. Default: 0 (no cap).`; `settings.effort`
 - **Test runner and layout:** plain PowerShell scripts in `tests/`; exit code 0 is a pass.
   The fake endpoint and fixtures follow `tests/fake-claude.ps1` and `tests/Run-SmokeTest.ps1`.
 - **Per-deliverable check:**
-  - provider-core: `pwsh -NoProfile -File tests/Test-ProviderRegistry.ps1; if ($LASTEXITCODE) { exit 1 }; foreach ($p in 'Claude', 'Copilot') { pwsh -NoProfile -File tests/Run-SmokeTest.ps1 -Provider $p; if ($LASTEXITCODE) { exit 1 } }; pwsh -NoProfile -File tests/Test-CopilotModelSettings.ps1; exit $LASTEXITCODE`
+  - provider-core: `pwsh -NoProfile -File tests/Test-ProviderBaseline.ps1; if ($LASTEXITCODE) { exit 1 }; pwsh -NoProfile -File tests/Test-ProviderRegistry.ps1; if ($LASTEXITCODE) { exit 1 }; foreach ($p in 'Claude', 'Copilot') { pwsh -NoProfile -File tests/Run-SmokeTest.ps1 -Provider $p; if ($LASTEXITCODE) { exit 1 } }; pwsh -NoProfile -File tests/Test-CopilotModelSettings.ps1; exit $LASTEXITCODE`
   - openai-compatible: `pwsh -NoProfile -File tests/Test-OpenAICompatible.ps1; if ($LASTEXITCODE) { exit 1 }; pwsh -NoProfile -File tests/Run-SmokeTest.ps1 -Provider OpenAICompatible; exit $LASTEXITCODE`
   - docs-and-skills: `pwsh -NoProfile -File tests/Test-AnalysisSkills.ps1; exit $LASTEXITCODE`
-  - ollama-setup: `$ok = 0; foreach ($p in 'ollama-local', 'ollama-coder') { pwsh -NoProfile -File tests/Test-LiveOllama.ps1 -Endpoint $p; if ($LASTEXITCODE -eq 0) { $ok++ } }; if (-not (Test-Path docs/openai-compatible/live-check.md)) { 'live-check.md missing'; exit 1 }; if ($ok -lt 1) { 'no Ollama profile passed the live check'; exit 1 }; exit 0`
-- **Whole-project check:** `foreach ($t in 'Test-ProviderRegistry', 'Test-OpenAICompatible', 'Test-CopilotModelSettings', 'Test-AnalysisSkills') { pwsh -NoProfile -File "tests/$t.ps1"; if ($LASTEXITCODE) { exit 1 } }; foreach ($p in 'Claude', 'Copilot', 'OpenAICompatible') { pwsh -NoProfile -File tests/Run-SmokeTest.ps1 -Provider $p; if ($LASTEXITCODE) { exit 1 } }`
+  - ollama-setup (the plan sets `settings.commandTimeoutSec` to 3600): `pwsh -NoProfile -File tests/Test-OpenAICompatible.ps1; if ($LASTEXITCODE) { exit 1 }; $ok = 0; foreach ($p in 'ollama-local', 'ollama-coder') { pwsh -NoProfile -File tests/Test-LiveOllama.ps1 -Endpoint $p -EffortProbe; if ($LASTEXITCODE -eq 0) { $ok++ } }; $log = Get-Content docs/openai-compatible/live-check.md -Raw -ErrorAction SilentlyContinue; $today = Get-Date -Format 'yyyy-MM-dd'; if (-not $log -or -not $log.Contains($today) -or -not $log.Contains('ollama-local') -or -not $log.Contains('ollama-coder')) { 'live-check.md lacks the runs of both profiles from today'; exit 1 }; if ($ok -lt 1) { 'no Ollama profile passed the live check'; exit 1 }; exit 0`
+- **Whole-project check** (by hand after the run; the plan's `settings.integrationCheck` stays null, because the test files appear one link at a time): `foreach ($t in 'Test-ProviderBaseline', 'Test-ProviderRegistry', 'Test-OpenAICompatible', 'Test-CopilotModelSettings', 'Test-AnalysisSkills') { pwsh -NoProfile -File "tests/$t.ps1"; if ($LASTEXITCODE) { exit 1 } }; foreach ($p in 'Claude', 'Copilot', 'OpenAICompatible') { pwsh -NoProfile -File tests/Run-SmokeTest.ps1 -Provider $p; if ($LASTEXITCODE) { exit 1 } }`
 - **Live check against Ollama on this PC** (`tests/Test-LiveOllama.ps1`; run by ollama-setup, and by hand after that, never by the other checks above):
   1. Ollama answers at `http://localhost:11434`. `ollama list` shows `gpt-oss:20b` and
      `qwen3-coder:30b` once ollama-setup has pulled them (8.1). They suit this PC:
@@ -435,12 +448,12 @@ in USD, for providers that enforce one. Default: 0 (no cap).`; `settings.effort`
      mixture of experts with 3B active parameters) spills its rest into the 62 GB RAM.
      Both were listed on ollama.com on 2026-10-28; they have not yet been tested here.
   2. The loaded context was 4096 tokens on 2026-10-28 (`GET /api/ps`), too small for agent
-     prompts. ollama-setup sets `OLLAMA_CONTEXT_LENGTH=65536` (8.3), as Ollama advises at
+     prompts. ollama-setup sets `OLLAMA_CONTEXT_LENGTH=65536` (8.2), as Ollama advises at
      least 64000 for agents. By hand, quit the Ollama app, then run
      `$env:OLLAMA_CONTEXT_LENGTH = '65536'; ollama serve`.
   3. Run `pwsh -NoProfile -File .\tests\Test-LiveOllama.ps1 -Endpoint ollama-local` (or
      `ollama-coder`). The script copies that profile from `endpoints.example.json` into a
-     temporary endpoints file, with `requestTimeoutSec` at least 900. It points
+     temporary endpoints file, with `requestTimeoutSec` at least 900, and stops after 12 minutes in total (6.8). It points
      `ORCH_ENDPOINTS_FILE` at that file, creates a temporary git repo, and warns when
      `/api/ps` reports a context below 32768. The user's own profiles file is not read.
   4. It runs a worker call that must create `hello.txt` containing `hello from the loop` and
